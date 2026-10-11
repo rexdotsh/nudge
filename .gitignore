@@ -7,3 +7,4 @@ dist/
 .secrets/
 *.log
 .DS_Store
+.svelte-check/
