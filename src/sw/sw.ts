@@ -50,7 +50,6 @@ function show(content: NotificationContent): Promise<void> {
 }
 
 async function confirm(fire: string): Promise<void> {
-  await update('seen', (seen = []) => [...seen.slice(-SEEN_LIMIT), fire]);
   await request('receipt', { fire }).catch((error: unknown) =>
     console.warn('receipt failed; the server will resend once', error),
   );
