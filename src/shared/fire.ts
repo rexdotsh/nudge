@@ -15,13 +15,10 @@ export interface Notice {
 
 type Step = { at: number; alert: Alert } | { at: number; roll: string };
 
-function steps(reminder: Reminder, zone: string): Step[] {
-  const due = dueAt(reminder, zone);
-  if (reminder.deleted || due === null) return [];
+function alertSteps(reminder: Reminder, due: number): Step[] {
   const { snoozedUntil } = reminder;
-  const quietUntil = snoozedUntil ?? -Infinity;
   const nagFrom = Math.max(due, snoozedUntil ?? due);
-  const alerts: Step[] = [
+  const steps: Step[] = [
     ...reminder.alerts.map((minutes) => ({ at: due - minutes * MINUTE_MS, alert: 'early' as const })),
     { at: due, alert: 'due' },
     ...(reminder.important
@@ -31,16 +28,19 @@ function steps(reminder: Reminder, zone: string): Step[] {
         }))
       : []),
   ];
-  const quiet = alerts.filter((step) => step.at >= quietUntil);
-  const snooze: Step[] = snoozedUntil === null ? [] : [{ at: snoozedUntil, alert: 'snoozed' }];
-  const next = occurrenceAfter(reminder, due, zone);
-  const roll: Step[] = next === null ? [] : [{ at: instantOf(reminder, next, zone), roll: next }];
-  return [...quiet, ...snooze, ...roll].filter((step) => step.at > reminder.firedThrough);
+  const quiet = snoozedUntil === null ? steps : steps.filter((step) => step.at >= snoozedUntil);
+  const wake: Step[] = snoozedUntil === null ? [] : [{ at: snoozedUntil, alert: 'snoozed' }];
+  return [...quiet, ...wake].filter((step) => step.at > reminder.firedThrough);
 }
 
 function earliest(reminder: Reminder, zone: string): Step | null {
+  const due = dueAt(reminder, zone);
+  if (reminder.deleted || due === null) return null;
+  const next = occurrenceAfter(reminder, due, zone);
+  const steps = alertSteps(reminder, due);
+  if (next !== null) steps.push({ at: instantOf(reminder, next, zone), roll: next });
   let first: Step | null = null;
-  for (const step of steps(reminder, zone)) if (!first || step.at < first.at) first = step;
+  for (const step of steps) if (!first || step.at < first.at) first = step;
   return first;
 }
 
@@ -55,7 +55,7 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
     if ('roll' in step) {
       current.due = step.roll;
       current.missed += 1;
-      current.snoozedUntil = null;
+      if (current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
       continue;
     }
     current.firedThrough = step.at;
