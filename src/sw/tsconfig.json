@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2024", "WebWorker"],
+    "lib": ["ESNext", "WebWorker"],
     "types": []
   },
   "include": ["./**/*", "../shared/**/*"]
