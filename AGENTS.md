@@ -80,4 +80,5 @@ A test exists to catch a bug that would hurt someone. Before writing or keeping 
 - Never commit to `main`. One branch per change, opened as a PR.
 - Conventional Commits for every commit and PR title (`feat(worker): …`, `fix(app): …`, `build: …`). PRs are squash-merged, so the PR title becomes the commit on `main`.
 - PRs are coherent and reviewable: one feature or concern, typically a few hundred lines. The description says what changed, why, and how it was verified.
+- UI PRs attach screenshots of every changed screen on iPhone and Windows, in light and dark, with `gh pr create --attach '<file>#<alt>'`. Post fresh ones with `gh pr comment --attach` whenever review changes the UI.
 - Every PR is reviewed by an independent agent against the code standards above. Address the findings, push, and request another round. Merge only after the reviewer has no remaining structural objections, or after three rounds with any remaining disagreements written up in the PR.
