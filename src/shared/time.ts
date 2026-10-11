@@ -100,6 +100,13 @@ export function toInstant(local: LocalDateTime, zone: string): number {
   return valid.length > 0 ? Math.min(...valid) : before;
 }
 
+export function wallAtOrAfter(instant: number, zone: string): LocalDateTime {
+  const target = Math.ceil(instant / MINUTE_MS) * MINUTE_MS;
+  let local = toLocal(target, zone);
+  while (toInstant(local, zone) < target) local = addMinutes(local, 1);
+  return local;
+}
+
 const pad = (value: number, width = 2) => String(value).padStart(width, '0');
 
 export function formatLocal(local: LocalDateTime): string {
