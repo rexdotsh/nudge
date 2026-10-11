@@ -22,11 +22,6 @@
 
   let offset = $state(0);
 
-  function act(event: MouseEvent, action: () => void) {
-    event.stopPropagation();
-    action();
-  }
-
   function snoozeHour() {
     if (later) void snooze(reminder, later.at);
   }
@@ -41,11 +36,6 @@
   </div>
   <div
     class="content"
-    role="button"
-    tabindex="0"
-    data-reminder={reminder.id}
-    onclick={() => ui.edit(reminder.id)}
-    onkeydown={(event) => event.key === 'Enter' && event.target === event.currentTarget && ui.edit(reminder.id)}
     class:dragging={offset !== 0}
     style:transform="translateX({offset}px)"
     use:swipe={{
@@ -60,25 +50,27 @@
       label={`Complete ${reminder.title}`}
       onToggle={() => void complete(reminder)}
     />
-    <span class="text">
-      <span class="title"
-        >{reminder.title}{#if reminder.important}<span class="flag" aria-label="Important">!</span>{/if}</span
-      >
-      {#if detail && !compact}<small>{detail}</small>{/if}
-    </span>
+    <button class="open" data-reminder={reminder.id} onclick={() => ui.edit(reminder.id)}>
+      <span class="text">
+        <span class="title"
+          >{reminder.title}{#if reminder.important}<span class="flag" aria-label="Important">!</span>{/if}</span
+        >
+        {#if detail && !compact}<small>{detail}</small>{/if}
+      </span>
+      {#if entry.late}
+        <span class="chip hot">late</span>
+      {:else}
+        <span class="when">{shortWhen(entry.at, now, zone)}</span>
+      {/if}
+    </button>
     <span class="actions">
-      <button onclick={(event) => act(event, () => ui.snooze(reminder.id))} aria-label="Snooze" title="Snooze (S)"
+      <button onclick={() => ui.snooze(reminder.id)} aria-label={`Snooze ${reminder.title}`} title="Snooze (S)"
         >Snooze</button
       >
-      <button onclick={(event) => act(event, () => void remove(reminder))} aria-label="Delete" title="Delete (Del)"
+      <button onclick={() => void remove(reminder)} aria-label={`Delete ${reminder.title}`} title="Delete (Del)"
         >Delete</button
       >
     </span>
-    {#if entry.late}
-      <span class="chip hot">late</span>
-    {:else}
-      <span class="when">{shortWhen(entry.at, now, zone)}</span>
-    {/if}
   </div>
 </div>
 
@@ -117,7 +109,6 @@
     min-height: 52px;
     padding: 10px 2px;
     background: var(--bg);
-    cursor: pointer;
     touch-action: pan-y;
     transition: transform 0.35s var(--spring);
   }
@@ -133,14 +124,25 @@
     transition: opacity 0.15s;
   }
 
-  .content:active::before,
-  .content:focus-visible::before {
+  .content:has(.open:active)::before {
     opacity: 1;
     transition: none;
   }
 
-  .content:focus-visible {
-    outline: none;
+  .open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    align-self: stretch;
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .open:focus-visible {
+    outline: 2px solid var(--ink-2);
+    outline-offset: 4px;
   }
 
   .dragging {
@@ -200,8 +202,7 @@
     gap: 4px;
   }
 
-  .content:focus-visible .actions,
-  .actions:has(:focus-visible) {
+  .content:has(:focus-visible) .actions {
     position: static;
     width: auto;
     height: auto;
@@ -234,8 +235,7 @@
     }
 
     .content:hover .actions,
-    .content:focus-visible .actions,
-    .actions:has(:focus-visible) {
+    .content:has(:focus-visible) .actions {
       opacity: 1;
     }
 

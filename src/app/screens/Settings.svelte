@@ -8,14 +8,13 @@
   import Toast from '../components/Toast.svelte';
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
-  import { enablePush, pushState, type PushState } from '../lib/push';
+  import type { PushState } from '../lib/push';
   import { toasts } from '../lib/toasts.svelte';
 
   let { onBack }: { onBack: () => void } = $props();
 
   let health = $state<Health | null>(null);
   let me = $state<string | null>(null);
-  let push = $state<PushState>(pushState());
   let pairing = $state<{ code: string; expiresAt: number } | null>(null);
 
   const PUSH_LABELS: Record<PushState, string> = {
@@ -32,7 +31,7 @@
   }
 
   async function turnOn() {
-    push = await enablePush();
+    await app.enableNotifications();
     await load();
   }
 
@@ -75,11 +74,11 @@
   <div class="group">
     <div class="field">
       <span>This device</span>
-      <span class="value">{PUSH_LABELS[push]}</span>
+      <span class="value">{PUSH_LABELS[app.notifications]}</span>
     </div>
-    {#if push === 'prompt'}
+    {#if app.notifications === 'prompt'}
       <button class="field action" onclick={turnOn}>Turn on notifications</button>
-    {:else if push === 'enabled'}
+    {:else if app.notifications === 'enabled'}
       <button class="field action" onclick={test}>Send a test notification</button>
     {/if}
   </div>

@@ -1,17 +1,15 @@
 <script lang="ts">
   import Onboarding from '../components/Onboarding.svelte';
-  import { enablePush, pushState, type PushState } from '../lib/push';
+  import { app } from '../lib/app.svelte';
 
   let { onDone }: { onDone: () => void } = $props();
 
-  let status = $state<PushState>(pushState());
   let busy = $state(false);
 
   async function enable() {
     busy = true;
     try {
-      status = await enablePush();
-      if (status === 'enabled') onDone();
+      if ((await app.enableNotifications()) === 'enabled') onDone();
     } finally {
       busy = false;
     }
@@ -20,11 +18,11 @@
 
 <Onboarding
   title="Turn on notifications"
-  tagline={status === 'denied'
+  tagline={app.notifications === 'denied'
     ? "Notifications are off for Nudge. Turn them on in your device's settings, then come back."
     : 'Nudge only notifies you about reminders you set, right when they are due.'}
 >
-  <button class="btn primary block" onclick={enable} disabled={busy || status === 'denied'}>
+  <button class="btn primary block" onclick={enable} disabled={busy || app.notifications === 'denied'}>
     {busy ? '…' : 'Turn on notifications'}
   </button>
   <button class="later" onclick={onDone}>Not now</button>

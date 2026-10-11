@@ -30,7 +30,7 @@
   box-sizing: border-box;
 }
 
-html:has([role='dialog']) {
+html:has(dialog[open]) {
   overflow: hidden;
 }
 

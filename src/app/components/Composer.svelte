@@ -78,7 +78,7 @@
 
 <form class="composer" style:--keyboard="{keyboard}px" onsubmit={submit}>
   <div class="bar">
-    <div class="field">
+    <div class="entry">
       <div class="mirror" bind:this={mirror} aria-hidden="true">
         {#each segments as segment, index (index)}<span class={segment.kind ?? undefined}>{segment.text}</span>{/each}
       </div>
@@ -138,13 +138,13 @@
     padding: 0 8px 0 16px;
   }
 
-  .field {
+  .entry {
     position: relative;
     flex: 1;
     min-width: 0;
   }
 
-  .field input,
+  .entry input,
   .mirror {
     width: 100%;
     padding: 0;
@@ -153,7 +153,7 @@
     white-space: pre;
   }
 
-  .field input {
+  .entry input {
     position: relative;
     border: 0;
     outline: 0;
@@ -162,7 +162,7 @@
     caret-color: var(--accent);
   }
 
-  .field input::placeholder {
+  .entry input::placeholder {
     color: var(--muted);
   }
 
@@ -204,9 +204,12 @@
   .preview {
     margin: 0 16px;
     padding: 8px 0 11px;
+    overflow: hidden;
     border-top: 1px solid var(--edge);
     color: var(--ink-2);
     font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .preview b {

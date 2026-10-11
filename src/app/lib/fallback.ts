@@ -2,21 +2,23 @@ import { show } from '../../browser/notify';
 import { fire, nextFireAt } from '../../shared/fire';
 import { fireId, reminderMessage } from '../../shared/notification';
 import { isOverdue, type Reminder } from '../../shared/reminder';
-import { pushState } from './push';
+import { HOUR_MS } from '../../shared/time';
 
 const GRACE_MS = 45_000;
+const MAX_WAIT_MS = HOUR_MS;
 
 class Fallback {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly watermarks = new Map<string, number>();
 
-  schedule(reminders: readonly Reminder[], zone: string): void {
+  schedule(reminders: readonly Reminder[], zone: string, enabled: boolean): void {
     clearTimeout(this.timer);
-    if (pushState() !== 'enabled') return;
+    if (!enabled) return;
     let next = Infinity;
     for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder), zone) ?? Infinity);
     if (next === Infinity) return;
-    this.timer = setTimeout(() => void this.check(reminders, zone), Math.max(0, next + GRACE_MS - Date.now()));
+    const wait = Math.min(Math.max(0, next + GRACE_MS - Date.now()), MAX_WAIT_MS);
+    this.timer = setTimeout(() => void this.check(reminders, zone), wait);
   }
 
   private locally(reminder: Reminder): Reminder {
@@ -37,7 +39,7 @@ class Fallback {
       return [show(registration, reminderMessage(advanced, notice, view).notification)];
     });
     await Promise.all(missed);
-    this.schedule(reminders, zone);
+    this.schedule(reminders, zone, true);
   }
 }
 

@@ -3,7 +3,6 @@
   import { fallback } from './lib/fallback';
   import { ui } from './lib/ui.svelte';
   import { isInstalled } from './lib/platform';
-  import { pushState } from './lib/push';
   import Enroll from './screens/Enroll.svelte';
   import Home from './screens/Home.svelte';
   import Install from './screens/Install.svelte';
@@ -11,7 +10,7 @@
   import Settings from './screens/Settings.svelte';
 
   const needsInstall = app.platform === 'ios' && !isInstalled();
-  let askForNotifications = $state(pushState() === 'prompt');
+  let askForNotifications = $state(app.notifications === 'prompt');
   const link = new URLSearchParams(location.search);
   let screen = $state<'home' | 'settings'>(link.has('settings') ? 'settings' : 'home');
   const opening = link.get('open');
@@ -19,7 +18,7 @@
   if (link.size > 0) history.replaceState(null, '', '/');
 
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone);
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled');
   });
 </script>
 

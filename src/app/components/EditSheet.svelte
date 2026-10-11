@@ -132,11 +132,11 @@
       <span>When</span>
       <span class="when">
         <label class="picker">
-          <span>{startAt === null ? date : dateLabel(startAt, app.zone)}</span>
+          <span>{startAt === null ? date : dateLabel(startAt, fields.zone ?? app.zone)}</span>
           <input type="date" bind:value={date} aria-label="Date" required />
         </label>
         <label class="picker">
-          <span>{startAt === null ? time : timeLabel(startAt, app.zone)}</span>
+          <span>{startAt === null ? time : timeLabel(startAt, fields.zone ?? app.zone)}</span>
           <input type="time" bind:value={time} aria-label="Time" required />
         </label>
       </span>

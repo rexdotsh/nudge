@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
+  import { fly } from 'svelte/transition';
 
   let { label, onClose, children }: { label: string; onClose: () => void; children: Snippet } = $props();
 
@@ -8,6 +8,12 @@
 
   let drag = $state(0);
   let startY = $state<number | null>(null);
+
+  function open(dialog: HTMLDialogElement) {
+    dialog.showModal();
+    dialog.focus();
+    return () => dialog.close();
+  }
 
   function down(event: PointerEvent & { currentTarget: HTMLElement }) {
     startY = event.clientY;
@@ -28,26 +34,22 @@
     startY = null;
     drag = 0;
   }
-
-  function keydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') onClose();
-  }
 </script>
 
-<svelte:window onkeydown={keydown} />
-
-<button class="backdrop" aria-label="Close" tabindex="-1" onclick={onClose} transition:fade={{ duration: 180 }}
-></button>
-<div class="frame">
-  <div
-    class="sheet"
-    class:dragging={startY !== null}
-    role="dialog"
-    aria-modal="true"
-    aria-label={label}
-    style:translate="0 {drag}px"
-    transition:fly={{ y: 80, duration: 300, easing: (t) => 1 - (1 - t) ** 3 }}
-  >
+<dialog
+  {@attach open}
+  tabindex="-1"
+  aria-label={label}
+  class:dragging={startY !== null}
+  style:translate="0 {drag}px"
+  oncancel={(event) => {
+    event.preventDefault();
+    onClose();
+  }}
+  onclick={(event) => event.target === event.currentTarget && onClose()}
+  transition:fly={{ y: 80, duration: 300, easing: (t) => 1 - (1 - t) ** 3 }}
+>
+  <div class="body">
     <div
       class="grabber"
       role="presentation"
@@ -60,44 +62,39 @@
     </div>
     {@render children()}
   </div>
-</div>
+</dialog>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    background: rgb(0 0 0 / 0.55);
-    cursor: default;
-  }
-
-  .frame {
-    position: fixed;
-    inset: 0;
-    z-index: 41;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    align-items: center;
-    pointer-events: none;
-  }
-
-  .sheet {
+  dialog {
     width: 100%;
     max-width: 560px;
     max-height: calc(100dvh - 48px - env(safe-area-inset-top));
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 0 18px calc(18px + env(safe-area-inset-bottom));
+    margin: auto auto 0;
+    padding: 0;
+    border: 0;
     border-radius: 26px 26px 0 0;
     background: var(--bg);
+    color: var(--ink);
     box-shadow: inset 0 1px 0 var(--edge);
-    pointer-events: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     transition: translate 0.35s var(--spring);
+  }
+
+  dialog:focus {
+    outline: none;
+  }
+
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.55);
   }
 
   .dragging {
     transition: none;
+  }
+
+  .body {
+    padding: 0 18px calc(18px + env(safe-area-inset-bottom));
   }
 
   .grabber {
@@ -120,15 +117,15 @@
   }
 
   @media (min-width: 720px) {
-    .frame {
-      justify-content: center;
-    }
-
-    .sheet {
+    dialog {
       max-height: calc(100dvh - 80px);
-      padding-bottom: 20px;
+      margin: auto;
       border-radius: 20px;
       box-shadow: inset 0 0 0 1px var(--edge);
+    }
+
+    .body {
+      padding-bottom: 20px;
     }
 
     .grabber span {

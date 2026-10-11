@@ -9,7 +9,7 @@ import type { Reminder } from '../../shared/reminder';
 import { DAY_MS } from '../../shared/time';
 import { Connection } from './connection';
 import { DEVICE_LABELS, detectPlatform } from './platform';
-import { syncSubscription } from './push';
+import { enablePush, pushState, syncSubscription, type PushState } from './push';
 import { Replica } from './replica';
 
 export type Phase = 'loading' | 'enroll' | 'ready';
@@ -36,6 +36,7 @@ class App {
   now = $state(Date.now());
   zone = currentZone();
   travelling = $state(false);
+  notifications = $state<PushState>(pushState());
   readonly platform = detectPlatform();
 
   private replica = new Replica();
@@ -144,6 +145,7 @@ class App {
 
   private visibilityChanged(): void {
     if (document.visibilityState === 'visible') {
+      this.notifications = pushState();
       void this.noteZone();
       this.connection?.resume();
       void this.reloadPending().then(() => this.sync());
@@ -155,6 +157,11 @@ class App {
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
     }
+  }
+
+  async enableNotifications(): Promise<PushState> {
+    this.notifications = await enablePush();
+    return this.notifications;
   }
 
   private async noteZone(): Promise<void> {
