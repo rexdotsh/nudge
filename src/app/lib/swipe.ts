@@ -34,21 +34,25 @@ export function swipe(node: HTMLElement, options: SwipeOptions) {
     options.onOffset(offset);
   }
 
+  function reset(): void {
+    tracking = 'idle';
+    offset = 0;
+    options.onOffset(0);
+  }
+
   function up(): void {
     if (tracking === 'horizontal') {
       const ratio = offset / node.offsetWidth;
       if (ratio > COMMIT_RATIO) options.onLeading();
       else if (ratio < -COMMIT_RATIO) options.onTrailing();
     }
-    tracking = 'idle';
-    offset = 0;
-    options.onOffset(0);
+    reset();
   }
 
   node.addEventListener('pointerdown', down);
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', up);
-  node.addEventListener('pointercancel', up);
+  node.addEventListener('pointercancel', reset);
   return {
     update(next: SwipeOptions) {
       options = next;
@@ -57,7 +61,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions) {
       node.removeEventListener('pointerdown', down);
       node.removeEventListener('pointermove', move);
       node.removeEventListener('pointerup', up);
-      node.removeEventListener('pointercancel', up);
+      node.removeEventListener('pointercancel', reset);
     },
   };
 }

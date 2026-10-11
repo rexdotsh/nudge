@@ -89,7 +89,7 @@
     font-weight: 600;
     font-size: 15px;
     color: #fff;
-    background: var(--brand);
+    background: var(--brand-fill);
   }
 
   .inline {

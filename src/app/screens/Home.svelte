@@ -87,7 +87,6 @@
     inset: 0 0 auto;
     height: 300px;
     pointer-events: none;
-    transition: background 1.2s var(--ease);
     mask-image: linear-gradient(to bottom, #000 40%, transparent);
   }
 
@@ -180,7 +179,6 @@
     font-size: 14px;
     font-weight: 500;
     color: var(--label);
-    transition: background 0.2s;
   }
 
   .segments button[aria-selected='true'] {
@@ -252,7 +250,7 @@
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--brand);
+    background: var(--brand-fill);
     color: #fff;
   }
 

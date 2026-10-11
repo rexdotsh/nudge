@@ -156,7 +156,12 @@
   }
 
   .hover {
-    display: none;
+    display: flex;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 
   :global([data-platform='windows']) .row {
@@ -175,7 +180,11 @@
 
   @media (hover: hover) {
     .hover {
-      display: flex;
+      position: static;
+      width: auto;
+      height: auto;
+      overflow: visible;
+      clip-path: none;
       gap: 2px;
       opacity: 0;
       transition: opacity 0.12s;

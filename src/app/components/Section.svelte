@@ -1,6 +1,6 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
-  import { fade, slide } from 'svelte/transition';
+  import { fade, fly } from 'svelte/transition';
   import type { Section } from '../lib/sections';
   import ReminderRow from './ReminderRow.svelte';
 
@@ -11,7 +11,7 @@
   <h2>{section.title}<span class="count">{section.entries.length}</span></h2>
   <div class="group">
     {#each section.entries as entry (entry.reminder.id)}
-      <div animate:flip={{ duration: 320 }} transition:slide={{ duration: 260 }}>
+      <div animate:flip={{ duration: 320 }} transition:fly={{ y: -8, duration: 220 }}>
         <ReminderRow {entry} {now} {zone} />
       </div>
     {/each}

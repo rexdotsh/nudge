@@ -128,11 +128,12 @@
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--keyboard);
+    bottom: 0;
+    translate: 0 calc(-1 * var(--keyboard));
     z-index: 20;
     padding: 18px 12px calc(10px + env(safe-area-inset-bottom));
     background: linear-gradient(to bottom, transparent, var(--bg) 26px);
-    transition: bottom 0.25s var(--ease);
+    transition: translate 0.25s var(--ease);
   }
 
   .understood {
@@ -230,7 +231,7 @@
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--brand);
+    background: var(--brand-fill);
     color: #fff;
     transition:
       transform 0.2s var(--spring),

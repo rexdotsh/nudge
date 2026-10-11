@@ -121,7 +121,7 @@
     width: min(100%, 360px);
     padding: 15px;
     border-radius: 14px;
-    background: var(--brand);
+    background: var(--brand-fill);
     color: #fff;
     font-weight: 600;
     transition:

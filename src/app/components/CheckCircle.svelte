@@ -13,8 +13,9 @@
 
 <button class="check" class:overdue class:popping aria-label={label} onclick={toggle}>
   <svg viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="12" cy="12" r="10.2" />
-    <path d="M7.4 12.6 10.6 15.6 16.6 9.2" />
+    <circle class="ring" cx="12" cy="12" r="10.2" />
+    <circle class="disc" cx="12" cy="12" r="11" />
+    <path class="tick" d="M7.4 12.6 10.6 15.6 16.6 9.2" />
   </svg>
 </button>
 
@@ -40,33 +41,41 @@
     overflow: visible;
   }
 
-  circle {
-    fill: transparent;
+  .ring {
+    fill: none;
     stroke: currentColor;
     stroke-width: 1.6;
-    transition:
-      fill 0.18s var(--ease),
-      stroke 0.18s var(--ease);
   }
 
-  path {
+  .disc,
+  .tick {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    transition:
+      transform 0.32s var(--spring),
+      opacity 0.18s var(--ease);
+  }
+
+  .disc {
+    fill: var(--brand);
+    transform: scale(0.4);
+  }
+
+  .tick {
     fill: none;
     stroke: #fff;
     stroke-width: 2.4;
     stroke-linecap: round;
     stroke-linejoin: round;
-    stroke-dasharray: 15;
-    stroke-dashoffset: 15;
-    transition: stroke-dashoffset 0.28s 0.06s var(--ease);
+    transform: scale(0.5);
+    transition-delay: 0.06s;
   }
 
-  .popping circle {
-    fill: var(--brand);
-    stroke: var(--brand);
-  }
-
-  .popping path {
-    stroke-dashoffset: 0;
+  .popping .disc,
+  .popping .tick {
+    opacity: 1;
+    transform: scale(1);
   }
 
   .popping svg {

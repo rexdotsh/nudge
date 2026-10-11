@@ -1,6 +1,6 @@
 :root {
   --brand: #ff5a36;
-  --brand-strong: #f2421d;
+  --brand-fill: #d63c18;
   --brand-soft: color-mix(in oklab, var(--brand) 14%, transparent);
   --danger: #ff3b30;
   --success: #34c759;
@@ -160,6 +160,7 @@ button {
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
 }
