@@ -1,35 +1,51 @@
 <script lang="ts">
   import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
-  import { repeatLabel, whenLabel } from '../lib/format';
+  import { repeatLabel, shortWhen } from '../lib/format';
   import type { Entry } from '../lib/sections';
   import { swipe } from '../lib/swipe';
+  import { ui } from '../lib/ui.svelte';
   import CheckCircle from './CheckCircle.svelte';
   import Icon from './Icon.svelte';
 
-  let { entry, now, zone }: { entry: Entry; now: number; zone: string } = $props();
+  let { entry, now, zone, compact = false }: { entry: Entry; now: number; zone: string; compact?: boolean } = $props();
 
   const reminder = $derived(entry.reminder);
   const snoozed = $derived(reminder.snoozedUntil !== null && reminder.snoozedUntil > now);
   const cadence = $derived(repeatLabel(reminder, zone));
   const note = $derived(reminder.notes.split('\n', 1)[0] ?? '');
-  const later = $derived(snoozeOptions(now, zone).find((option) => option.label === '1 hour'));
+  const detail = $derived(
+    [snoozed ? 'Snoozed' : null, cadence, reminder.missed > 0 ? `missed ${reminder.missed}×` : null, note || null]
+      .filter((part) => part !== null)
+      .join(' · '),
+  );
+  const later = $derived(snoozeOptions(now, zone).find((option) => option.key === 'hour'));
 
   let offset = $state(0);
 
+  function act(event: MouseEvent, action: () => void) {
+    event.stopPropagation();
+    action();
+  }
+
   function snoozeHour() {
-    if (later) void snooze(reminder, later.at, later.label);
+    if (later) void snooze(reminder, later.at);
   }
 </script>
 
-<div class="row" class:overdue={entry.overdue}>
+<div class="row" class:compact>
   <div class="reveal leading" style:opacity={Math.min(Math.max(offset, 0) / 80, 1)}>
-    <Icon name="check" size={22} />
+    <Icon name="check" size={20} />
   </div>
   <div class="reveal trailing" style:opacity={Math.min(Math.max(-offset, 0) / 80, 1)}>
-    <Icon name="clock" size={22} />
+    <Icon name="clock" size={20} />
   </div>
   <div
     class="content"
+    role="button"
+    tabindex="0"
+    data-reminder={reminder.id}
+    onclick={() => ui.edit(reminder.id)}
+    onkeydown={(event) => event.key === 'Enter' && event.target === event.currentTarget && ui.edit(reminder.id)}
     class:dragging={offset !== 0}
     style:transform="translateX({offset}px)"
     use:swipe={{
@@ -39,30 +55,30 @@
     }}
   >
     <CheckCircle
-      overdue={entry.overdue}
+      late={entry.late}
+      small={compact}
       label={`Complete ${reminder.title}`}
       onToggle={() => void complete(reminder)}
     />
-    <div class="text">
-      <span class="title">{reminder.title}</span>
-      <span class="meta">
-        <span class="when">{snoozed ? 'Snoozed · ' : ''}{whenLabel(entry.at, now, zone)}</span>
-        {#if cadence}<span class="cadence"><Icon name="repeat" size={13} />{cadence}</span>{/if}
-        {#if reminder.missed > 0}<span>missed {reminder.missed}×</span>{/if}
-        {#if note}<span class="note">{note}</span>{/if}
-      </span>
-    </div>
-    {#if reminder.important}
-      <span class="flag" aria-label="Important"><Icon name="star" size={16} filled /></span>
+    <span class="text">
+      <span class="title"
+        >{reminder.title}{#if reminder.important}<span class="flag" aria-label="Important">!</span>{/if}</span
+      >
+      {#if detail && !compact}<small>{detail}</small>{/if}
+    </span>
+    <span class="actions">
+      <button onclick={(event) => act(event, () => ui.snooze(reminder.id))} aria-label="Snooze" title="Snooze (S)"
+        >Snooze</button
+      >
+      <button onclick={(event) => act(event, () => void remove(reminder))} aria-label="Delete" title="Delete (Del)"
+        >Delete</button
+      >
+    </span>
+    {#if entry.late}
+      <span class="chip hot">late</span>
+    {:else}
+      <span class="when">{shortWhen(entry.at, now, zone)}</span>
     {/if}
-    <div class="hover">
-      <button onclick={snoozeHour} aria-label="Snooze for an hour" title="Snooze 1 hour"
-        ><Icon name="clock" size={16} /></button
-      >
-      <button onclick={() => void remove(reminder)} aria-label="Delete" title="Delete"
-        ><Icon name="trash" size={16} /></button
-      >
-    </div>
   </div>
 </div>
 
@@ -70,7 +86,7 @@
   .row {
     position: relative;
     overflow: hidden;
-    background: var(--surface);
+    border-bottom: 1px solid var(--line);
   }
 
   .reveal {
@@ -78,28 +94,53 @@
     inset: 0;
     display: flex;
     align-items: center;
-    padding: 0 26px;
-    color: #fff;
+    padding: 0 20px;
   }
 
   .leading {
-    background: var(--success);
+    background: var(--ink);
+    color: var(--bg);
   }
 
   .trailing {
-    background: var(--snooze);
     justify-content: flex-end;
+    background: var(--raised);
+    color: var(--ink);
   }
 
   .content {
     position: relative;
+    isolation: isolate;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
-    padding: var(--row-pad);
-    background: var(--surface);
-    transition: transform 0.35s var(--spring);
+    min-height: 52px;
+    padding: 10px 2px;
+    background: var(--bg);
+    cursor: pointer;
     touch-action: pan-y;
+    transition: transform 0.35s var(--spring);
+  }
+
+  .content::before {
+    content: '';
+    position: absolute;
+    inset: 2px -10px;
+    z-index: -1;
+    border-radius: 10px;
+    background: var(--surface);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .content:active::before,
+  .content:focus-visible::before {
+    opacity: 1;
+    transition: none;
+  }
+
+  .content:focus-visible {
+    outline: none;
   }
 
   .dragging {
@@ -111,74 +152,56 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding-bottom: 11px;
-    margin-bottom: -11px;
-    border-bottom: 0.5px solid var(--separator);
-  }
-
-  .row:last-child .text {
-    border-bottom: 0;
   }
 
   .title {
+    font-size: 15px;
     overflow-wrap: anywhere;
   }
 
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px 10px;
-    font-size: 0.82em;
-    color: var(--label-2);
+  .flag {
+    margin-left: 6px;
+    color: var(--accent);
+    font-weight: 700;
   }
 
-  .overdue .when {
-    color: var(--danger);
-  }
-
-  .cadence {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-  }
-
-  .note {
-    flex-basis: 100%;
+  small {
     overflow: hidden;
+    color: var(--muted);
+    font-size: 12.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .flag {
-    color: var(--brand);
-    padding-top: 2px;
+  .when {
+    flex: none;
+    color: var(--muted);
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
   }
 
-  .hover {
-    display: flex;
+  .compact .content {
+    min-height: 44px;
+    padding: 8px 2px;
+  }
+
+  .compact .title {
+    color: var(--ink-2);
+    font-size: 14px;
+  }
+
+  .actions {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
+    display: flex;
+    gap: 4px;
   }
 
-  :global([data-platform='windows']) .row {
-    border-radius: 6px;
-    margin-bottom: 3px;
-    box-shadow: 0 0 0 1px var(--separator);
-  }
-
-  :global([data-platform='windows']) .text {
-    border-bottom: 0;
-  }
-
-  :global([data-platform='windows']) .content {
-    align-items: center;
-  }
-
-  .content:focus-within .hover {
+  .content:focus-visible .actions,
+  .actions:has(:focus-visible) {
     position: static;
     width: auto;
     height: auto;
@@ -186,35 +209,38 @@
     clip-path: none;
   }
 
+  .actions button {
+    padding: 4px 9px;
+    border-radius: 7px;
+    background: var(--raised);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
   @media (hover: hover) {
-    .hover {
+    .content:hover::before {
+      opacity: 1;
+    }
+
+    .actions {
       position: static;
       width: auto;
       height: auto;
       overflow: visible;
       clip-path: none;
-      gap: 2px;
       opacity: 0;
       transition: opacity 0.12s;
     }
 
-    .content:hover .hover,
-    .content:focus-within .hover {
+    .content:hover .actions,
+    .content:focus-visible .actions,
+    .actions:has(:focus-visible) {
       opacity: 1;
     }
 
-    .hover button {
-      width: 30px;
-      height: 30px;
-      display: grid;
-      place-items: center;
-      border-radius: var(--radius-control);
-      color: var(--label-2);
-    }
-
-    .hover button:hover {
-      background: var(--fill);
-      color: var(--label);
+    .actions button:hover {
+      color: var(--ink);
     }
   }
 </style>

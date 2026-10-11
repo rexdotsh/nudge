@@ -10,9 +10,11 @@ const formatter = memoize((key) => {
   const options: Record<string, Intl.DateTimeFormatOptions> = {
     time: { hour: 'numeric', minute: '2-digit' },
     weekday: { weekday: 'long' },
+    short: { weekday: 'short' },
+    day: { weekday: 'short', day: 'numeric', month: 'short' },
+    dayMonth: { day: 'numeric', month: 'short' },
     date: { weekday: 'short', month: 'short', day: 'numeric' },
     year: { month: 'short', day: 'numeric', year: 'numeric' },
-    heading: { weekday: 'long', month: 'long', day: 'numeric' },
   };
   return new Intl.DateTimeFormat(locale, { ...options[style], timeZone: zone });
 });
@@ -48,8 +50,25 @@ export function whenLabel(instant: number, now: number, zone: string): string {
   return days === 0 ? timeLabel(instant, zone) : `${dayLabel(instant, now, zone)}, ${timeLabel(instant, zone)}`;
 }
 
-export function headingDate(now: number, zone: string): string {
-  return format(now, zone, 'heading');
+export function dateLabel(instant: number, zone: string): string {
+  return format(instant, zone, 'day');
+}
+
+export function dayHeading(now: number, zone: string): { weekday: string; date: string } {
+  return { weekday: format(now, zone, 'weekday'), date: format(now, zone, 'dayMonth') };
+}
+
+export function untilLabel(instant: number, now: number): string {
+  const minutes = Math.max(1, Math.round((instant - now) / MINUTE_MS));
+  return minutes < 60 ? `in ${minutes} min` : `in ${Math.floor(minutes / 60)} h`;
+}
+
+export function shortWhen(instant: number, now: number, zone: string): string {
+  const days = daysFromToday(instant, now, zone);
+  const time = timeLabel(instant, zone);
+  if (days <= 0) return time;
+  if (days === 1) return `Tomorrow ${time}`;
+  return days < 7 ? `${format(instant, zone, 'short')} ${time}` : format(instant, zone, 'day');
 }
 
 export function repeatLabel(reminder: Reminder, zone: string): string | null {

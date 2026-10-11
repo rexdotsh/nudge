@@ -75,13 +75,16 @@ A test exists to catch a bug that would hurt someone. Before writing or keeping 
 
 ## Client UI
 
-- Native feel per platform through `data-platform` skins (iOS and Windows), not separate components.
-- System fonts only. Animate only `transform` and `opacity`. Respect `prefers-reduced-motion`, safe areas and Dynamic Type.
+- One calm look on every platform: a single dark theme on warm near-black, DM Sans only, and one coral accent that means "now" or "late" and nothing else. Tokens and shared primitives (`.btn`, `.group`, `.field`, `.chip`, `.picker`, `.toggle`) live in `src/app/styles.css`; components use them and add no new colours.
+- The home screen is triage: the reminder that matters now (with its actions), then the rest of today, then a quieter Later list. Rarely needed settings, like pinning a time zone, stay out of the way until they are relevant.
+- Fonts are self-hosted latin subsets (`src/app/fonts.css`), because the service worker precaches every built file.
+- Platforms differ in behaviour, not looks: the iOS install guide, safe areas, haptics, touch swipes, hover actions, keyboard shortcuts and where the composer sits.
+- Animate only `transform` and `opacity`, and respect `prefers-reduced-motion`. Text meets WCAG AA contrast.
 
 ## Workflow
 
 - Never commit to `main`. One branch per change, opened as a PR.
 - Conventional Commits for every commit and PR title (`feat(worker): …`, `fix(app): …`, `build: …`). PRs are squash-merged, so the PR title becomes the commit on `main`.
 - PRs are coherent and reviewable: one feature or concern, typically a few hundred lines. The description says what changed, why, and how it was verified.
-- UI PRs attach screenshots of every changed screen on iPhone and Windows, in light and dark, with `gh pr create --attach '<file>#<alt>'`. Post fresh ones with `gh pr comment --attach` whenever review changes the UI.
+- UI PRs attach screenshots of every changed screen on iPhone and Windows with `gh pr create --attach '<file>#<alt>'`. Post fresh ones with `gh pr comment --attach` whenever review changes the UI.
 - Every PR is reviewed by an independent agent against the code standards above. Address the findings, push, and request another round. Merge only after the reviewer has no remaining structural objections, or after three rounds with any remaining disagreements written up in the PR.

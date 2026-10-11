@@ -10,7 +10,7 @@
 
 {#if toasts.current}
   {#key toasts.current.id}
-    <div class="toast glass" role="status" transition:fly={{ y: 16, duration: 260 }}>
+    <div class="toast" role="status" transition:fly={{ y: 16, duration: 260 }}>
       <span>{toasts.current.message}</span>
       {#if toasts.current.undo}<button onclick={undo}>Undo</button>{/if}
     </div>
@@ -21,16 +21,21 @@
   .toast {
     position: fixed;
     left: 50%;
-    bottom: calc(150px + env(safe-area-inset-bottom));
+    bottom: calc(96px + env(safe-area-inset-bottom));
     translate: -50% 0;
     z-index: 30;
     display: flex;
     align-items: center;
-    gap: 14px;
-    max-width: calc(100vw - 32px);
-    padding: 11px 16px;
-    border-radius: 16px;
-    font-size: 15px;
+    gap: 16px;
+    max-width: calc(100vw - 40px);
+    height: 42px;
+    padding: 0 16px;
+    border-radius: 14px;
+    background: var(--raised);
+    box-shadow:
+      inset 0 0 0 1px var(--edge),
+      0 18px 40px -16px rgb(0 0 0 / 0.9);
+    font-size: 14px;
     white-space: nowrap;
   }
 
@@ -40,13 +45,13 @@
   }
 
   button {
-    color: var(--brand-text);
+    color: var(--accent);
     font-weight: 600;
   }
 
-  :global([data-platform='windows']) .toast {
-    bottom: 24px;
-    border-radius: 8px;
-    font-size: 14px;
+  @media (min-width: 720px) {
+    .toast {
+      bottom: 28px;
+    }
   }
 </style>

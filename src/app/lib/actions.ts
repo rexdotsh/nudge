@@ -1,5 +1,5 @@
 import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
-import { dueAt, type Reminder } from '../../shared/reminder';
+import { dueAt, firstDue, type Reminder, type ReminderFields } from '../../shared/reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
 import { ulid } from '../../shared/ulid';
 import { app } from './app.svelte';
@@ -12,19 +12,17 @@ export async function add(text: string): Promise<boolean> {
   const parsed = parseQuickAdd(text, now, app.zone);
   if (parsed.title === '') return false;
   const id = ulid(now);
-  const created = await app.apply({
-    type: 'put',
-    id,
-    fields: {
-      title: parsed.title,
-      notes: '',
-      start: parsed.start ?? suggestedStart(now, app.zone),
-      zone: null,
-      repeat: parsed.repeat,
-      important: parsed.important,
-      alerts: [],
-    },
-  });
+  const fields: ReminderFields = {
+    title: parsed.title,
+    notes: '',
+    start: parsed.start ?? suggestedStart(now, app.zone),
+    zone: null,
+    repeat: parsed.repeat,
+    important: parsed.important,
+    alerts: [],
+  };
+  const start = firstDue(fields, now, app.zone) ?? fields.start;
+  const created = await app.apply({ type: 'put', id, fields: { ...fields, start } });
   const due = created ? dueAt(created, app.zone) : null;
   toasts.show(
     due === null ? 'Added' : `Added for ${whenLabel(due, now, app.zone)}`,
@@ -44,11 +42,11 @@ export async function complete(reminder: Reminder): Promise<void> {
   );
 }
 
-export async function snooze(reminder: Reminder, until: number, label: string): Promise<void> {
+export async function snooze(reminder: Reminder, until: number): Promise<void> {
   if (reminder.due === null) return;
   tick();
   await app.apply({ type: 'snooze', id: reminder.id, due: reminder.due, until });
-  toasts.show(`Snoozed until ${label}`);
+  toasts.show(`Snoozed until ${whenLabel(until, Date.now(), app.zone)}`);
 }
 
 export async function remove(reminder: Reminder): Promise<void> {
@@ -57,6 +55,7 @@ export async function remove(reminder: Reminder): Promise<void> {
 }
 
 export interface SnoozeOption {
+  key: 'quarter' | 'hour' | 'evening' | 'morning' | 'week';
   label: string;
   at: number;
 }
@@ -68,12 +67,12 @@ export function snoozeOptions(now: number, zone: string): SnoozeOption[] {
     return toInstant({ ...date, hour, minute: 0 }, zone);
   };
   const options: SnoozeOption[] = [
-    { label: '15 minutes', at: now + 15 * MINUTE_MS },
-    { label: '1 hour', at: now + HOUR_MS },
+    { key: 'quarter', label: '15 minutes', at: now + 15 * MINUTE_MS },
+    { key: 'hour', label: '1 hour', at: now + HOUR_MS },
   ];
-  if (today.hour < 17) options.push({ label: 'This evening', at: at(0, 18) });
-  options.push({ label: 'Tomorrow morning', at: at(1, 9) });
+  if (today.hour < 17) options.push({ key: 'evening', label: 'This evening', at: at(0, 18) });
+  options.push({ key: 'morning', label: 'Tomorrow morning', at: at(1, 9) });
   const toMonday = (7 - weekday(epochDay(today))) % 7 || 7;
-  options.push({ label: 'Next week', at: at(toMonday, 9) });
+  options.push({ key: 'week', label: 'Next week', at: at(toMonday, 9) });
   return options.filter((option) => option.at > now + MINUTE_MS && option.at - now < 8 * DAY_MS);
 }

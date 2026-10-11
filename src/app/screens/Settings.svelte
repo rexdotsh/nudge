@@ -22,7 +22,7 @@
     enabled: 'On',
     prompt: 'Off',
     denied: 'Blocked in system settings',
-    unsupported: 'Not supported in this browser',
+    unsupported: 'Not supported here',
   };
 
   async function load() {
@@ -67,62 +67,57 @@
 
 <div class="settings">
   <header>
-    <button class="back" onclick={onBack}><Icon name="arrowLeft" size={22} />Back</button>
+    <button class="back" onclick={onBack}><Icon name="arrowLeft" size={18} />Back</button>
     <h1>Settings</h1>
   </header>
 
-  <h2>Notifications</h2>
+  <h2 class="label">Notifications</h2>
   <div class="group">
-    <div class="row">
-      <span class="label"><Icon name="bell" size={18} />This device</span>
-      <span class="value" class:good={push === 'enabled'}>{PUSH_LABELS[push]}</span>
+    <div class="field">
+      <span>This device</span>
+      <span class="value">{PUSH_LABELS[push]}</span>
     </div>
     {#if push === 'prompt'}
-      <button class="row action" onclick={turnOn}>Turn on notifications</button>
+      <button class="field action" onclick={turnOn}>Turn on notifications</button>
     {:else if push === 'enabled'}
-      <button class="row action" onclick={test}>Send a test notification</button>
+      <button class="field action" onclick={test}>Send a test notification</button>
     {/if}
   </div>
 
-  <h2>Devices</h2>
+  <h2 class="label">Devices</h2>
   <div class="group">
     {#each health?.devices ?? [] as device (device.id)}
-      <div class="row">
-        <span class="label">
-          <Icon name="device" size={18} />
-          <span class="stack">
-            <span>{device.label}{device.id === me ? ' · this device' : ''}</span>
-            <small>
-              {device.push.enabled ? 'Notifications on' : 'Notifications off'}
-              {#if device.push.receiptAt}· last delivered {whenLabel(device.push.receiptAt, app.now, app.zone)}{/if}
-            </small>
-          </span>
+      <div class="field">
+        <span>
+          {device.label}{#if device.id === me}<span class="me"> · this device</span>{/if}
+          <small>
+            {device.push.enabled ? 'Notifications on' : 'Notifications off'}{#if device.push.receiptAt}
+              · last delivered {whenLabel(device.push.receiptAt, app.now, app.zone)}{/if}
+          </small>
         </span>
         {#if device.id !== me}
-          <button class="remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}
-            ><Icon name="trash" size={16} /></button
-          >
+          <button class="remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}>Remove</button>
         {/if}
       </div>
     {/each}
     {#if pairing && pairing.expiresAt > app.now}
-      <div class="row pairing">
+      <div class="field pairing">
         <span class="code">{pairing.code.slice(0, 3)} {pairing.code.slice(3)}</span>
-        <small
-          >Enter this on the new device. It works once, for {Math.max(
+        <small>
+          Enter this on the new device. It works once, for {Math.max(
             1,
             Math.round((pairing.expiresAt - app.now) / MINUTE_MS),
-          )} more minutes.</small
-        >
+          )} more minutes.
+        </small>
       </div>
     {:else}
-      <button class="row action" onclick={pair}>Add a device</button>
+      <button class="field action" onclick={pair}>Add a device</button>
     {/if}
   </div>
 
-  <h2>Data</h2>
+  <h2 class="label">Data</h2>
   <div class="group">
-    <button class="row action" onclick={exportData}>Export reminders</button>
+    <button class="field action" onclick={exportData}>Export reminders</button>
   </div>
   <p class="footer">Nudge · {location.host}</p>
   <Toast />
@@ -130,138 +125,60 @@
 
 <style>
   .settings {
+    max-width: 560px;
     min-height: 100dvh;
-    padding: calc(8px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
-  }
-
-  header {
-    padding-top: 6px;
+    margin: 0 auto;
+    padding: calc(env(safe-area-inset-top) + 16px) 18px calc(env(safe-area-inset-bottom) + 40px);
+    animation: rise 0.4s var(--ease) both;
   }
 
   .back {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    margin-left: -6px;
-    padding: 8px 6px;
-    color: var(--brand-text);
-    font-size: 17px;
+    gap: 4px;
+    min-height: 40px;
+    margin-left: -4px;
+    color: var(--ink-2);
   }
 
   h1 {
-    margin: 4px 4px 8px;
-    font: var(--title-weight) var(--title-size) / 1.1 var(--font-display);
+    margin: 8px 0 0;
+    font-size: 26px;
+    font-weight: 600;
     letter-spacing: -0.02em;
   }
 
   h2 {
-    margin: 26px 16px 7px;
-    font-size: 13px;
-    font-weight: 400;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    color: var(--label-2);
+    margin: 26px 2px 8px;
   }
 
-  .group {
-    border-radius: var(--radius-group);
-    background: var(--surface);
-    overflow: hidden;
-  }
-
-  .row {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-height: 48px;
-    padding: 10px 16px;
-    text-align: left;
-    border-bottom: 0.5px solid var(--separator);
-  }
-
-  .row:last-child {
-    border-bottom: 0;
-  }
-
-  .label {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .stack {
-    display: flex;
-    flex-direction: column;
-  }
-
-  small {
-    color: var(--label-2);
-    font-size: 13px;
-  }
-
-  .value {
-    color: var(--label-2);
-    font-size: 15px;
-  }
-
-  .value.good {
-    color: var(--success);
-  }
-
-  .action {
-    color: var(--brand-text);
+  .me {
+    color: var(--muted);
   }
 
   .remove {
-    width: 32px;
-    height: 32px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    color: var(--danger);
+    color: var(--accent);
+    font-size: 14px;
   }
 
   .pairing {
     flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 18px 16px;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 16px 14px;
   }
 
   .code {
-    font:
-      700 36px/1 ui-monospace,
-      'SF Mono',
-      'Cascadia Mono',
-      monospace;
-    letter-spacing: 0.12em;
-    color: var(--brand-text);
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    font-variant-numeric: tabular-nums;
   }
 
   .footer {
-    margin: 22px 16px 0;
-    color: var(--label-2);
+    margin: 26px 0 0;
+    color: var(--muted);
     font-size: 13px;
     text-align: center;
-  }
-
-  :global([data-platform='windows']) .settings {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 12px 28px 40px;
-  }
-
-  :global([data-platform='windows']) .group {
-    box-shadow: 0 0 0 1px var(--separator);
-  }
-
-  :global([data-platform='windows']) h2 {
-    text-transform: none;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--label);
-    margin: 22px 2px 8px;
   }
 </style>

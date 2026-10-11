@@ -8,7 +8,7 @@
   import { whenLabel } from '../lib/format';
   import Icon from './Icon.svelte';
 
-  let { floating = false }: { floating?: boolean } = $props();
+  let { autofocus = false }: { autofocus?: boolean } = $props();
 
   let text = $state('');
   let input: HTMLInputElement | undefined = $state();
@@ -34,20 +34,11 @@
       ? describeRepeat(parsed.repeat, local(start), { locale: navigator.language, zone: app.zone, time: false })
       : null,
   );
-
-  const QUICK = [
-    { label: 'In 1 hour', text: 'in 1 hour' },
-    { label: 'Tonight', text: 'tonight' },
-    { label: 'Tomorrow', text: 'tomorrow 9am' },
-    { label: 'Weekend', text: 'this weekend' },
-    { label: 'Every day', text: 'every day' },
-    { label: 'Important', text: '!' },
-  ];
-
-  function append(fragment: string) {
-    text = `${text.trimEnd()} ${fragment} `.trimStart();
-    input?.focus();
-  }
+  const preview = $derived(
+    [cadence ? `repeats ${cadence.toLowerCase()}` : null, parsed?.important ? 'important' : null]
+      .filter((part) => part !== null)
+      .join(' · '),
+  );
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -61,7 +52,7 @@
 
   $effect(() => {
     const viewport = window.visualViewport;
-    if (!floating || !viewport) return;
+    if (!viewport) return;
     const update = () => (keyboard = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
@@ -69,6 +60,10 @@
       viewport.removeEventListener('resize', update);
       viewport.removeEventListener('scroll', update);
     };
+  });
+
+  $effect(() => {
+    if (autofocus) input?.focus();
   });
 
   function focusShortcut(event: KeyboardEvent) {
@@ -81,15 +76,8 @@
 
 <svelte:window onkeydown={focusShortcut} />
 
-<div class="composer" class:floating style:--keyboard="{keyboard}px">
-  {#if parsed}
-    <div class="understood" aria-live="polite">
-      <span class="chip when"><Icon name="clock" size={14} />{when}</span>
-      {#if cadence}<span class="chip"><Icon name="repeat" size={14} />{cadence}</span>{/if}
-      {#if parsed.important}<span class="chip important"><Icon name="star" size={14} filled />Important</span>{/if}
-    </div>
-  {/if}
-  <form class="bar glass" onsubmit={submit}>
+<form class="composer" style:--keyboard="{keyboard}px" onsubmit={submit}>
+  <div class="bar">
     <div class="field">
       <div class="mirror" bind:this={mirror} aria-hidden="true">
         {#each segments as segment, index (index)}<span class={segment.kind ?? undefined}>{segment.text}</span>{/each}
@@ -99,79 +87,55 @@
         bind:value={text}
         onscroll={syncScroll}
         oninput={syncScroll}
-        placeholder="New reminder"
+        placeholder="Remind me to…"
         aria-label="New reminder"
+        aria-describedby="composer-preview"
         autocomplete="off"
         enterkeyhint="done"
         spellcheck="true"
       />
     </div>
-    <button class="send" type="submit" disabled={!parsed?.title} aria-label="Add reminder">
-      <Icon name="up" size={18} />
-    </button>
-  </form>
-  <div class="quick" role="group" aria-label="Quick times">
-    {#each QUICK as option (option.label)}
-      <button type="button" onclick={() => append(option.text)}>{option.label}</button>
-    {/each}
+    {#if parsed?.title}
+      <button class="send" type="submit" aria-label="Add reminder"><Icon name="up" size={16} /></button>
+    {:else}
+      <kbd>{app.platform === 'mac' ? '⌘K' : 'Ctrl K'}</kbd>
+    {/if}
   </div>
-</div>
+  <p id="composer-preview" class="preview" aria-live="polite" hidden={!parsed?.title}>
+    <b>{when}</b>{preview ? ` · ${preview}` : ''}
+  </p>
+</form>
 
 <style>
   .composer {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .floating {
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    translate: 0 calc(-1 * var(--keyboard));
+    left: 12px;
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
     z-index: 20;
-    padding: 18px 12px calc(10px + env(safe-area-inset-bottom));
-    background: linear-gradient(to bottom, transparent, var(--bg) 26px);
+    max-width: 536px;
+    margin: 0 auto;
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow:
+      inset 0 0 0 1px var(--edge),
+      0 -16px 32px 12px var(--bg);
+    translate: 0 calc(-1 * var(--keyboard));
     transition: translate 0.25s var(--ease);
   }
 
-  .understood {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 0 4px;
-  }
-
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 10px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 500;
-    background: var(--surface);
-    color: var(--label-2);
-    box-shadow: inset 0 0 0 0.5px var(--separator);
-    animation: rise 0.22s var(--spring);
-  }
-
-  .chip.when {
-    background: var(--label);
-    color: var(--bg);
-  }
-
-  .chip.important {
-    color: var(--brand-text);
+  .composer:focus-within {
+    box-shadow:
+      inset 0 0 0 1px var(--faint),
+      0 -16px 32px 12px var(--bg);
   }
 
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 6px 6px 18px;
-    border-radius: 28px;
+    gap: 10px;
+    min-height: 52px;
+    padding: 0 8px 0 16px;
   }
 
   .field {
@@ -183,9 +147,8 @@
   .field input,
   .mirror {
     width: 100%;
-    padding: 8px 0;
-    font-size: 17px;
-    line-height: 22px;
+    padding: 0;
+    font: 400 16px/22px var(--font);
     letter-spacing: normal;
     white-space: pre;
   }
@@ -196,113 +159,83 @@
     outline: 0;
     background: transparent;
     color: transparent;
-    caret-color: var(--brand);
+    caret-color: var(--accent);
   }
 
   .field input::placeholder {
-    color: var(--label-3);
+    color: var(--muted);
   }
 
   .mirror {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    color: var(--label);
+    color: var(--ink);
     pointer-events: none;
   }
 
   .mirror span.when,
-  .mirror span.repeat {
-    color: var(--brand-text);
-    background: var(--brand-soft);
-    border-radius: 5px;
-    box-shadow: 0 0 0 2px var(--brand-soft);
-  }
-
+  .mirror span.repeat,
   .mirror span.flag {
-    color: var(--brand-text);
-    font-weight: 700;
+    color: var(--accent);
   }
 
   .send {
     flex: none;
     width: 36px;
     height: 36px;
-    border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--brand-fill);
-    color: #fff;
-    transition:
-      transform 0.2s var(--spring),
-      opacity 0.2s;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--bg);
+    animation: pop 0.2s var(--spring);
   }
 
-  .send:disabled {
-    opacity: 0.35;
-    transform: scale(0.88);
-    cursor: default;
-  }
-
-  .quick {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding: 0 2px;
-    scrollbar-width: none;
-  }
-
-  .quick::-webkit-scrollbar {
+  kbd {
     display: none;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: var(--raised);
+    color: var(--muted);
+    font: 500 11px var(--font);
   }
 
-  .quick button {
-    flex: none;
-    padding: 7px 13px;
-    border-radius: 999px;
-    font-size: 14px;
-    font-weight: 500;
-    background: var(--fill);
-    color: var(--label);
-  }
-
-  .quick button:active {
-    transform: scale(0.96);
-  }
-
-  :global([data-platform='windows']) .bar {
-    border-radius: 8px;
-    padding: 4px 4px 4px 14px;
-    box-shadow:
-      inset 0 0 0 1px var(--separator),
-      inset 0 -2px 0 var(--brand);
-    background: var(--surface-raised);
-  }
-
-  :global([data-platform='windows']) .field input,
-  :global([data-platform='windows']) .mirror {
-    font-size: 15px;
-    padding: 6px 0;
-  }
-
-  :global([data-platform='windows']) .send {
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-  }
-
-  :global([data-platform='windows']) .quick button {
-    border-radius: 6px;
-    padding: 5px 11px;
+  .preview {
+    margin: 0 16px;
+    padding: 8px 0 11px;
+    border-top: 1px solid var(--edge);
+    color: var(--ink-2);
     font-size: 13px;
-    box-shadow: inset 0 0 0 1px var(--separator);
-    background: var(--surface);
   }
 
-  @keyframes rise {
+  .preview b {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  @keyframes pop {
     from {
       opacity: 0;
-      transform: translateY(4px) scale(0.96);
+      transform: scale(0.6);
+    }
+  }
+
+  @media (min-width: 720px) {
+    .composer {
+      position: static;
+      max-width: none;
+      margin: 0 0 18px;
+      box-shadow: inset 0 0 0 1px var(--edge);
+      translate: none;
+    }
+
+    .composer:focus-within {
+      box-shadow: inset 0 0 0 1px var(--faint);
+    }
+
+    kbd {
+      display: block;
     }
   }
 </style>

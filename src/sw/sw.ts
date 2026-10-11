@@ -1,8 +1,9 @@
 import { request, vapidPublicKey } from '../browser/api';
 import { get } from '../browser/kv';
+import { SNOOZE_MINUTES, isShown, show } from '../browser/notify';
 import { acknowledge, currentZone, enqueue, wire } from '../browser/outbox';
 import { BASE64URL } from '../shared/encoding';
-import type { NotificationContent, PushData, PushMessage } from '../shared/notification';
+import type { PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { isRecord } from '../shared/validate';
@@ -11,42 +12,10 @@ declare const self: ServiceWorkerGlobalScope;
 
 const CACHE_PREFIX = 'nudge-';
 export const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
-const SNOOZE_MINUTES = 15;
-interface ActionButton {
-  action: string;
-  title: string;
-}
-
-const ACTIONS: ActionButton[] = [
-  { action: 'done', title: 'Done' },
-  { action: 'snooze', title: `Snooze ${SNOOZE_MINUTES} min` },
-];
-
-interface Shown extends PushData {
-  navigate: string;
-}
-
 function isPushMessage(value: unknown): value is PushMessage {
   return (
     isRecord(value) && value.web_push === 8030 && isRecord(value.notification) && isRecord(value.notification.data)
   );
-}
-
-function isShown(value: unknown): value is Shown {
-  return isRecord(value) && typeof value.fire === 'string' && typeof value.navigate === 'string';
-}
-
-function show(content: NotificationContent): Promise<void> {
-  const data: Shown = { ...content.data, navigate: content.navigate };
-  const options: NotificationOptions & { renotify: boolean; actions: ActionButton[] } = {
-    body: content.body,
-    tag: content.tag,
-    data,
-    icon: '/icons/icon-192.png',
-    renotify: true,
-    actions: content.data.id === null ? [] : ACTIONS,
-  };
-  return self.registration.showNotification(content.title, options);
 }
 
 async function confirm(fire: string): Promise<void> {
@@ -94,7 +63,7 @@ self.addEventListener('push', (event) => {
   const badge = Number(notification.app_badge);
   event.waitUntil(
     Promise.all([
-      handledByBrowser ? undefined : show(notification),
+      handledByBrowser ? undefined : show(self.registration, notification),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
       confirm(notification.data.fire),
     ]),

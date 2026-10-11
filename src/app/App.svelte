@@ -1,5 +1,7 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
+  import { fallback } from './lib/fallback';
+  import { ui } from './lib/ui.svelte';
   import { isInstalled } from './lib/platform';
   import { pushState } from './lib/push';
   import Enroll from './screens/Enroll.svelte';
@@ -8,11 +10,17 @@
   import Notify from './screens/Notify.svelte';
   import Settings from './screens/Settings.svelte';
 
-  let { skin }: { skin: 'ios' | 'windows' } = $props();
-
   const needsInstall = app.platform === 'ios' && !isInstalled();
   let askForNotifications = $state(pushState() === 'prompt');
-  let screen = $state<'home' | 'settings'>('home');
+  const link = new URLSearchParams(location.search);
+  let screen = $state<'home' | 'settings'>(link.has('settings') ? 'settings' : 'home');
+  const opening = link.get('open');
+  if (opening) ui.edit(opening);
+  if (link.size > 0) history.replaceState(null, '', '/');
+
+  $effect(() => {
+    fallback.schedule(app.reminders, app.zone);
+  });
 </script>
 
 {#if app.phase === 'enroll'}
@@ -23,6 +31,6 @@
   {:else if screen === 'settings'}
     <Settings onBack={() => (screen = 'home')} />
   {:else}
-    <Home {skin} onSettings={() => (screen = 'settings')} />
+    <Home onSettings={() => (screen = 'settings')} composing={link.has('new')} />
   {/if}
 {/if}

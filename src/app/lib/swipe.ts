@@ -12,6 +12,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions) {
   let startY = 0;
   let offset = 0;
   let tracking: 'pending' | 'horizontal' | 'vertical' | 'idle' = 'idle';
+  let swallowClick = false;
 
   function down(event: PointerEvent): void {
     if (event.pointerType === 'mouse') return;
@@ -42,6 +43,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions) {
 
   function up(): void {
     if (tracking === 'horizontal') {
+      swallowClick = true;
       const ratio = offset / node.offsetWidth;
       if (ratio > COMMIT_RATIO) options.onLeading();
       else if (ratio < -COMMIT_RATIO) options.onTrailing();
@@ -49,6 +51,14 @@ export function swipe(node: HTMLElement, options: SwipeOptions) {
     reset();
   }
 
+  function click(event: MouseEvent): void {
+    if (!swallowClick) return;
+    swallowClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  }
+
+  node.addEventListener('click', click, true);
   node.addEventListener('pointerdown', down);
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', up);
@@ -58,6 +68,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions) {
       options = next;
     },
     destroy() {
+      node.removeEventListener('click', click, true);
       node.removeEventListener('pointerdown', down);
       node.removeEventListener('pointermove', move);
       node.removeEventListener('pointerup', up);
