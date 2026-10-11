@@ -25,7 +25,7 @@ export function shortcut(event: KeyboardEvent): void {
   if (move !== undefined) {
     event.preventDefault();
     const index = focused ? rows.indexOf(focused) : -1;
-    rows[Math.min(Math.max(index + move, 0), rows.length - 1)]?.focus();
+    rows[Math.min(Math.max(index + move, 0), rows.length - 1)]?.querySelector<HTMLElement>('.open')?.focus();
     return;
   }
   const target = app.reminders.find((reminder) => reminder.id === focused?.dataset.reminder);

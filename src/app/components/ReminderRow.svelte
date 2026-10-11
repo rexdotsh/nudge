@@ -36,6 +36,7 @@
   </div>
   <div
     class="content"
+    data-reminder={reminder.id}
     class:dragging={offset !== 0}
     style:transform="translateX({offset}px)"
     use:swipe={{
@@ -50,7 +51,7 @@
       label={`Complete ${reminder.title}`}
       onToggle={() => void complete(reminder)}
     />
-    <button class="open" data-reminder={reminder.id} onclick={() => ui.edit(reminder.id)}>
+    <button class="open" onclick={() => ui.edit(reminder.id)}>
       <span class="text">
         <span class="title"
           >{reminder.title}{#if reminder.important}<span class="flag" aria-label="Important">!</span>{/if}</span
