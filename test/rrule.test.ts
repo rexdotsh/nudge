@@ -279,6 +279,25 @@ describe('nextOccurrence', () => {
     expect(expand(formatRule(rule), '2026-10-11T09:00')).toEqual(dates('2026-10-11', '2026-10-12', '2026-10-13'));
   });
 
+  test('finds sparse occurrences years away, even for hourly rules', () => {
+    expect(expand('FREQ=HOURLY;BYMONTH=2;BYMONTHDAY=29', '2026-03-01T09:00', 2, 'UTC')).toEqual([
+      '2028-02-29T00:00',
+      '2028-02-29T01:00',
+    ]);
+    expect(expand('FREQ=YEARLY;INTERVAL=3;BYMONTH=2;BYMONTHDAY=29', '2025-01-01T09:00', 2, 'UTC')).toEqual([
+      '2028-02-29T09:00',
+      '2040-02-29T09:00',
+    ]);
+  });
+
+  test('gives up on impossible rules quickly', () => {
+    const started = performance.now();
+    expect(
+      nextOccurrence(parseRule('FREQ=HOURLY;BYMONTH=2;BYMONTHDAY=30'), local('2026-01-01T09:00'), 'UTC', 0),
+    ).toBeNull();
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
   test('ends for rules that can never match', () => {
     expect(
       nextOccurrence(parseRule('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30'), local('2026-01-01T09:00'), NY, 0),
@@ -312,6 +331,9 @@ describe('parse and format', () => {
       'FREQ=DAILY;WKST=SU',
       'FREQ=DAILY;FREQ=WEEKLY',
       'FREQ=DAILY;UNTIL=20261231',
+      'FREQ=DAILY;UNTIL=20260230T000000Z',
+      'FREQ=DAILY;UNTIL=20261231T240000Z',
+      'FREQ=HOURLY;BYHOUR=9',
     ]) {
       expect(() => parseRule(text)).toThrow(RuleError);
     }

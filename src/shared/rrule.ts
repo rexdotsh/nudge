@@ -70,17 +70,29 @@ function parseByDay(value: string): ByDay[] {
   });
 }
 
+function formatUntil(instant: number): string {
+  return new Date(instant)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
+}
+
 function parseUntil(value: string): number {
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value);
-  if (!match) throw new RuleError(`UNTIL must be a UTC date-time, got ${value}`);
-  return Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-    Number(match[6]),
-  );
+  const instant = match
+    ? Date.UTC(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        Number(match[4]),
+        Number(match[5]),
+        Number(match[6]),
+      )
+    : Number.NaN;
+  if (Number.isNaN(instant) || formatUntil(instant) !== value) {
+    throw new RuleError(`UNTIL must be a valid UTC date-time, got ${value}`);
+  }
+  return instant;
 }
 
 export function parseRule(text: string): Rule {
@@ -132,14 +144,10 @@ export function parseRule(text: string): Rule {
     }
   }
   if (parsed.count !== null && parsed.until !== null) throw new RuleError('COUNT and UNTIL are mutually exclusive');
+  if (freq === 'HOURLY' && parsed.byHour.length + parsed.byMinute.length + parsed.bySetPos.length > 0) {
+    throw new RuleError('HOURLY rules may only be limited by month and day');
+  }
   return parsed;
-}
-
-function formatUntil(instant: number): string {
-  return new Date(instant)
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d{3}/, '');
 }
 
 export function formatRule(value: Rule): string {
@@ -197,7 +205,7 @@ function expansion(value: Rule, start: LocalDateTime): Expansion {
     monthDays,
     days: nthApplies ? days : days.map(({ weekday: day }) => ({ weekday: day, nth: 0 })),
     nthWithinYear: value.freq === 'YEARLY' && months.length === 0,
-    hours: ascending(value.byHour.length > 0 || value.freq === 'HOURLY' ? value.byHour : [start.hour]),
+    hours: ascending(value.byHour.length > 0 ? value.byHour : [start.hour]),
     minutes: ascending(value.byMinute.length > 0 ? value.byMinute : [start.minute]),
     setPos: value.bySetPos,
   };
@@ -212,20 +220,26 @@ function range(first: number, length: number): number[] {
 interface Period {
   unit: (local: LocalDateTime) => number;
   days: (unit: number) => number[];
+  longestGap: (interval: number) => number;
 }
+
+const GREGORIAN_CYCLE_DAYS = 146_097;
 
 const PERIODS: Record<Frequency, Period> = {
   HOURLY: {
     unit: (local) => epochDay(local) * 24 + local.hour,
     days: (unit) => [Math.floor(unit / 24)],
+    longestGap: (interval) => GREGORIAN_CYCLE_DAYS * Math.ceil(interval / 24),
   },
   DAILY: {
     unit: (local) => epochDay(local),
     days: (unit) => [unit],
+    longestGap: (interval) => GREGORIAN_CYCLE_DAYS * interval,
   },
   WEEKLY: {
     unit: (local) => Math.floor((epochDay(local) - MONDAY_EPOCH_DAY) / 7),
     days: (unit) => range(unit * 7 + MONDAY_EPOCH_DAY, 7),
+    longestGap: (interval) => GREGORIAN_CYCLE_DAYS * interval,
   },
   MONTHLY: {
     unit: (local) => local.year * 12 + local.month - 1,
@@ -234,6 +248,7 @@ const PERIODS: Record<Frequency, Period> = {
       const month = unit - year * 12 + 1;
       return range(epochDay({ year, month, day: 1 }), daysInMonth(year, month));
     },
+    longestGap: (interval) => GREGORIAN_CYCLE_DAYS * interval,
   },
   YEARLY: {
     unit: (local) => local.year,
@@ -241,14 +256,9 @@ const PERIODS: Record<Frequency, Period> = {
       const first = epochDay({ year: unit, month: 1, day: 1 });
       return range(first, epochDay({ year: unit + 1, month: 1, day: 1 }) - first);
     },
+    longestGap: (interval) => GREGORIAN_CYCLE_DAYS * interval,
   },
 };
-
-function hoursOf(plan: Expansion, unit: number): number[] {
-  if (plan.freq !== 'HOURLY') return plan.hours;
-  const hour = unit % 24;
-  return plan.hours.length === 0 || plan.hours.includes(hour) ? [hour] : [];
-}
 
 function matchesNth(nth: number, index: number, length: number): boolean {
   return nth === Math.ceil(index / 7) || nth === -Math.ceil((length - index + 1) / 7);
@@ -274,7 +284,7 @@ function dayMatches(plan: Expansion, day: number, date: LocalDate): boolean {
 }
 
 function candidates(plan: Expansion, unit: number): LocalDateTime[] {
-  const hours = hoursOf(plan, unit);
+  const hours = plan.freq === 'HOURLY' ? [unit % 24] : plan.hours;
   const found: LocalDateTime[] = [];
   for (const day of PERIODS[plan.freq].days(unit)) {
     const date = fromEpochDay(day);
@@ -288,29 +298,39 @@ function candidates(plan: Expansion, unit: number): LocalDateTime[] {
     .toSorted((a, b) => wallMs(a) - wallMs(b));
 }
 
-const MAX_EMPTY_PERIODS = 5000;
+function nextUnit(plan: Expansion, unit: number, firstUnit: number): number {
+  if (plan.freq !== 'HOURLY') return unit + plan.interval;
+  const day = Math.floor(unit / 24);
+  if (dayMatches(plan, day, fromEpochDay(day))) return unit + plan.interval;
+  return firstUnit + Math.ceil(((day + 1) * 24 - firstUnit) / plan.interval) * plan.interval;
+}
 
 export function* occurrences(value: Rule, start: LocalDateTime, zone: string, after = -Infinity): Generator<number> {
   const plan = expansion(value, start);
-  const { unit } = PERIODS[plan.freq];
-  const firstUnit = unit(start);
+  const period = PERIODS[plan.freq];
+  const firstUnit = period.unit(start);
   const startWall = wallMs(start);
-  let period = 0;
+  const longestGap = period.longestGap(plan.interval);
+  let current = firstUnit;
   if (value.count === null && after > -Infinity) {
-    const behind = Math.floor((unit(toLocal(after, zone)) - firstUnit) / plan.interval) - 1;
-    period = Math.max(0, behind);
+    const behind = Math.floor((period.unit(toLocal(after, zone)) - firstUnit) / plan.interval) - 1;
+    current = firstUnit + Math.max(0, behind) * plan.interval;
   }
+  let progressDay = period.days(current)[0] ?? epochDay(start);
   let emitted = 0;
   let previous = -Infinity;
-  for (let empty = 0; empty < MAX_EMPTY_PERIODS; period++) {
-    empty++;
-    for (const local of candidates(plan, firstUnit + period * plan.interval)) {
+  for (
+    ;
+    (period.days(current)[0] ?? progressDay) - progressDay <= longestGap;
+    current = nextUnit(plan, current, firstUnit)
+  ) {
+    for (const local of candidates(plan, current)) {
       if (wallMs(local) < startWall) continue;
       const instant = toInstant(local, zone);
       if (instant === previous) continue;
       if (value.until !== null && instant > value.until) return;
       previous = instant;
-      empty = 0;
+      progressDay = epochDay(local);
       emitted++;
       if (instant > after) yield instant;
       if (value.count !== null && emitted >= value.count) return;
