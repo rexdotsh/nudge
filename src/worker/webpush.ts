@@ -1,6 +1,6 @@
 import { BASE64URL, utf8 } from '../shared/encoding';
 import { isRecord } from '../shared/validate';
-import { memoize } from './memoize';
+import { memoize } from '../shared/memoize';
 
 export interface PushTarget {
   endpoint: string;
@@ -38,7 +38,13 @@ const PUSH_SERVICE_HOSTS = [
 
 export function isPushServiceEndpoint(endpoint: string): boolean {
   const url = URL.parse(endpoint);
-  return url?.protocol === 'https:' && PUSH_SERVICE_HOSTS.some((host) => host.test(url.hostname));
+  return (
+    url?.protocol === 'https:' &&
+    url.port === '' &&
+    url.username === '' &&
+    url.password === '' &&
+    PUSH_SERVICE_HOSTS.some((host) => host.test(url.hostname))
+  );
 }
 
 interface PrivateEcJwk {
@@ -92,11 +98,19 @@ async function hkdf(
   return new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, bytes * 8));
 }
 
+const RECORD_SIZE = 4096;
+const HEADER_BYTES = 86;
+const TAG_BYTES = 16;
+export const MAX_PUSH_PLAINTEXT = RECORD_SIZE - HEADER_BYTES - TAG_BYTES - 1;
+
 export async function encrypt(
   plaintext: Uint8Array,
   target: Pick<PushTarget, 'p256dh' | 'auth'>,
   salt: Uint8Array<ArrayBuffer> = crypto.getRandomValues(new Uint8Array(16)),
 ): Promise<Uint8Array<ArrayBuffer>> {
+  if (plaintext.length > MAX_PUSH_PLAINTEXT) {
+    throw new RangeError(`push payload is ${plaintext.length} bytes, the limit is ${MAX_PUSH_PLAINTEXT}`);
+  }
   const uaPublic = Uint8Array.fromBase64(target.p256dh, BASE64URL);
   const local = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
   if (!('privateKey' in local)) throw new Error('ECDH generateKey did not return a key pair');
@@ -129,7 +143,7 @@ export async function encrypt(
 
   const header = new Uint8Array(21 + asPublic.length);
   header.set(salt);
-  new DataView(header.buffer).setUint32(16, 4096);
+  new DataView(header.buffer).setUint32(16, RECORD_SIZE);
   header[20] = asPublic.length;
   header.set(asPublic, 21);
   return concat(header, new Uint8Array(record));
@@ -137,10 +151,20 @@ export async function encrypt(
 
 const JWT_LIFETIME = 12 * 3600_000;
 const JWT_RENEW_BEFORE = 3600_000;
-const jwts = new Map<string, { token: string; expires: number }>();
+const jwts = new Map<string, { token: Promise<string>; expires: number }>();
 
 function jwtPart(value: object): string {
   return utf8(JSON.stringify(value)).toBase64(BASE64URL);
+}
+
+async function signJwt(aud: string, sender: Sender, expires: number): Promise<string> {
+  const unsigned = `${jwtPart({ typ: 'JWT', alg: 'ES256' })}.${jwtPart({ aud, exp: Math.floor(expires / 1000), sub: sender.subject })}`;
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    await sender.keys.privateKey,
+    utf8(unsigned),
+  );
+  return `${unsigned}.${new Uint8Array(signature).toBase64(BASE64URL)}`;
 }
 
 export async function vapidAuthorization(endpoint: string, sender: Sender, now = Date.now()): Promise<string> {
@@ -149,16 +173,14 @@ export async function vapidAuthorization(endpoint: string, sender: Sender, now =
   let jwt = jwts.get(cacheKey);
   if (!jwt || jwt.expires - now < JWT_RENEW_BEFORE) {
     const expires = now + JWT_LIFETIME;
-    const unsigned = `${jwtPart({ typ: 'JWT', alg: 'ES256' })}.${jwtPart({ aud, exp: Math.floor(expires / 1000), sub: sender.subject })}`;
-    const signature = await crypto.subtle.sign(
-      { name: 'ECDSA', hash: 'SHA-256' },
-      await sender.keys.privateKey,
-      utf8(unsigned),
-    );
-    jwt = { token: `${unsigned}.${new Uint8Array(signature).toBase64(BASE64URL)}`, expires };
+    const token = signJwt(aud, sender, expires);
+    jwt = { token, expires };
     jwts.set(cacheKey, jwt);
+    void token.catch(() => {
+      if (jwts.get(cacheKey)?.token === token) jwts.delete(cacheKey);
+    });
   }
-  return `vapid t=${jwt.token}, k=${sender.keys.publicKey}`;
+  return `vapid t=${await jwt.token}, k=${sender.keys.publicKey}`;
 }
 
 export async function sendPush(
@@ -167,6 +189,7 @@ export async function sendPush(
   sender: Sender,
   options: PushOptions,
 ): Promise<PushResult> {
+  if (!isPushServiceEndpoint(target.endpoint)) throw new Error('refusing to push to a non push service endpoint');
   const [body, authorization] = await Promise.all([
     encrypt(utf8(json), target),
     vapidAuthorization(target.endpoint, sender),

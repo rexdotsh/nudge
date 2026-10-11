@@ -1,5 +1,5 @@
 import { BASE64URL, utf8 } from '../shared/encoding';
-import { memoize } from './memoize';
+import { memoize } from '../shared/memoize';
 
 const hmacKey = memoize((secret) =>
   crypto.subtle.importKey('raw', utf8(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']),

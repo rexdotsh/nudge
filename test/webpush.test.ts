@@ -1,12 +1,30 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { decrypt } from 'http_ece';
 import { createECDH } from 'node:crypto';
 import { BASE64URL, utf8 } from '../src/shared/encoding';
-import { encrypt, isPushServiceEndpoint, vapidAuthorization, vapidKeys } from '../src/worker/webpush';
+import {
+  MAX_PUSH_PLAINTEXT,
+  encrypt,
+  isPushServiceEndpoint,
+  sendPush,
+  vapidAuthorization,
+  vapidKeys,
+} from '../src/worker/webpush';
 
 async function newVapidJwk(): Promise<string> {
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   return JSON.stringify(await crypto.subtle.exportKey('jwk', pair.privateKey));
+}
+
+function newReceiver() {
+  const ecdh = createECDH('prime256v1');
+  ecdh.generateKeys();
+  const auth = crypto.getRandomValues(new Uint8Array(16));
+  return {
+    ecdh,
+    auth,
+    target: { p256dh: new Uint8Array(ecdh.getPublicKey()).toBase64(BASE64URL), auth: auth.toBase64(BASE64URL) },
+  };
 }
 
 function decodeJson(part: string): unknown {
@@ -15,43 +33,38 @@ function decodeJson(part: string): unknown {
 
 describe('encrypt', () => {
   test('round-trips through the RFC 8188 reference implementation', async () => {
-    const receiver = createECDH('prime256v1');
-    receiver.generateKeys();
-    const auth = crypto.getRandomValues(new Uint8Array(16));
+    const receiver = newReceiver();
     const plaintext = JSON.stringify({ title: 'Pay rent 🏠', body: 'x'.repeat(2000) });
 
-    const body = await encrypt(utf8(plaintext), {
-      p256dh: new Uint8Array(receiver.getPublicKey()).toBase64(BASE64URL),
-      auth: auth.toBase64(BASE64URL),
-    });
+    const body = await encrypt(utf8(plaintext), receiver.target);
     const decrypted = decrypt(Buffer.from(body), {
       version: 'aes128gcm',
-      privateKey: receiver,
-      authSecret: Buffer.from(auth),
+      privateKey: receiver.ecdh,
+      authSecret: Buffer.from(receiver.auth),
     });
 
     expect(decrypted.toString()).toBe(plaintext);
   });
 
   test('writes the aes128gcm header with the given salt and a 4096 record size', async () => {
-    const receiver = createECDH('prime256v1');
-    receiver.generateKeys();
     const salt = crypto.getRandomValues(new Uint8Array(16));
-
-    const body = await encrypt(
-      utf8('hi'),
-      {
-        p256dh: new Uint8Array(receiver.getPublicKey()).toBase64(BASE64URL),
-        auth: crypto.getRandomValues(new Uint8Array(16)).toBase64(BASE64URL),
-      },
-      salt,
-    );
+    const body = await encrypt(utf8('hi'), newReceiver().target, salt);
 
     expect(body.subarray(0, 16)).toEqual(salt);
     expect(new DataView(body.buffer).getUint32(16)).toBe(4096);
     expect(body[20]).toBe(65);
     expect(body[21]).toBe(4);
     expect(body.length).toBe(21 + 65 + 'hi'.length + 1 + 16);
+  });
+
+  test('fills a push body up to 4096 bytes and rejects anything larger', async () => {
+    const receiver = newReceiver();
+    const largest = await encrypt(new Uint8Array(MAX_PUSH_PLAINTEXT), receiver.target);
+
+    expect(largest.length).toBe(4096);
+    expect(
+      await encrypt(new Uint8Array(MAX_PUSH_PLAINTEXT + 1), receiver.target).catch((error: unknown) => error),
+    ).toBeInstanceOf(RangeError);
   });
 });
 
@@ -103,6 +116,16 @@ describe('vapidAuthorization', () => {
     expect(await vapidAuthorization(endpoint, sender, start + 11.5 * 3600_000)).not.toBe(first);
   });
 
+  test('concurrent callers share one signature', async () => {
+    const sender = { keys: vapidKeys(await newVapidJwk()), subject: 'https://example.com' };
+    const now = Date.UTC(2026, 0, 1);
+    const headers = await Promise.all(
+      Array.from({ length: 5 }, () => vapidAuthorization('https://web.push.apple.com/a', sender, now)),
+    );
+
+    expect(new Set(headers).size).toBe(1);
+  });
+
   test('rejects keys that are not P-256 private JWKs', () => {
     expect(() => vapidKeys(JSON.stringify({ kty: 'EC', crv: 'P-256', x: 'a', y: 'b' }))).toThrow();
   });
@@ -116,5 +139,21 @@ test('isPushServiceEndpoint only accepts https endpoints of known push services'
   expect(isPushServiceEndpoint('http://web.push.apple.com/abc')).toBe(false);
   expect(isPushServiceEndpoint('https://evil.example/web.push.apple.com')).toBe(false);
   expect(isPushServiceEndpoint('https://push.apple.com.evil.example/abc')).toBe(false);
+  expect(isPushServiceEndpoint('https://web.push.apple.com:8443/abc')).toBe(false);
+  expect(isPushServiceEndpoint('https://user:pass@web.push.apple.com/abc')).toBe(false);
   expect(isPushServiceEndpoint('not a url')).toBe(false);
+});
+
+test('sendPush never contacts endpoints outside the allowlist', async () => {
+  const fetchSpy = spyOn(globalThis, 'fetch');
+  const sender = { keys: vapidKeys(await newVapidJwk()), subject: 'https://example.com' };
+  const target = { ...newReceiver().target, endpoint: 'https://attacker.example/collect' };
+
+  const outcome = await sendPush(target, '{}', sender, { ttl: 60, urgency: 'high', topic: 't' }).catch(
+    (error: unknown) => error,
+  );
+
+  expect(outcome).toBeInstanceOf(Error);
+  expect(fetchSpy).not.toHaveBeenCalled();
+  fetchSpy.mockRestore();
 });
