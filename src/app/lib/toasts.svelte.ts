@@ -1,4 +1,4 @@
-export interface Toast {
+interface Toast {
   id: number;
   message: string;
   undo?: () => void;

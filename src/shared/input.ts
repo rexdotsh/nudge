@@ -5,7 +5,7 @@ import { isTimeZone, parseLocal } from './time';
 import { isUlid } from './ulid';
 import { isInteger, isRecord, isText } from './validate';
 
-export const LIMITS = {
+const LIMITS = {
   title: 200,
   notes: 4000,
   alerts: 4,

@@ -62,7 +62,7 @@ export function fireId(reminderId: string, at: number): string {
   return `${reminderId}@${at}`;
 }
 
-export function occurrenceTag(reminderId: string, due: string): string {
+function occurrenceTag(reminderId: string, due: string): string {
   return `${reminderId}:${due}`;
 }
 

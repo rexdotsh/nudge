@@ -4,7 +4,7 @@ import { MINUTE_MS } from './time';
 export const NAG_INTERVAL_MS = 15 * MINUTE_MS;
 export const NAG_LIMIT = 8;
 
-export type Alert = 'early' | 'due' | 'snoozed' | 'nag';
+type Alert = 'early' | 'due' | 'snoozed' | 'nag';
 
 export interface Notice {
   alert: Alert;
