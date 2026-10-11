@@ -25,6 +25,7 @@ Bun is the only package manager and script runner. Never use npm, pnpm or yarn. 
 
 ```
 src/shared   contracts and helpers used by more than one runtime (API types, base64, ids)
+src/browser  code shared by the two browser runtimes, the app and the service worker (IndexedDB, API client)
 src/worker   Worker entry, Durable Object, scheduling, push delivery, alerts
 src/app      Svelte 5 client
 src/sw       service worker (cache, push, notification actions)
@@ -32,7 +33,7 @@ scripts      one-off tooling (icons, secrets)
 test         bun tests
 ```
 
-Code that runs in more than one runtime belongs in `src/shared`. Nothing in `src/shared` may import from another `src` folder.
+Code that runs in more than one runtime belongs in `src/shared`; code shared only by the app and the service worker belongs in `src/browser`. Nothing in `src/shared` may import from another `src` folder, and `src/browser` may import only from `src/shared`.
 
 ## Architecture invariants
 
