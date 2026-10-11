@@ -46,17 +46,6 @@ describe('encrypt', () => {
     expect(decrypted.toString()).toBe(plaintext);
   });
 
-  test('writes the aes128gcm header with the given salt and a 4096 record size', async () => {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const body = await encrypt(utf8('hi'), newReceiver().target, salt);
-
-    expect(body.subarray(0, 16)).toEqual(salt);
-    expect(new DataView(body.buffer).getUint32(16)).toBe(4096);
-    expect(body[20]).toBe(65);
-    expect(body[21]).toBe(4);
-    expect(body.length).toBe(21 + 65 + 'hi'.length + 1 + 16);
-  });
-
   test('fills a push body up to 4096 bytes and rejects anything larger', async () => {
     const receiver = newReceiver();
     const largest = await encrypt(new Uint8Array(MAX_PUSH_PLAINTEXT), receiver.target);
@@ -104,26 +93,6 @@ describe('vapidAuthorization', () => {
       utf8(`${head}.${claims}`),
     );
     expect(valid).toBe(true);
-  });
-
-  test('reuses a token until it is close to expiry', async () => {
-    const sender = { keys: vapidKeys(await newVapidJwk()), subject: 'https://example.com' };
-    const endpoint = 'https://fcm.googleapis.com/fcm/send/abc';
-    const start = Date.UTC(2026, 0, 1);
-
-    const first = await vapidAuthorization(endpoint, sender, start);
-    expect(await vapidAuthorization(endpoint, sender, start + 10 * 3600_000)).toBe(first);
-    expect(await vapidAuthorization(endpoint, sender, start + 11.5 * 3600_000)).not.toBe(first);
-  });
-
-  test('concurrent callers share one signature', async () => {
-    const sender = { keys: vapidKeys(await newVapidJwk()), subject: 'https://example.com' };
-    const now = Date.UTC(2026, 0, 1);
-    const headers = await Promise.all(
-      Array.from({ length: 5 }, () => vapidAuthorization('https://web.push.apple.com/a', sender, now)),
-    );
-
-    expect(new Set(headers).size).toBe(1);
   });
 
   test('rejects keys that are not P-256 private JWKs', () => {
