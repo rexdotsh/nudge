@@ -77,11 +77,10 @@ export function parseOp(value: unknown): Op | null {
     case 'complete':
     case 'skip':
       return occurrence === null ? null : { type, id, due: occurrence };
-    case 'reopen': {
-      const from =
-        value.from === null ? null : isText(value.from, 16) && parseLocal(value.from) ? value.from : undefined;
-      return occurrence === null || from === undefined ? null : { type, id, due: occurrence, from };
-    }
+    case 'reopen':
+      return occurrence !== null && isInteger(value.revision, 1, Number.MAX_SAFE_INTEGER)
+        ? { type, id, due: occurrence, revision: value.revision }
+        : null;
     case 'snooze':
       return occurrence && isInteger(value.until, 0, 8.64e15)
         ? { type, id, due: occurrence, until: value.until }

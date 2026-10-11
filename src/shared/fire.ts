@@ -40,7 +40,9 @@ function earliest(reminder: Reminder, zone: string): Step | null {
   const steps = alertSteps(reminder, due);
   if (next !== null) steps.push({ at: instantOf(reminder, next, zone), roll: next });
   let first: Step | null = null;
-  for (const step of steps) if (!first || step.at < first.at) first = step;
+  for (const step of steps) {
+    if (!first || step.at < first.at || (step.at === first.at && 'roll' in step)) first = step;
+  }
   return first;
 }
 
@@ -55,6 +57,7 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
     if ('roll' in step) {
       current.due = step.roll;
       current.missed += 1;
+      current.revision += 1;
       if (current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
       continue;
     }

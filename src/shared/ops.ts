@@ -5,7 +5,7 @@ export type Op =
   | { type: 'complete'; id: string; due: string }
   | { type: 'skip'; id: string; due: string }
   | { type: 'snooze'; id: string; due: string; until: number }
-  | { type: 'reopen'; id: string; due: string; from: string | null }
+  | { type: 'reopen'; id: string; due: string; revision: number }
   | { type: 'delete'; id: string }
   | { type: 'restore'; id: string };
 
@@ -26,7 +26,7 @@ function put(current: Reminder | undefined, id: string, fields: ReminderFields, 
       sameAlerts(current, fields) || due === null
         ? current.firedThrough
         : Math.max(current.firedThrough, Math.min(now, due - 1));
-    return { ...current, ...fields, firedThrough, updatedAt: now };
+    return { ...current, ...fields, firedThrough, revision: current.revision + 1, updatedAt: now };
   }
   return {
     ...fields,
@@ -34,6 +34,7 @@ function put(current: Reminder | undefined, id: string, fields: ReminderFields, 
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
     deleted: current?.deleted ?? false,
+    revision: (current?.revision ?? 0) + 1,
     due: firstDue(fields, now, zone),
     missed: 0,
     snoozedUntil: null,
@@ -45,6 +46,7 @@ function put(current: Reminder | undefined, id: string, fields: ReminderFields, 
 function settle(current: Reminder, due: string | null, now: number): Reminder {
   return {
     ...current,
+    revision: current.revision + 1,
     due,
     missed: 0,
     snoozedUntil: null,
@@ -66,13 +68,13 @@ export function applyOp(current: Reminder | undefined, op: Op, clock: Clock): Re
       return settle(current, dueAfterCompletion(current, now, zone), now);
     case 'snooze':
       if (current.due !== op.due) return null;
-      return { ...current, snoozedUntil: op.until, updatedAt: now };
+      return { ...current, snoozedUntil: op.until, revision: current.revision + 1, updatedAt: now };
     case 'reopen':
-      if (current.due !== op.from) return null;
+      if (current.revision !== op.revision) return null;
       return { ...settle(current, op.due, now), completedAt: null };
     case 'delete':
     case 'restore':
-      return { ...current, deleted: op.type === 'delete', updatedAt: now };
+      return { ...current, deleted: op.type === 'delete', revision: current.revision + 1, updatedAt: now };
     default: {
       const unhandled: never = op;
       return unhandled;

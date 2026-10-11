@@ -29,6 +29,7 @@ export interface ReminderFields {
 }
 
 export interface ReminderState {
+  revision: number;
   due: string | null;
   missed: number;
   snoozedUntil: number | null;

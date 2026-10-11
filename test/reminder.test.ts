@@ -120,20 +120,30 @@ describe('complete, skip, snooze, reopen', () => {
 
   test('reopen restores an occurrence, which is how undo works', () => {
     const done = apply(create(), { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:05');
-    const undone = apply(done, { type: 'reopen', id: ID, due: '2026-10-12T09:00', from: null }, '2026-10-12T09:06');
+    const undone = apply(
+      done,
+      { type: 'reopen', id: ID, due: '2026-10-12T09:00', revision: done.revision },
+      '2026-10-12T09:06',
+    );
     expect(undone.due).toBe('2026-10-12T09:00');
     expect(undone.completedAt).toBeNull();
   });
 
   test('a replayed reopen cannot rewind state that moved on since', () => {
-    const series = create({ start: '2026-10-12T09:00', repeat: daily });
-    const first = apply(series, { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:05');
-    const undo = { type: 'reopen', id: ID, due: '2026-10-12T09:00', from: '2026-10-13T09:00' } as const;
-    const reopened = apply(first, undo, '2026-10-12T09:06');
-    const again = apply(reopened, { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:07');
-    expect(again.due).toBe('2026-10-13T09:00');
-    const later = apply(again, { type: 'complete', id: ID, due: '2026-10-13T09:00' }, '2026-10-13T09:05');
-    expect(applyOp(later, undo, { now: at('2026-10-13T09:06'), zone: ZONE })).toBeNull();
+    const done = apply(create(), { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:05');
+    const undo = { type: 'reopen', id: ID, due: '2026-10-12T09:00', revision: done.revision } as const;
+    const reopened = apply(done, undo, '2026-10-12T09:06');
+    const doneAgain = apply(reopened, { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:07');
+    expect(doneAgain.due).toBeNull();
+    expect(applyOp(doneAgain, undo, { now: at('2026-10-12T09:08'), zone: ZONE })).toBeNull();
+  });
+
+  test('every applied op and roll bumps the revision', () => {
+    const reminder = create({ repeat: daily });
+    expect(reminder.revision).toBe(1);
+    const snoozed = apply(reminder, { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: 0 }, '2026-10-12T09:01');
+    expect(snoozed.revision).toBe(2);
+    expect(fire(snoozed, at('2026-10-13T09:00'), ZONE).reminder.revision).toBe(3);
   });
 
   test('delete and restore only toggle the tombstone', () => {
@@ -238,6 +248,18 @@ describe('firing', () => {
     expect(woke.notice).toMatchObject({ alert: 'snoozed', due: '2026-10-13T09:00', missed: 1 });
   });
 
+  test('when a snooze ends exactly at the next occurrence, the notice is for the new occurrence', () => {
+    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE).reminder;
+    const snoozed = apply(
+      series,
+      { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-13T09:00') },
+      '2026-10-12T09:05',
+    );
+    const result = fire(snoozed, at('2026-10-13T09:00'), ZONE);
+    expect(result.reminder.due).toBe('2026-10-13T09:00');
+    expect(result.notice).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
+  });
+
   test('a late alarm sends one notice for the latest step, not a burst', () => {
     const late = fire(create({ repeat: daily, alerts: [30] }), at('2026-10-15T09:10'), ZONE);
     expect(late.reminder.due).toBe('2026-10-15T09:00');
@@ -304,7 +326,7 @@ describe('input validation', () => {
     });
     expect(parseOp({ type: 'snooze', id: ID, due: '2026-10-12T09:00', until: 5 })?.type).toBe('snooze');
     expect(parseOp({ type: 'delete', id: ID })).toEqual({ type: 'delete', id: ID });
-    expect(parseOp({ type: 'reopen', id: ID, due: '2026-10-12T09:00', from: null })?.type).toBe('reopen');
+    expect(parseOp({ type: 'reopen', id: ID, due: '2026-10-12T09:00', revision: 3 })?.type).toBe('reopen');
     expect(parseOp({ type: 'reopen', id: ID, due: '2026-10-12T09:00' })).toBeNull();
     expect(parseOp({ type: 'complete', id: ID })).toBeNull();
     expect(parseOp({ type: 'explode', id: ID })).toBeNull();
