@@ -11,7 +11,6 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
     install_key TEXT NOT NULL UNIQUE,
-    enrolled_with TEXT NOT NULL,
     label TEXT NOT NULL,
     platform TEXT NOT NULL,
     zone TEXT NOT NULL,
@@ -36,6 +35,13 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS reminders_by_version ON reminders (version)`,
   `CREATE INDEX IF NOT EXISTS reminders_by_fire_at ON reminders (fire_at) WHERE fire_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS enrollments (
+    credential TEXT NOT NULL,
+    install_key TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    PRIMARY KEY (credential, install_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS test_requests (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS deliveries (
     fire TEXT NOT NULL,
     device_id TEXT NOT NULL,
@@ -60,7 +66,6 @@ const SCHEMA_VERSION = '1';
 export type DeviceRow = {
   id: string;
   install_key: string;
-  enrolled_with: string;
   label: string;
   platform: Platform;
   zone: string;
@@ -246,13 +251,42 @@ export class Store {
     return this.sql.exec<DeviceRow>('SELECT * FROM devices WHERE revoked = 0 ORDER BY created_at').toArray();
   }
 
-  addDevice(id: string, input: DeviceInput, enrolledWith: string, now: number): void {
+  enrolledDevice(credential: string, installKey: string): DeviceRow | undefined {
+    return first(
+      this.sql
+        .exec<DeviceRow>(
+          `SELECT devices.* FROM enrollments JOIN devices ON devices.id = enrollments.device_id
+           WHERE enrollments.credential = ? AND enrollments.install_key = ? AND devices.revoked = 0`,
+          credential,
+          installKey,
+        )
+        .toArray(),
+    );
+  }
+
+  recordEnrollment(credential: string, installKey: string, deviceId: string): void {
     this.sql.exec(
-      `INSERT INTO devices (id, install_key, enrolled_with, label, platform, zone, locale, created_at, seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      'INSERT INTO enrollments (credential, install_key, device_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+      credential,
+      installKey,
+      deviceId,
+    );
+  }
+
+  testRequest(id: string): number | null {
+    return first(this.sql.exec<{ at: number }>('SELECT at FROM test_requests WHERE id = ?', id).toArray())?.at ?? null;
+  }
+
+  recordTestRequest(id: string, at: number): void {
+    this.sql.exec('INSERT INTO test_requests (id, at) VALUES (?, ?)', id, at);
+  }
+
+  addDevice(id: string, input: DeviceInput, now: number): void {
+    this.sql.exec(
+      `INSERT INTO devices (id, install_key, label, platform, zone, locale, created_at, seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.key,
-      enrolledWith,
       input.label,
       input.platform,
       input.zone,
@@ -267,7 +301,11 @@ export class Store {
   }
 
   revokeDevice(id: string): void {
-    this.sql.exec('UPDATE devices SET revoked = 1, endpoint = NULL, p256dh = NULL, auth = NULL WHERE id = ?', id);
+    this.sql.exec(
+      `UPDATE devices SET revoked = 1, install_key = install_key || ':revoked:' || id,
+         endpoint = NULL, p256dh = NULL, auth = NULL WHERE id = ?`,
+      id,
+    );
   }
 
   setSubscription(id: string, keys: PushKeys | null): void {
@@ -320,15 +358,6 @@ export class Store {
     );
   }
 
-  scheduledAt(fire: string): number | null {
-    const row = first(
-      this.sql
-        .exec<{ at: number | null }>('SELECT MIN(scheduled_at) AS at FROM deliveries WHERE fire = ?', fire)
-        .toArray(),
-    );
-    return row?.at ?? null;
-  }
-
   pendingCount(firePrefix: string): number {
     return this.count(
       "SELECT COUNT(DISTINCT fire) AS count FROM deliveries WHERE sends = 0 AND next_at IS NOT NULL AND fire LIKE ? || '%'",
@@ -367,7 +396,8 @@ export class Store {
 
   release(row: DeliveryRow, nextAt: number | null): void {
     this.sql.exec(
-      'UPDATE deliveries SET next_at = ?, lease = NULL WHERE fire = ? AND device_id = ? AND lease = ?',
+      `UPDATE deliveries SET next_at = CASE WHEN receipt_at IS NULL THEN ? ELSE NULL END, lease = NULL
+       WHERE fire = ? AND device_id = ? AND lease = ?`,
       nextAt,
       row.fire,
       row.device_id,

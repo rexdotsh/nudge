@@ -180,13 +180,24 @@ describe('enrollment', () => {
     });
   });
 
-  test('a fresh code used by an already-enrolled install is consumed', async () => {
+  test('a fresh code used by an already-enrolled install is consumed, and its retry still works', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const laptop = device('Windows PC');
-    await h.ok('join', { code: (await h.ok('pair', null, deviceId)).code, device: laptop });
+    const joined = await h.ok('join', { code: (await h.ok('pair', null, deviceId)).code, device: laptop });
     const { code } = await h.ok('pair', null, deviceId);
     await h.ok('join', { code, device: laptop });
+    await h.ok('pair', null, deviceId);
+    expect((await h.ok('join', { code, device: laptop })).deviceId).toBe(joined.deviceId);
     expect(await h.call('join', { code, device: device('Someone else') })).toEqual({ ok: false, error: 'forbidden' });
+  });
+
+  test('a revoked install can enroll again as a new device', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    const laptop = device('Windows PC');
+    const first = await h.ok('join', { code: (await h.ok('pair', null, deviceId)).code, device: laptop });
+    await h.ok('revoke', { id: first.deviceId }, deviceId);
+    const again = await h.ok('join', { code: (await h.ok('pair', null, deviceId)).code, device: laptop });
+    expect(again.deviceId).not.toBe(first.deviceId);
   });
 
   test('ten failures lock enrollment for fifteen minutes', async () => {
@@ -302,6 +313,20 @@ describe('delivery', () => {
     expect(h.state.alarm).toBeNull();
   });
 
+  test('a receipt that lands while an escalation alert is failing ends the work', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId);
+    await h.runAlarm();
+    await h.runAlarm();
+    h.state.failAlerts = true;
+    const fire = h.state.pushes[0]?.message.notification.data.fire;
+    const escalating = h.runAlarm();
+    await h.ok('receipt', { fire }, deviceId);
+    await escalating;
+    expect(h.state.alarm).toBeNull();
+  });
+
   test('a push that outlives its lease cannot undo the retry that replaced it', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
@@ -359,6 +384,9 @@ describe('delivery', () => {
     h.state.alarm = h.state.now + 40_000;
     await h.runAlarm();
     expect(h.state.pushes).toHaveLength(10);
+    h.state.now += 30 * 24 * 60 * MINUTE_MS;
+    await h.nudge.watchdog();
+    expect(await h.ok('test', { id: first, delay: 1 }, phone)).toEqual(original);
   });
 });
 

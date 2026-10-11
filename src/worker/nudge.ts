@@ -158,20 +158,22 @@ export class Nudge {
     const outcome = this.runtime.transaction((): { id: string } | ApiFailure => {
       const failures = this.recentFailures(now);
       if (failures.length >= FAILURE_LIMIT) return new ApiFailure('locked');
-      const existing = this.store.deviceByKey(device.key);
-      const valid = fresh();
-      if (!valid && !(existing && sameSecret(credential, existing.enrolled_with))) {
+      const replayed = this.store.enrolledDevice(credential, device.key);
+      if (replayed) return { id: replayed.id };
+      if (!fresh()) {
         this.store.setMeta('failures', JSON.stringify([...failures, now]));
         return new ApiFailure('forbidden');
       }
-      if (valid) consume();
+      consume();
       this.store.setMeta('failures', '[]');
-      if (existing) return { id: existing.id };
-      const created = ulid(now);
-      this.store.addDevice(created, device, credential, now);
-      if (this.store.meta('zone') === null) this.store.setMeta('zone', device.zone);
-      this.store.setMeta('locale', device.locale);
-      return { id: created };
+      const id = this.store.deviceByKey(device.key)?.id ?? ulid(now);
+      if (!this.store.device(id)) {
+        this.store.addDevice(id, device, now);
+        if (this.store.meta('zone') === null) this.store.setMeta('zone', device.zone);
+        this.store.setMeta('locale', device.locale);
+      }
+      this.store.recordEnrollment(credential, device.key, id);
+      return { id };
     });
     if (outcome instanceof ApiFailure) throw outcome;
     return { token: await issueToken(this.runtime.secrets.auth, outcome.id), deviceId: outcome.id };
@@ -197,12 +199,14 @@ export class Nudge {
   }
 
   private async scheduleTest(id: string, delay: number): Promise<{ at: number }> {
-    const fire = `test:${id}`;
-    const existing = this.store.scheduledAt(fire);
+    const existing = this.store.testRequest(id);
     if (existing !== null) return { at: existing };
     if (this.store.pendingCount('test:') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
     const at = this.runtime.now() + delay * 1000;
-    this.scheduler.queueTest(fire, at);
+    this.runtime.transaction(() => {
+      this.store.recordTestRequest(id, at);
+      this.scheduler.queueTest(`test:${id}`, at);
+    });
     await this.scheduler.rearm();
     return { at };
   }
