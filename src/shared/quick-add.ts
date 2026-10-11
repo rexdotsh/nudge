@@ -19,7 +19,7 @@ import {
 
 export type SpanKind = 'when' | 'repeat' | 'flag';
 
-export interface Span {
+interface Span {
   start: number;
   end: number;
   kind: SpanKind;

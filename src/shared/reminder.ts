@@ -29,7 +29,7 @@ export interface ReminderFields {
   alerts: number[];
 }
 
-export interface ReminderState {
+interface ReminderState {
   revision: number;
   due: string | null;
   missed: number;
@@ -45,7 +45,7 @@ export interface Reminder extends ReminderFields, ReminderState {
   deleted: boolean;
 }
 
-export const parsedRule = memoize(parseRule);
+const parsedRule = memoize(parseRule);
 
 export function local(text: string): LocalDateTime {
   const parsed = parseLocal(text);
@@ -53,7 +53,7 @@ export function local(text: string): LocalDateTime {
   return parsed;
 }
 
-export function zoneFor(fields: ReminderFields, currentZone: string): string {
+function zoneFor(fields: ReminderFields, currentZone: string): string {
   return fields.zone ?? currentZone;
 }
 

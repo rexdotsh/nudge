@@ -1,5 +1,11 @@
 import { request } from '../../browser/api';
-import { SOCKET_PROTOCOL, type ServerMessage, type SyncRequest, type SyncResponse } from '../../shared/api';
+import {
+  SOCKET_PROTOCOL,
+  type ClientMessage,
+  type ServerMessage,
+  type SyncRequest,
+  type SyncResponse,
+} from '../../shared/api';
 import { ulid } from '../../shared/ulid';
 import { isRecord } from '../../shared/validate';
 
@@ -63,7 +69,8 @@ export class Connection {
       this.waiting.set(ref, { resolve, reject });
       setTimeout(() => this.settle(ref, new Error('socket reply timed out')), REPLY_TIMEOUT_MS);
     });
-    socket.send(JSON.stringify({ kind: 'sync', ref, ...body }));
+    const message: ClientMessage = { kind: 'sync', ref, ...body };
+    socket.send(JSON.stringify(message));
     return reply.catch(() => request('sync', body));
   }
 

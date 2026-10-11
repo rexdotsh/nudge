@@ -12,7 +12,7 @@ import { DEVICE_LABELS, detectPlatform } from './platform';
 import { enablePush, pushState, syncSubscription, type PushState } from './push';
 import { Replica } from './replica';
 
-export type Phase = 'loading' | 'enroll' | 'ready';
+type Phase = 'loading' | 'enroll' | 'ready';
 
 const KEEPALIVE_BYTES = 48 * 1024;
 const TRAVEL_WINDOW_MS = 7 * DAY_MS;

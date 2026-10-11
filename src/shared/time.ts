@@ -49,7 +49,7 @@ function fromWallMs(ms: number): LocalDateTime {
   };
 }
 
-export function addMinutes(local: LocalDateTime, minutes: number): LocalDateTime {
+function addMinutes(local: LocalDateTime, minutes: number): LocalDateTime {
   return fromWallMs(wallMs(local) + minutes * MINUTE_MS);
 }
 

@@ -11,7 +11,7 @@ import {
   type LocalDateTime,
 } from './time';
 
-export const FREQUENCIES = ['HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'] as const;
+const FREQUENCIES = ['HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
 
 export interface ByDay {

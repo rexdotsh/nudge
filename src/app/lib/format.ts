@@ -30,7 +30,7 @@ export function daysFromToday(instant: number, now: number, zone: string): numbe
   return epochDay(toLocal(instant, zone)) - epochDay(toLocal(now, zone));
 }
 
-export function dayLabel(instant: number, now: number, zone: string): string {
+function dayLabel(instant: number, now: number, zone: string): string {
   const days = daysFromToday(instant, now, zone);
   if (days === 0) return 'Today';
   if (days === 1) return 'Tomorrow';
