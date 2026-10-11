@@ -9,7 +9,7 @@
     "lint": "oxlint --type-aware --deny-warnings",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "test": "bun test --pass-with-no-tests",
+    "test": "bun test",
     "icons": "bun scripts/icons.ts",
     "deploy": "bun run build && wrangler deploy"
   },
