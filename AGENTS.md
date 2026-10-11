@@ -60,6 +60,16 @@ The bar is the [thermo-nuclear code quality review](https://github.com/cursor/pl
 - **Fail loudly.** No silent catch-and-continue. Expected failures are typed results. Unexpected ones surface (and alert, on the server).
 - **Few dependencies.** Prefer platform APIs (WebCrypto, Intl, IndexedDB). Every new dependency needs a reason in the PR description.
 
+## Testing
+
+A test exists to catch a bug that would hurt someone. Before writing or keeping one, ask: if this broke in production, who would be hurt, and would nothing else catch it (types, lint, a look at the app)? If nobody, or something else would, don't write it.
+
+- **Write one for:** reminders that could fire late, twice or never (recurrence, time zones and DST, fire planning, scheduling, retries, receipts, leases, crash recovery); replays and idempotency (ops, the outbox, enrollment, op ids); security boundaries (tokens, enrollment, the push endpoint allowlist, input validation); data integrity (sync, migrations, tombstones); spec interop (Web Push encryption against the reference implementation); the quick-add parser, because what she types must become the reminder she meant.
+- **Never write one that:** pins a value (a label, copy, a CSS class, a colour, a pixel); restates the code; covers what types or lint guarantee; repeats another layer's test of the same rule (pick the cheapest layer that catches it); guards a cosmetic detail (layout, spacing, wording, order); tests UI components; or depends on timing or global state it doesn't control.
+- **When a test fails on a legitimate change, the test is usually wrong:** delete or rewrite it, don't patch in the new value.
+- **Bug fixes:** add a test only if the bug could hurt someone and could come back. It must fail without the fix, but failing without the fix doesn't earn it a place on its own.
+- **Prefer one table-driven test over many small ones.** A test file longer than the code it covers is a smell.
+
 ## Client UI
 
 - Native feel per platform through `data-platform` skins (iOS and Windows), not separate components.
