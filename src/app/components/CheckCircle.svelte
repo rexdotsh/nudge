@@ -1,5 +1,10 @@
 <script lang="ts">
-  let { overdue = false, label, onToggle }: { overdue?: boolean; label: string; onToggle: () => void } = $props();
+  let {
+    late = false,
+    small = false,
+    label,
+    onToggle,
+  }: { late?: boolean; small?: boolean; label: string; onToggle: () => void } = $props();
 
   let popping = $state(false);
 
@@ -11,7 +16,7 @@
   }
 </script>
 
-<button class="check" class:overdue class:popping aria-label={label} onclick={toggle}>
+<button class="check" class:late class:small class:popping aria-label={label} onclick={toggle}>
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <circle class="ring" cx="12" cy="12" r="10.2" />
     <circle class="disc" cx="12" cy="12" r="11" />
@@ -22,29 +27,33 @@
 <style>
   .check {
     flex: none;
-    width: 28px;
-    height: 28px;
-    margin: -2px 0 0 -2px;
+    width: 24px;
+    height: 24px;
     display: grid;
     place-items: center;
-    color: var(--label-3);
+    color: var(--faint);
     border-radius: 50%;
   }
 
-  .overdue {
-    color: var(--danger);
+  .late {
+    color: var(--accent);
   }
 
   svg {
-    width: 24px;
-    height: 24px;
+    width: 21px;
+    height: 21px;
     overflow: visible;
+  }
+
+  .small svg {
+    width: 17px;
+    height: 17px;
   }
 
   .ring {
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.6;
+    stroke-width: 1.4;
   }
 
   .disc,
@@ -58,13 +67,13 @@
   }
 
   .disc {
-    fill: var(--brand);
+    fill: var(--ink);
     transform: scale(0.4);
   }
 
   .tick {
     fill: none;
-    stroke: #fff;
+    stroke: var(--bg);
     stroke-width: 2.4;
     stroke-linecap: round;
     stroke-linejoin: round;
@@ -83,25 +92,8 @@
   }
 
   @keyframes pop {
-    0% {
-      transform: scale(1);
-    }
     30% {
-      transform: scale(0.78);
+      transform: scale(0.8);
     }
-    100% {
-      transform: scale(1);
-    }
-  }
-
-  :global([data-platform='windows']) .check {
-    width: 22px;
-    height: 22px;
-    margin: 0;
-  }
-
-  :global([data-platform='windows']) svg {
-    width: 20px;
-    height: 20px;
   }
 </style>

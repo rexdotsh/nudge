@@ -1,19 +1,21 @@
 import { ApiRejected, Unreachable, request } from '../../browser/api';
-import { get, set } from '../../browser/kv';
+import { get, set, update } from '../../browser/kv';
 import type { PendingChange } from '../../browser/schema';
 import { acknowledge, currentZone, enqueue, wire } from '../../browser/outbox';
 import { MAX_CHANGES, type Change } from '../../shared/api';
 import { BASE64URL, utf8 } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
+import { DAY_MS } from '../../shared/time';
 import { Connection } from './connection';
 import { DEVICE_LABELS, detectPlatform } from './platform';
-import { syncSubscription } from './push';
+import { enablePush, pushState, syncSubscription, type PushState } from './push';
 import { Replica } from './replica';
 
 export type Phase = 'loading' | 'enroll' | 'ready';
 
 const KEEPALIVE_BYTES = 48 * 1024;
+const TRAVEL_WINDOW_MS = 7 * DAY_MS;
 
 function withinKeepalive(pending: readonly PendingChange[]): Change[] {
   const batch: Change[] = [];
@@ -33,6 +35,8 @@ class App {
   pendingCount = $state(0);
   now = $state(Date.now());
   zone = currentZone();
+  travelling = $state(false);
+  notifications = $state<PushState>(pushState());
   readonly platform = detectPlatform();
 
   private replica = new Replica();
@@ -45,7 +49,12 @@ class App {
   async start(): Promise<void> {
     navigator.serviceWorker?.addEventListener('message', () => void this.reloadPending().then(() => this.sync()));
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
-    const [session, snapshot, pending] = await Promise.all([get('session'), get('replica'), get('pending')]);
+    const [session, snapshot, pending] = await Promise.all([
+      get('session'),
+      get('replica'),
+      get('pending'),
+      this.noteZone(),
+    ]);
     this.replica = new Replica(snapshot);
     this.pending = pending ?? [];
     this.refresh();
@@ -136,7 +145,8 @@ class App {
 
   private visibilityChanged(): void {
     if (document.visibilityState === 'visible') {
-      this.zone = currentZone();
+      this.notifications = pushState();
+      void this.noteZone();
       this.connection?.resume();
       void this.reloadPending().then(() => this.sync());
       void syncSubscription();
@@ -147,6 +157,20 @@ class App {
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
     }
+  }
+
+  async enableNotifications(): Promise<PushState> {
+    this.notifications = await enablePush();
+    return this.notifications;
+  }
+
+  private async noteZone(): Promise<void> {
+    const name = currentZone();
+    this.zone = name;
+    const seen = await update('zone', (previous) =>
+      previous?.name === name ? previous : { name, since: previous ? Date.now() : 0 },
+    );
+    this.travelling = seen.since > 0 && Date.now() - seen.since < TRAVEL_WINDOW_MS;
   }
 
   private async reloadPending(): Promise<void> {

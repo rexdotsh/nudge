@@ -1,48 +1,47 @@
 import { isOverdue, type Reminder } from '../../shared/reminder';
-import { DAY_MS } from '../../shared/time';
-import { daysFromToday, shownAt } from './format';
+import { DAY_MS, HOUR_MS } from '../../shared/time';
+import { daysFromToday, shownAt, shortWhen } from './format';
 
 export interface Entry {
   reminder: Reminder;
   at: number;
-  overdue: boolean;
+  late: boolean;
 }
 
-export interface Section {
-  key: 'overdue' | 'today' | 'tomorrow' | 'week' | 'later';
-  title: string;
-  entries: Entry[];
+export interface Triage {
+  focus: Entry | null;
+  late: Entry[];
+  today: Entry[];
+  later: Entry[];
 }
 
-const TITLES: Record<Section['key'], string> = {
-  overdue: 'Overdue',
-  today: 'Today',
-  tomorrow: 'Tomorrow',
-  week: 'This week',
-  later: 'Later',
-};
+const FOCUS_WINDOW_MS = 3 * HOUR_MS;
 
-function keyFor(entry: Entry, now: number, zone: string): Section['key'] {
-  if (entry.overdue) return 'overdue';
-  const days = daysFromToday(entry.at, now, zone);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'tomorrow';
-  return days < 7 ? 'week' : 'later';
-}
-
-export function upcoming(reminders: readonly Reminder[], now: number, zone: string): Section[] {
+export function triage(reminders: readonly Reminder[], now: number, zone: string): Triage {
   const entries = reminders
     .filter((reminder) => !reminder.deleted && reminder.due !== null)
-    .map((reminder) => ({ reminder, at: shownAt(reminder, now, zone) ?? now, overdue: isOverdue(reminder, now, zone) }))
+    .map((reminder) => ({ reminder, at: shownAt(reminder, now, zone) ?? now, late: isOverdue(reminder, now, zone) }))
     .toSorted((a, b) => a.at - b.at);
-  const sections = new Map<Section['key'], Section>();
-  for (const entry of entries) {
-    const key = keyFor(entry, now, zone);
-    const section = sections.get(key) ?? { key, title: TITLES[key], entries: [] };
-    section.entries.push(entry);
-    sections.set(key, section);
-  }
-  return (['overdue', 'today', 'tomorrow', 'week', 'later'] as const).flatMap((key) => sections.get(key) ?? []);
+  const late = entries.filter((entry) => entry.late);
+  const upcoming = entries.filter((entry) => !entry.late);
+  const soon = upcoming[0] && upcoming[0].at - now <= FOCUS_WINDOW_MS ? upcoming[0] : undefined;
+  const focus = soon ?? late[0] ?? null;
+  const rest = upcoming.filter((entry) => entry !== focus);
+  return {
+    focus,
+    late: late.filter((entry) => entry !== focus),
+    today: rest.filter((entry) => daysFromToday(entry.at, now, zone) <= 0),
+    later: rest.filter((entry) => daysFromToday(entry.at, now, zone) > 0),
+  };
+}
+
+export function quietSummary({ today, later }: Triage, now: number, zone: string): { lead: string; rest: string } {
+  const next = today[0] ?? later[0];
+  if (!next) return { lead: 'Nothing coming up.', rest: 'Add a reminder below, the way you would say it.' };
+  const lead = today[0]
+    ? `Nothing for the next ${Math.floor((next.at - now) / HOUR_MS)} hours.`
+    : 'Nothing else today.';
+  return { lead, rest: `Next is ${next.reminder.title} · ${shortWhen(next.at, now, zone)}` };
 }
 
 export function recentlyCompleted(reminders: readonly Reminder[], now: number): Reminder[] {
