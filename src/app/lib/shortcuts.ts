@@ -14,8 +14,7 @@ function isTyping(target: EventTarget | null): boolean {
 export function shortcut(event: KeyboardEvent): void {
   if (isTyping(event.target) || ui.editing || ui.snoozing) return;
   if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
-    toasts.current?.undo?.();
-    toasts.dismiss();
+    toasts.undo();
     return;
   }
   if (event.ctrlKey || event.metaKey || event.altKey) return;

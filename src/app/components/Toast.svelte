@@ -1,18 +1,13 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import { toasts } from '../lib/toasts.svelte';
-
-  function undo() {
-    toasts.current?.undo?.();
-    toasts.dismiss();
-  }
 </script>
 
 {#if toasts.current}
   {#key toasts.current.id}
     <div class="toast" role="status" transition:fly={{ y: 16, duration: 260 }}>
       <span>{toasts.current.message}</span>
-      {#if toasts.current.undo}<button onclick={undo}>Undo</button>{/if}
+      {#if toasts.current.undo}<button onclick={() => toasts.undo()}>Undo</button>{/if}
     </div>
   {/key}
 {/if}

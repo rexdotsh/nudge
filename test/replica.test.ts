@@ -39,7 +39,6 @@ test('pending changes are layered over the server state until the server acknowl
     version: 2,
     reminders: [{ ...server(), title: 'Pay rent (edited elsewhere)' }],
     reset: false,
-    rejected: 0,
   });
   expect(replica.view([complete], ZONE)[0]).toMatchObject({ title: 'Pay rent (edited elsewhere)', due: null });
   expect(replica.view([], ZONE)[0]?.due).toBe('2026-10-12T09:00');
@@ -47,7 +46,7 @@ test('pending changes are layered over the server state until the server acknowl
 
 test('a reset drops everything the server no longer has', () => {
   const replica = new Replica({ version: 5, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [], reset: true, rejected: 0 });
+  replica.receive({ version: 3, reminders: [], reset: true });
   expect(replica.view([], ZONE)).toEqual([]);
   expect(replica.version).toBe(3);
 });

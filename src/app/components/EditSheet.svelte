@@ -1,13 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { describeRepeat } from '../../shared/describe';
   import { parseFields } from '../../shared/input';
   import { parseQuickAdd } from '../../shared/quick-add';
   import { local, type Reminder, type ReminderFields, type Repeat } from '../../shared/reminder';
   import { toInstant } from '../../shared/time';
   import { complete, remove } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { dateLabel, timeLabel } from '../lib/format';
+  import { dateLabel, repeatLabel, timeLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
@@ -69,11 +68,7 @@
     alerts: alerts.toSorted((a, b) => a - b),
   });
   const valid = $derived(parseFields(fields) !== null);
-  const cadence = $derived(
-    repeat && valid
-      ? describeRepeat(repeat, local(fields.start), { locale: navigator.language, zone: app.zone, time: false })
-      : null,
-  );
+  const cadence = $derived(repeat && valid ? repeatLabel(repeat, fields.start, app.zone) : null);
   const startAt = $derived(valid ? toInstant(local(fields.start), fields.zone ?? app.zone) : null);
   const zoneName = $derived(
     new Intl.DateTimeFormat(navigator.language, { timeZone: fields.zone ?? app.zone, timeZoneName: 'long' })

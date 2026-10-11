@@ -157,14 +157,12 @@ describe('describeRepeat never misstates the cadence', () => {
     ['FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=-2', /^Custom repeat$/],
     ['FREQ=DAILY;UNTIL=20261221T030000Z', /until Dec 20$/],
   ])('%p', (rule, pattern) => {
-    expect(describeRepeat({ rule, anchor: 'schedule' }, start, { locale: 'en-US', zone: 'America/New_York' })).toMatch(
-      pattern,
-    );
+    expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US', 'America/New_York')).toMatch(pattern);
   });
 
   test('completion repeats count from completion', () => {
-    expect(
-      describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, { locale: 'en-US', zone: ZONE }),
-    ).toMatch(/3 days after/);
+    expect(describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, 'en-US', ZONE)).toMatch(
+      /3 days after/,
+    );
   });
 });

@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
+  import { isSnoozed } from '../../shared/reminder';
+  import { HOUR_MS } from '../../shared/time';
+  import { complete, remove, snooze } from '../lib/actions';
   import { repeatLabel, shortWhen } from '../lib/format';
   import type { Entry } from '../lib/sections';
   import { swipe } from '../lib/swipe';
@@ -10,20 +12,19 @@
   let { entry, now, zone, compact = false }: { entry: Entry; now: number; zone: string; compact?: boolean } = $props();
 
   const reminder = $derived(entry.reminder);
-  const snoozed = $derived(reminder.snoozedUntil !== null && reminder.snoozedUntil > now);
-  const cadence = $derived(repeatLabel(reminder, zone));
+  const snoozed = $derived(isSnoozed(reminder, now));
+  const cadence = $derived(reminder.repeat ? repeatLabel(reminder.repeat, reminder.start, zone) : null);
   const note = $derived(reminder.notes.split('\n', 1)[0] ?? '');
   const detail = $derived(
     [snoozed ? 'Snoozed' : null, cadence, reminder.missed > 0 ? `missed ${reminder.missed}×` : null, note || null]
       .filter((part) => part !== null)
       .join(' · '),
   );
-  const later = $derived(snoozeOptions(now, zone).find((option) => option.key === 'hour'));
 
   let offset = $state(0);
 
   function snoozeHour() {
-    if (later) void snooze(reminder, later.at);
+    void snooze(reminder, Date.now() + HOUR_MS);
   }
 </script>
 

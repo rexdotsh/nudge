@@ -7,7 +7,7 @@ import {
   type Presentation,
   type PushMessage,
 } from '../shared/notification';
-import { isOverdue, type Reminder } from '../shared/reminder';
+import { lateCount, type Reminder } from '../shared/reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../shared/time';
 import type { Runtime } from './runtime';
 import type { DeliveryRow, Outgoing, Store, Target } from './store';
@@ -57,9 +57,13 @@ export class Scheduler {
     this.store.saveReminder(reminder, nextFireAt(reminder, this.zone()), now);
   }
 
-  presentation(badge: number): Presentation {
+  private origin(): string {
+    return this.store.meta('origin') ?? '';
+  }
+
+  private presentation(badge: number): Presentation {
     return {
-      origin: this.store.meta('origin') ?? '',
+      origin: this.origin(),
       zone: this.zone(),
       locale: this.store.meta('locale') ?? 'en',
       badge,
@@ -129,10 +133,11 @@ export class Scheduler {
     const zone = this.zone();
     const fired = this.store.dueReminders(now).map((reminder) => fire(reminder, now, zone));
     const updated = new Map(fired.map(({ reminder }) => [reminder.id, reminder]));
-    const badge = this.store
-      .reminders()
-      .map((reminder) => updated.get(reminder.id) ?? reminder)
-      .filter((reminder) => !reminder.deleted && isOverdue(reminder, now, zone)).length;
+    const badge = lateCount(
+      this.store.reminders().map((reminder) => updated.get(reminder.id) ?? reminder),
+      now,
+      zone,
+    );
     const view = this.presentation(badge);
 
     this.runtime.transaction(() => {
@@ -173,7 +178,7 @@ export class Scheduler {
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
     const owned = this.runtime.transaction(() => {
       if (!this.store.recordSend(row, result.status, ok ? now + followUp : null, now)) return false;
-      this.store.recordPush(target, ok, gone, now);
+      if (gone) this.store.dropSubscription(target);
       return true;
     });
     if (!owned) return;
@@ -201,7 +206,7 @@ export class Scheduler {
 
   private async attempt(target: Target, row: DeliveryRow): Promise<PushResult> {
     try {
-      return await this.runtime.push(target, row.payload, this.store.meta('origin') ?? '', {
+      return await this.runtime.push(target, row.payload, this.origin(), {
         ttl: PUSH_TTL_SECONDS,
         urgency: 'high',
         topic: row.topic,
@@ -213,7 +218,7 @@ export class Scheduler {
 
   private readonly alerting = new Map<string, Promise<boolean>>();
 
-  alertOnce(key: string, text: string): Promise<boolean> {
+  private alertOnce(key: string, text: string): Promise<boolean> {
     let pending = this.alerting.get(key);
     if (!pending) {
       pending = this.deliverAlert(key, text).finally(() => this.alerting.delete(key));
@@ -226,7 +231,7 @@ export class Scheduler {
     const now = this.runtime.now();
     const metaKey = `alert:${key}`;
     if (now - Number(this.store.meta(metaKey) ?? 0) < ALERT_COOLDOWN_MS) return true;
-    const host = URL.parse(this.store.meta('origin') ?? '')?.host ?? 'nudge';
+    const host = URL.parse(this.origin())?.host ?? 'nudge';
     try {
       await this.runtime.alert(`⚠️ ${host}: ${text}`);
     } catch (error) {

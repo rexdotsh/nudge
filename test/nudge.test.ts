@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, test } from 'bun:test';
-import type { DeviceInput, Route, ServerMessage } from '../src/shared/api';
+import type { DeviceInput, PushKeys, Route, ServerMessage } from '../src/shared/api';
 import { BASE64URL } from '../src/shared/encoding';
 import type { PushMessage } from '../src/shared/notification';
 import type { Op } from '../src/shared/ops';
@@ -12,7 +12,6 @@ import type { Runtime } from '../src/worker/runtime';
 import { DEAD_MAN_MS, ESCALATE_AFTER_MS, LEASE_MS, RESEND_AFTER_MS } from '../src/worker/scheduler';
 import type { SqlValue } from '../src/worker/store';
 import { verifyToken } from '../src/worker/tokens';
-import type { PushTarget } from '../src/worker/webpush';
 
 const ORIGIN = 'https://nudge.example';
 const ZONE = 'Asia/Kolkata';
@@ -50,8 +49,8 @@ function harness() {
   const state = {
     now: Date.UTC(2026, 9, 12, 2, 0),
     alarm: null as number | null,
-    status: (_target: PushTarget, _attempt: number): number => 201,
-    onPush: (_target: PushTarget): void => {},
+    status: (_target: PushKeys, _attempt: number): number => 201,
+    onPush: (_target: PushKeys): void => {},
     held: null as ((status: number) => void) | null,
     holdNext: false,
     failTransactions: 0,

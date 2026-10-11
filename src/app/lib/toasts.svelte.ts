@@ -17,6 +17,11 @@ class Toasts {
     this.timer = setTimeout(() => this.dismiss(), DURATION_MS);
   }
 
+  undo(): void {
+    this.current?.undo?.();
+    this.dismiss();
+  }
+
   dismiss(): void {
     clearTimeout(this.timer);
     this.current = null;

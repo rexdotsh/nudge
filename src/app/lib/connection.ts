@@ -27,7 +27,6 @@ export class Connection {
   private readonly waiting = new Map<string, Waiting>();
   private attempt = 0;
   private keepalive: ReturnType<typeof setInterval> | undefined;
-  private closed = false;
 
   constructor(
     private readonly token: string,
@@ -36,7 +35,7 @@ export class Connection {
   ) {}
 
   open(): void {
-    if (this.closed || (this.socket && this.socket.readyState <= WebSocket.OPEN)) return;
+    if (this.socket && this.socket.readyState <= WebSocket.OPEN) return;
     const url = new URL('/api/socket', location.href);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url, [SOCKET_PROTOCOL, this.token]);
@@ -49,16 +48,6 @@ export class Connection {
     });
     socket.addEventListener('message', (event) => this.receive(String(event.data)));
     socket.addEventListener('close', () => this.dropped(socket));
-  }
-
-  close(): void {
-    this.closed = true;
-    this.socket?.close();
-  }
-
-  resume(): void {
-    this.closed = false;
-    this.open();
   }
 
   async sync(body: SyncRequest): Promise<SyncResponse> {
@@ -96,7 +85,6 @@ export class Connection {
     clearInterval(this.keepalive);
     this.socket = null;
     for (const ref of this.waiting.keys()) this.settle(ref, new Error('socket closed'));
-    if (this.closed) return;
     const delay = RECONNECT_DELAYS_MS[Math.min(this.attempt, RECONNECT_DELAYS_MS.length - 1)] ?? 30_000;
     this.attempt++;
     setTimeout(() => this.open(), delay);

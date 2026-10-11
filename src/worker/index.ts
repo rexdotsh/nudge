@@ -1,4 +1,5 @@
-import { API_ERRORS, SOCKET_PROTOCOL, isDeviceRoute, isPublicRoute, type Reply } from '../shared/api';
+import { API_ERRORS, SOCKET_PROTOCOL, isDeviceRoute, isPublicRoute, type ApiError, type Reply } from '../shared/api';
+import { readJson } from './body';
 import { DEVICE_HEADER } from './runtime';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
@@ -13,17 +14,7 @@ function reply(result: Reply<unknown>): Response {
   return Response.json(result, { status: result.ok ? 200 : API_ERRORS[result.error] });
 }
 
-const failure = (error: keyof typeof API_ERRORS) => reply({ ok: false, error });
-
-async function readJson(request: Request): Promise<{ body: unknown } | null> {
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return null;
-  try {
-    return { body: text === '' ? null : JSON.parse(text) };
-  } catch {
-    return null;
-  }
-}
+const failure = (error: ApiError) => reply({ ok: false, error });
 
 async function openSocket(request: Request, env: Env): Promise<Response> {
   if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected a websocket', { status: 426 });
@@ -45,11 +36,11 @@ export default {
     const isPublic = isPublicRoute(route);
     if (!isPublic && !isDeviceRoute(route)) return new Response('not found', { status: 404 });
     if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
-    const parsed = await readJson(request);
-    if (!parsed) return failure('bad_request');
     const bearer = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
     const deviceId = isPublic ? null : await verifyToken(env.AUTH_SECRET, bearer);
     if (!isPublic && deviceId === null) return failure('unauthorized');
+    const parsed = await readJson(request, MAX_BODY_BYTES);
+    if (!parsed) return failure('bad_request');
     return reply(await nudge(env).call(route, { deviceId, origin: url.origin }, parsed.body));
   },
 

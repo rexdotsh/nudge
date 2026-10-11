@@ -1,4 +1,4 @@
-import type { Change } from '../shared/api';
+import type { Change, Session } from '../shared/api';
 import type { Reminder } from '../shared/reminder';
 
 export interface PendingChange extends Change {
@@ -6,7 +6,7 @@ export interface PendingChange extends Change {
 }
 
 export interface Schema {
-  session: { token: string; deviceId: string };
+  session: Session;
   installKey: string;
   vapidPublicKey: string;
   replica: { version: number; reminders: Reminder[] };

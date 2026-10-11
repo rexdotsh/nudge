@@ -26,25 +26,11 @@ export interface PushKeys {
 export interface DeviceInfo {
   id: string;
   label: string;
-  platform: Platform;
-  zone: string;
-  createdAt: number;
-  seenAt: number;
-  push: { enabled: boolean; failures: number; okAt: number | null; receiptAt: number | null };
-}
-
-export interface DeliveryInfo {
-  fire: string;
-  title: string;
-  deviceId: string;
-  sentAt: number | null;
-  status: number;
-  receiptAt: number | null;
+  push: { enabled: boolean; receiptAt: number | null };
 }
 
 export interface Health {
   devices: DeviceInfo[];
-  deliveries: DeliveryInfo[];
 }
 
 export const MAX_CHANGES = 200;
@@ -64,7 +50,6 @@ export interface SyncResponse {
   version: number;
   reminders: Reminder[];
   reset: boolean;
-  rejected: number;
 }
 
 export interface PublicRoutes {

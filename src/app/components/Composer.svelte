@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { describeRepeat } from '../../shared/describe';
   import { parseQuickAdd, suggestedStart, type SpanKind } from '../../shared/quick-add';
   import { local } from '../../shared/reminder';
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { whenLabel } from '../lib/format';
+  import { repeatLabel, whenLabel } from '../lib/format';
   import Icon from './Icon.svelte';
 
   let { autofocus = false }: { autofocus?: boolean } = $props();
@@ -29,11 +28,7 @@
   });
   const start = $derived(parsed ? (parsed.start ?? suggestedStart(app.now, app.zone)) : null);
   const when = $derived(start ? whenLabel(toInstant(local(start), app.zone), app.now, app.zone) : null);
-  const cadence = $derived(
-    parsed?.repeat && start
-      ? describeRepeat(parsed.repeat, local(start), { locale: navigator.language, zone: app.zone, time: false })
-      : null,
-  );
+  const cadence = $derived(parsed?.repeat && start ? repeatLabel(parsed.repeat, start, app.zone) : null);
   const preview = $derived(
     [cadence ? `repeats ${cadence.toLowerCase()}` : null, parsed?.important ? 'important' : null]
       .filter((part) => part !== null)

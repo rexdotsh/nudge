@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatLocal, parseLocal, toInstant, toLocal } from '../../shared/time';
+  import { HOUR_MS, formatLocal, parseLocal, toInstant, toLocal } from '../../shared/time';
   import type { Reminder } from '../../shared/reminder';
   import { snooze, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
@@ -10,7 +10,7 @@
   let { reminder }: { reminder: Reminder } = $props();
 
   const options = $derived(snoozeOptions(app.now, app.zone));
-  let custom = $state(formatLocal(toLocal(app.now + 3_600_000, app.zone)));
+  let custom = $state(formatLocal(toLocal(app.now + HOUR_MS, app.zone)));
 
   async function pick(at: number) {
     await snooze(reminder, at);

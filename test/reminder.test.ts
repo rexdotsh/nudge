@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt } from '../src/shared/fire';
 import { parseFields, parseOp } from '../src/shared/input';
 import { applyOp, type Clock, type Op } from '../src/shared/ops';
-import { dueAt, isOverdue, type Reminder, type ReminderFields } from '../src/shared/reminder';
+import { dueAt, isLate, type Reminder, type ReminderFields } from '../src/shared/reminder';
 import { MINUTE_MS, toInstant, parseLocal } from '../src/shared/time';
 
 const ZONE = 'Asia/Kolkata';
@@ -316,11 +316,11 @@ describe('time zones', () => {
     expect(dueAt(pinned, 'Europe/Paris')).toBe(Date.UTC(2026, 9, 12, 3, 30));
   });
 
-  test('isOverdue respects snoozes', () => {
+  test('isLate respects snoozes', () => {
     const reminder = create();
-    expect(isOverdue(reminder, at('2026-10-12T09:00'), ZONE)).toBe(true);
-    expect(isOverdue({ ...reminder, snoozedUntil: at('2026-10-12T10:00') }, at('2026-10-12T09:30'), ZONE)).toBe(false);
-    expect(isOverdue(reminder, at('2026-10-12T09:00') - MINUTE_MS, ZONE)).toBe(false);
+    expect(isLate(reminder, at('2026-10-12T09:00'), ZONE)).toBe(true);
+    expect(isLate({ ...reminder, snoozedUntil: at('2026-10-12T10:00') }, at('2026-10-12T09:30'), ZONE)).toBe(false);
+    expect(isLate(reminder, at('2026-10-12T09:00') - MINUTE_MS, ZONE)).toBe(false);
   });
 });
 

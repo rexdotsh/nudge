@@ -1,3 +1,4 @@
+import { SNOOZE_MINUTES } from '../../browser/notify';
 import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
 import { dueAt, firstDue, type Reminder, type ReminderFields } from '../../shared/reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
@@ -55,7 +56,7 @@ export async function remove(reminder: Reminder): Promise<void> {
 }
 
 export interface SnoozeOption {
-  key: 'quarter' | 'hour' | 'evening' | 'morning' | 'week';
+  key: 'soon' | 'hour' | 'evening' | 'morning' | 'week';
   label: string;
   at: number;
 }
@@ -67,7 +68,7 @@ export function snoozeOptions(now: number, zone: string): SnoozeOption[] {
     return toInstant({ ...date, hour, minute: 0 }, zone);
   };
   const options: SnoozeOption[] = [
-    { key: 'quarter', label: '15 minutes', at: now + 15 * MINUTE_MS },
+    { key: 'soon', label: `${SNOOZE_MINUTES} minutes`, at: now + SNOOZE_MINUTES * MINUTE_MS },
     { key: 'hour', label: '1 hour', at: now + HOUR_MS },
   ];
   if (today.hour < 17) options.push({ key: 'evening', label: 'This evening', at: at(0, 18) });
