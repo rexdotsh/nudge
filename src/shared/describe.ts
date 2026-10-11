@@ -118,7 +118,17 @@ function ending(rule: Rule, names: Names, zone: string): string {
   return `, until ${names.month(until.month, 'short')} ${until.day}`;
 }
 
-export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: string, zone: string): string {
+export interface DescribeOptions {
+  locale: string;
+  zone: string;
+  time?: boolean;
+}
+
+export function describeRepeat(
+  repeat: Repeat,
+  start: LocalDateTime,
+  { locale, zone, time = true }: DescribeOptions,
+): string {
   const rule = parseRule(repeat.rule);
   const names = new Names(locale);
   if (repeat.anchor === 'completion') {
@@ -126,5 +136,6 @@ export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: str
     return `${rule.interval} ${unit}${rule.interval === 1 ? '' : 's'} after done`;
   }
   const phrase = cadence(rule, start, names);
-  return phrase === null ? 'Custom repeat' : `${phrase}${times(rule, start, names)}${ending(rule, names, zone)}`;
+  if (phrase === null) return 'Custom repeat';
+  return `${phrase}${time ? times(rule, start, names) : ''}${ending(rule, names, zone)}`;
 }
