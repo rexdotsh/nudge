@@ -147,6 +147,7 @@ export function parseRule(text: string): Rule {
   if (freq === 'HOURLY' && parsed.byHour.length + parsed.byMinute.length + parsed.bySetPos.length > 0) {
     throw new RuleError('HOURLY rules may only be limited by month and day');
   }
+  if (freq === 'HOURLY' && parsed.interval > 24) throw new RuleError('HOURLY intervals above 24 should be DAILY');
   return parsed;
 }
 
@@ -220,26 +221,39 @@ function range(first: number, length: number): number[] {
 interface Period {
   unit: (local: LocalDateTime) => number;
   days: (unit: number) => number[];
-  maxEmptySteps: (interval: number) => number;
+  longestGap: (interval: number) => number;
 }
 
 const GREGORIAN_CYCLE_DAYS = 146_097;
+const MAX_EPOCH_DAY = 100_000_000;
+
+function representableDays(days: number[]): number[] {
+  return days.filter((day) => Math.abs(day) <= MAX_EPOCH_DAY);
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+function orbit(interval: number, cycle: number): number {
+  return (interval * cycle) / gcd(interval, cycle);
+}
 
 const PERIODS: Record<Frequency, Period> = {
   HOURLY: {
     unit: (local) => epochDay(local) * 24 + local.hour,
-    days: (unit) => [Math.floor(unit / 24)],
-    maxEmptySteps: (interval) => GREGORIAN_CYCLE_DAYS * Math.ceil(interval / 24),
+    days: (unit) => representableDays([Math.floor(unit / 24)]),
+    longestGap: () => GREGORIAN_CYCLE_DAYS * 24,
   },
   DAILY: {
     unit: (local) => epochDay(local),
-    days: (unit) => [unit],
-    maxEmptySteps: () => GREGORIAN_CYCLE_DAYS,
+    days: (unit) => representableDays([unit]),
+    longestGap: (interval) => orbit(interval, GREGORIAN_CYCLE_DAYS),
   },
   WEEKLY: {
     unit: (local) => Math.floor((epochDay(local) - MONDAY_EPOCH_DAY) / 7),
     days: (unit) => range(unit * 7 + MONDAY_EPOCH_DAY, 7),
-    maxEmptySteps: () => GREGORIAN_CYCLE_DAYS / 7,
+    longestGap: (interval) => orbit(interval, GREGORIAN_CYCLE_DAYS / 7),
   },
   MONTHLY: {
     unit: (local) => local.year * 12 + local.month - 1,
@@ -248,7 +262,7 @@ const PERIODS: Record<Frequency, Period> = {
       const month = unit - year * 12 + 1;
       return range(epochDay({ year, month, day: 1 }), daysInMonth(year, month));
     },
-    maxEmptySteps: () => 400 * 12,
+    longestGap: (interval) => orbit(interval, 400 * 12),
   },
   YEARLY: {
     unit: (local) => local.year,
@@ -256,7 +270,7 @@ const PERIODS: Record<Frequency, Period> = {
       const first = epochDay({ year: unit, month: 1, day: 1 });
       return range(first, epochDay({ year: unit + 1, month: 1, day: 1 }) - first);
     },
-    maxEmptySteps: () => 400,
+    longestGap: (interval) => orbit(interval, 400),
   },
 };
 
@@ -310,15 +324,16 @@ export function* occurrences(value: Rule, start: LocalDateTime, zone: string, af
   const period = PERIODS[plan.freq];
   const firstUnit = period.unit(start);
   const startWall = wallMs(start);
-  const maxEmptySteps = period.maxEmptySteps(plan.interval);
+  const longestGap = period.longestGap(plan.interval);
   let current = firstUnit;
   if (value.count === null && after > -Infinity) {
     const behind = Math.floor((period.unit(toLocal(after, zone)) - firstUnit) / plan.interval) - 1;
     current = firstUnit + Math.max(0, behind) * plan.interval;
   }
+  let progress = current;
   let emitted = 0;
   let previous = -Infinity;
-  for (let empty = 0; empty <= maxEmptySteps; empty++, current = nextUnit(plan, current, firstUnit)) {
+  for (; current - progress <= longestGap; current = nextUnit(plan, current, firstUnit)) {
     if (period.days(current).length === 0) return;
     for (const local of candidates(plan, current)) {
       if (wallMs(local) < startWall) continue;
@@ -326,7 +341,7 @@ export function* occurrences(value: Rule, start: LocalDateTime, zone: string, af
       if (instant === previous) continue;
       if (value.until !== null && instant > value.until) return;
       previous = instant;
-      empty = 0;
+      progress = current;
       emitted++;
       if (instant > after) yield instant;
       if (value.count !== null && emitted >= value.count) return;
