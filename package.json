@@ -11,7 +11,6 @@
     "fmt:check": "oxfmt --check",
     "test": "bun test --pass-with-no-tests",
     "icons": "bun scripts/icons.ts",
-    "secrets": "bun scripts/secrets.ts",
     "deploy": "bun run build && wrangler deploy"
   },
   "devDependencies": {

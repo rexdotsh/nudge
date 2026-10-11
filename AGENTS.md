@@ -6,17 +6,16 @@ Nudge is a personal reminders app: an installable PWA (iPhone home screen, Windo
 
 Bun is the only package manager and script runner. Never use npm, pnpm or yarn. Formatting is oxfmt and linting is oxlint; do not add Prettier, ESLint or editor config files.
 
-| Task                       | Command                               |
-| -------------------------- | ------------------------------------- |
-| Install                    | `bun install`                         |
-| Format                     | `bun run fmt`                         |
-| Lint (type-aware oxlint)   | `bun run lint`                        |
-| Typecheck (tsgo)           | `bun run check`                       |
-| Test                       | `bun run test`                        |
-| Build client + SW          | `bun run build`                       |
-| Local dev                  | `bun run dev`                         |
-| Deploy an instance         | `bun run deploy --name <worker-name>` |
-| Provision instance secrets | `bun run secrets <worker-name>`       |
+| Task                     | Command                               |
+| ------------------------ | ------------------------------------- |
+| Install                  | `bun install`                         |
+| Format                   | `bun run fmt`                         |
+| Lint (type-aware oxlint) | `bun run lint`                        |
+| Typecheck (tsgo)         | `bun run check`                       |
+| Test                     | `bun run test`                        |
+| Build client + SW        | `bun run build`                       |
+| Local dev                | `bun run dev`                         |
+| Deploy an instance       | `bun run deploy --name <worker-name>` |
 
 `bun run fmt:check`, `bun run lint`, `bun run check`, `bun run test` and `bun run build` must all pass before every push. CI runs the same steps.
 
