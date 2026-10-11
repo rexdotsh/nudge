@@ -10,6 +10,7 @@ export interface Sql {
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
+    install_key TEXT NOT NULL UNIQUE,
     label TEXT NOT NULL,
     platform TEXT NOT NULL,
     zone TEXT NOT NULL,
@@ -33,26 +34,29 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS reminders_by_version ON reminders (version)`,
   `CREATE INDEX IF NOT EXISTS reminders_by_fire_at ON reminders (fire_at) WHERE fire_at IS NOT NULL`,
-  `CREATE TABLE IF NOT EXISTS probes (at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS deliveries (
     fire TEXT NOT NULL,
     device_id TEXT NOT NULL,
     title TEXT NOT NULL,
     topic TEXT NOT NULL,
     payload TEXT NOT NULL,
-    sent_at INTEGER NOT NULL,
-    status INTEGER NOT NULL,
-    attempts INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    sends INTEGER NOT NULL DEFAULT 0,
+    status INTEGER NOT NULL DEFAULT 0,
+    sent_at INTEGER,
     receipt_at INTEGER,
+    next_at INTEGER,
     PRIMARY KEY (fire, device_id)
   )`,
-  `CREATE INDEX IF NOT EXISTS deliveries_unconfirmed ON deliveries (sent_at) WHERE receipt_at IS NULL`,
+  `CREATE INDEX IF NOT EXISTS deliveries_by_next_at ON deliveries (next_at) WHERE next_at IS NOT NULL`,
 ];
 
 const SCHEMA_VERSION = '1';
 
 export type DeviceRow = {
   id: string;
+  install_key: string;
   label: string;
   platform: Platform;
   zone: string;
@@ -74,10 +78,12 @@ export type DeliveryRow = {
   title: string;
   topic: string;
   payload: string;
-  sent_at: number;
+  created_at: number;
+  sends: number;
   status: number;
-  attempts: number;
+  sent_at: number | null;
   receipt_at: number | null;
+  next_at: number | null;
 };
 
 export interface Target extends PushKeys {
@@ -85,7 +91,25 @@ export interface Target extends PushKeys {
   label: string;
 }
 
+export interface Outgoing {
+  fire: string;
+  title: string;
+  topic: string;
+  payload: string;
+}
+
 const first = <T>(rows: T[]): T | undefined => rows[0];
+
+function decode(data: string): Reminder {
+  const reminder: Reminder = JSON.parse(data);
+  return reminder;
+}
+
+function target(row: DeviceRow): Target | undefined {
+  return row.endpoint && row.p256dh && row.auth
+    ? { deviceId: row.id, label: row.label, endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }
+    : undefined;
+}
 
 export class Store {
   constructor(private readonly sql: Sql) {
@@ -93,6 +117,10 @@ export class Store {
     if (this.meta('schema') === SCHEMA_VERSION) return;
     for (const statement of SCHEMA) sql.exec(statement);
     this.setMeta('schema', SCHEMA_VERSION);
+  }
+
+  private count(query: string, ...bindings: SqlValue[]): number {
+    return first(this.sql.exec<{ count: number }>(query, ...bindings).toArray())?.count ?? 0;
   }
 
   meta(key: string): string | null {
@@ -164,18 +192,26 @@ export class Store {
       .length;
   }
 
-  nextWake(resendAfter: number, escalateAfter: number): number | null {
+  applied(opId: string): boolean {
+    return this.count('SELECT COUNT(*) AS count FROM applied_ops WHERE id = ?', opId) > 0;
+  }
+
+  recordApplied(opId: string, now: number): void {
+    this.sql.exec('INSERT INTO applied_ops (id, at) VALUES (?, ?)', opId, now);
+  }
+
+  purgeApplied(before: number): void {
+    this.sql.exec('DELETE FROM applied_ops WHERE at < ?', before);
+  }
+
+  nextWake(): number | null {
     const row = first(
       this.sql
         .exec<{ at: number | null }>(
           `SELECT MIN(at) AS at FROM (
              SELECT MIN(fire_at) AS at FROM reminders
-             UNION ALL SELECT MIN(at) FROM probes
-             UNION ALL SELECT MIN(sent_at) + ? FROM deliveries WHERE receipt_at IS NULL AND (status = 0 OR status BETWEEN 200 AND 299) AND attempts = 1
-             UNION ALL SELECT MIN(sent_at) + ? FROM deliveries WHERE receipt_at IS NULL AND (status = 0 OR status BETWEEN 200 AND 299) AND attempts = 2
+             UNION ALL SELECT MIN(next_at) FROM deliveries
            )`,
-          resendAfter,
-          escalateAfter,
         )
         .toArray(),
     );
@@ -183,52 +219,37 @@ export class Store {
   }
 
   lateCount(before: number): number {
-    const row = first(
-      this.sql
-        .exec<{ late: number }>(
-          `SELECT (SELECT COUNT(*) FROM reminders WHERE fire_at < ?) + (SELECT COUNT(*) FROM probes WHERE at < ?) AS late`,
-          before,
-          before,
-        )
-        .toArray(),
+    return this.count(
+      `SELECT (SELECT COUNT(*) FROM reminders WHERE fire_at < ?) + (SELECT COUNT(*) FROM deliveries WHERE next_at < ?) AS count`,
+      before,
+      before,
     );
-    return row?.late ?? 0;
-  }
-
-  addProbe(at: number): number {
-    this.sql.exec('INSERT INTO probes (at) VALUES (?)', at);
-    return first(this.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM probes').toArray())?.count ?? 0;
-  }
-
-  takeProbes(now: number): number[] {
-    return this.sql
-      .exec<{ at: number }>('DELETE FROM probes WHERE at <= ? RETURNING at', now)
-      .toArray()
-      .map((row) => row.at);
   }
 
   deviceCount(): number {
-    return first(this.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM devices').toArray())?.count ?? 0;
+    return this.count('SELECT COUNT(*) AS count FROM devices');
   }
 
   device(id: string): DeviceRow | undefined {
     return first(this.sql.exec<DeviceRow>('SELECT * FROM devices WHERE id = ? AND revoked = 0', id).toArray());
   }
 
+  deviceByKey(installKey: string): DeviceRow | undefined {
+    return first(
+      this.sql.exec<DeviceRow>('SELECT * FROM devices WHERE install_key = ? AND revoked = 0', installKey).toArray(),
+    );
+  }
+
   devices(): DeviceRow[] {
     return this.sql.exec<DeviceRow>('SELECT * FROM devices WHERE revoked = 0 ORDER BY created_at').toArray();
   }
 
-  latestDevice(): DeviceRow | undefined {
-    return first(
-      this.sql.exec<DeviceRow>('SELECT * FROM devices WHERE revoked = 0 ORDER BY seen_at DESC LIMIT 1').toArray(),
-    );
-  }
-
   addDevice(id: string, input: DeviceInput, now: number): void {
     this.sql.exec(
-      'INSERT INTO devices (id, label, platform, zone, locale, created_at, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO devices (id, install_key, label, platform, zone, locale, created_at, seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
+      input.key,
       input.label,
       input.platform,
       input.zone,
@@ -256,66 +277,82 @@ export class Store {
     );
   }
 
+  target(deviceId: string): Target | undefined {
+    const row = this.device(deviceId);
+    return row && target(row);
+  }
+
   targets(): Target[] {
-    return this.devices().flatMap((row) =>
-      row.endpoint && row.p256dh && row.auth
-        ? [{ deviceId: row.id, label: row.label, endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }]
-        : [],
-    );
+    return this.devices().flatMap((row) => target(row) ?? []);
   }
 
-  recordPushOk(deviceId: string, now: number): void {
-    this.sql.exec('UPDATE devices SET push_failures = 0, push_ok_at = ? WHERE id = ?', now, deviceId);
+  recordPush(sent: Target, ok: boolean, gone: boolean, now: number): void {
+    const where = 'WHERE id = ? AND endpoint = ?';
+    if (gone) {
+      this.sql.exec(
+        `UPDATE devices SET endpoint = NULL, p256dh = NULL, auth = NULL ${where}`,
+        sent.deviceId,
+        sent.endpoint,
+      );
+    } else if (ok) {
+      this.sql.exec(`UPDATE devices SET push_failures = 0, push_ok_at = ? ${where}`, now, sent.deviceId, sent.endpoint);
+    } else {
+      this.sql.exec(`UPDATE devices SET push_failures = push_failures + 1 ${where}`, sent.deviceId, sent.endpoint);
+    }
   }
 
-  recordPushFailure(deviceId: string): void {
-    this.sql.exec('UPDATE devices SET push_failures = push_failures + 1 WHERE id = ?', deviceId);
-  }
-
-  insertDelivery(row: DeliveryRow): void {
+  queue(outgoing: Outgoing, deviceId: string, at: number, now: number): void {
     this.sql.exec(
-      `INSERT INTO deliveries (fire, device_id, title, topic, payload, sent_at, status, attempts, receipt_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-       ON CONFLICT (fire, device_id) DO UPDATE SET sent_at = excluded.sent_at, status = excluded.status, attempts = excluded.attempts`,
-      row.fire,
-      row.device_id,
-      row.title,
-      row.topic,
-      row.payload,
-      row.sent_at,
-      row.status,
-      row.attempts,
+      `INSERT INTO deliveries (fire, device_id, title, topic, payload, created_at, next_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (fire, device_id) DO NOTHING`,
+      outgoing.fire,
+      deviceId,
+      outgoing.title,
+      outgoing.topic,
+      outgoing.payload,
+      now,
+      at,
     );
   }
 
-  setDeliveryStatus(fire: string, deviceId: string, status: number): void {
-    this.sql.exec('UPDATE deliveries SET status = ? WHERE fire = ? AND device_id = ?', status, fire, deviceId);
+  pendingCount(firePrefix: string): number {
+    return this.count(
+      "SELECT COUNT(DISTINCT fire) AS count FROM deliveries WHERE sends = 0 AND next_at IS NOT NULL AND fire LIKE ? || '%'",
+      firePrefix,
+    );
   }
 
-  unconfirmed(attempts: number, sentBefore: number): DeliveryRow[] {
+  claim(now: number, lease: number): DeliveryRow[] {
     return this.sql
       .exec<DeliveryRow>(
-        `SELECT * FROM deliveries
-         WHERE receipt_at IS NULL AND (status = 0 OR status BETWEEN 200 AND 299) AND attempts = ? AND sent_at <= ?`,
-        attempts,
-        sentBefore,
+        'UPDATE deliveries SET next_at = ? WHERE next_at <= ? AND receipt_at IS NULL RETURNING *',
+        now + lease,
+        now,
       )
       .toArray();
   }
 
-  markAttempts(fire: string, deviceId: string, attempts: number, now: number): void {
+  recordSend(row: DeliveryRow, status: number, nextAt: number | null, now: number): void {
     this.sql.exec(
-      'UPDATE deliveries SET attempts = ?, sent_at = ? WHERE fire = ? AND device_id = ?',
-      attempts,
+      `UPDATE deliveries SET sends = ?, status = ?, sent_at = ?,
+         next_at = CASE WHEN receipt_at IS NULL THEN ? ELSE NULL END
+       WHERE fire = ? AND device_id = ?`,
+      row.sends + 1,
+      status,
       now,
-      fire,
-      deviceId,
+      nextAt,
+      row.fire,
+      row.device_id,
     );
+  }
+
+  settle(row: DeliveryRow): void {
+    this.sql.exec('UPDATE deliveries SET next_at = NULL WHERE fire = ? AND device_id = ?', row.fire, row.device_id);
   }
 
   receipt(fire: string, deviceId: string, now: number): void {
     this.sql.exec(
-      'UPDATE deliveries SET receipt_at = ? WHERE fire = ? AND device_id = ? AND receipt_at IS NULL',
+      'UPDATE deliveries SET receipt_at = ?, next_at = NULL WHERE fire = ? AND device_id = ? AND receipt_at IS NULL',
       now,
       fire,
       deviceId,
@@ -324,17 +361,12 @@ export class Store {
   }
 
   recentDeliveries(limit: number): DeliveryRow[] {
-    return this.sql.exec<DeliveryRow>('SELECT * FROM deliveries ORDER BY sent_at DESC LIMIT ?', limit).toArray();
+    return this.sql.exec<DeliveryRow>('SELECT * FROM deliveries ORDER BY created_at DESC LIMIT ?', limit).toArray();
   }
 
   purgeDeliveries(before: number): void {
-    this.sql.exec('DELETE FROM deliveries WHERE sent_at < ?', before);
+    this.sql.exec('DELETE FROM deliveries WHERE created_at < ? AND next_at IS NULL', before);
   }
-}
-
-function decode(data: string): Reminder {
-  const reminder: Reminder = JSON.parse(data);
-  return reminder;
 }
 
 export function deviceInfo(row: DeviceRow): DeviceInfo {

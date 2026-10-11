@@ -5,6 +5,7 @@ export const PLATFORMS = ['ios', 'windows', 'mac', 'android', 'other'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
 export interface DeviceInput {
+  key: string;
   label: string;
   platform: Platform;
   zone: string;
@@ -36,7 +37,7 @@ export interface DeliveryInfo {
   fire: string;
   title: string;
   deviceId: string;
-  sentAt: number;
+  sentAt: number | null;
   status: number;
   receiptAt: number | null;
 }
@@ -46,10 +47,15 @@ export interface Health {
   deliveries: DeliveryInfo[];
 }
 
+export interface Change {
+  opId: string;
+  op: Op;
+}
+
 export interface SyncRequest {
   since: number;
   zone: string;
-  ops: Op[];
+  changes: Change[];
 }
 
 export interface SyncResponse {

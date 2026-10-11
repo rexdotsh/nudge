@@ -51,9 +51,20 @@ export class Nudge {
     setup: ({ code, device }) =>
       this.enroll(
         device,
-        () => this.store.deviceCount() === 0 && sameSecret(code, this.runtime.secrets.setupCode.toUpperCase()),
+        () =>
+          sameSecret(code, this.runtime.secrets.setupCode.toUpperCase()) &&
+          (this.store.deviceCount() === 0 || this.store.deviceByKey(device.key) !== undefined),
+        () => {},
       ),
-    join: ({ code, device }) => this.enroll(device, () => this.consumePairCode(code)),
+    join: ({ code, device }) =>
+      this.enroll(
+        device,
+        () => this.pairCodeAccepts(code, device.key),
+        () => {
+          const pair = this.pairCode();
+          if (pair) this.store.setMeta('pair', JSON.stringify({ ...pair, key: device.key }));
+        },
+      ),
   };
 
   private readonly deviceHandlers: Handlers<DeviceRoutes, DeviceRow> = {
@@ -144,63 +155,79 @@ export class Nudge {
       : [];
   }
 
-  private async enroll(device: DeviceInput, authorized: () => boolean): Promise<Session> {
+  private async enroll(device: DeviceInput, accepts: () => boolean, consume: () => void): Promise<Session> {
     const now = this.runtime.now();
     const failures = this.recentFailures(now);
     if (failures.length >= FAILURE_LIMIT) throw new ApiFailure('locked');
-    if (!authorized()) {
+    if (!accepts()) {
       this.store.setMeta('failures', JSON.stringify([...failures, now]));
       throw new ApiFailure('forbidden');
     }
-    const id = ulid(now);
-    this.runtime.transaction(() => {
-      this.store.addDevice(id, device, now);
+    const id = this.runtime.transaction(() => {
+      const existing = this.store.deviceByKey(device.key);
+      if (existing) return existing.id;
+      const created = ulid(now);
+      this.store.addDevice(created, device, now);
+      consume();
+      if (this.store.meta('zone') === null) this.store.setMeta('zone', device.zone);
+      this.store.setMeta('locale', device.locale);
       this.store.setMeta('failures', '[]');
+      return created;
     });
     return { token: await issueToken(this.runtime.secrets.auth, id), deviceId: id };
+  }
+
+  private pairCode(): { code: string; expiresAt: number; key: string | null } | null {
+    const stored: unknown = JSON.parse(this.store.meta('pair') ?? 'null');
+    if (!isRecord(stored) || typeof stored.code !== 'string' || typeof stored.expiresAt !== 'number') return null;
+    return { code: stored.code, expiresAt: stored.expiresAt, key: typeof stored.key === 'string' ? stored.key : null };
   }
 
   private issuePairCode(): { code: string; expiresAt: number } {
     const [random = 0] = crypto.getRandomValues(new Uint32Array(1));
     const code = String(random % 1_000_000).padStart(6, '0');
     const expiresAt = this.runtime.now() + PAIR_CODE_TTL_MS;
-    this.store.setMeta('pair', JSON.stringify({ code, expiresAt }));
+    this.store.setMeta('pair', JSON.stringify({ code, expiresAt, key: null }));
     return { code, expiresAt };
   }
 
-  private consumePairCode(given: string): boolean {
-    const stored: unknown = JSON.parse(this.store.meta('pair') ?? 'null');
-    if (!isRecord(stored) || typeof stored.code !== 'string' || typeof stored.expiresAt !== 'number') return false;
-    const valid = stored.expiresAt > this.runtime.now() && sameSecret(given, stored.code);
-    if (valid) this.store.setMeta('pair', 'null');
-    return valid;
+  private pairCodeAccepts(given: string, key: string): boolean {
+    const pair = this.pairCode();
+    if (!pair || !sameSecret(given, pair.code)) return false;
+    return pair.key === null ? pair.expiresAt > this.runtime.now() : pair.key === key;
   }
 
   private async scheduleTest(delay: number): Promise<{ at: number }> {
+    if (this.store.pendingCount('test@') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
     const at = this.runtime.now() + delay * 1000;
-    if (this.store.addProbe(at) > MAX_PENDING_TESTS) throw new ApiFailure('locked');
+    this.scheduler.queueTest(at);
     await this.scheduler.rearm();
     return { at };
   }
 
-  private async sync({ since, zone, ops }: SyncRequest, device: DeviceRow): Promise<SyncResponse> {
+  private async sync({ since, zone, changes }: SyncRequest, device: DeviceRow): Promise<SyncResponse> {
     const now = this.runtime.now();
-    const previousZone = this.scheduler.zone();
     let rejected = 0;
+    let applied = 0;
     const zoneChanged = this.runtime.transaction(() => {
       this.store.touchDevice(device.id, zone, now);
-      const changed = this.scheduler.zone() !== previousZone;
-      if (changed) this.scheduler.refloat();
-      const clock = { now, zone: this.scheduler.zone() };
-      for (const op of ops) {
+      const changed = this.scheduler.setZone(zone);
+      const clock = { now, zone };
+      for (const { opId, op } of changes) {
+        if (this.store.applied(opId)) continue;
         const next = applyOp(this.store.reminder(op.id), op, clock);
-        if (next) this.scheduler.save(next, now);
-        else rejected++;
+        if (next) {
+          this.scheduler.save(next, now);
+          applied++;
+        } else {
+          rejected++;
+        }
+        this.store.recordApplied(opId, now);
       }
       return changed;
     });
     const version = this.store.version();
-    if (zoneChanged || ops.length > rejected) {
+    if (zoneChanged || applied > 0) {
       await this.scheduler.rearm();
       this.runtime.broadcast({ kind: 'changed', version }, device.id);
     }

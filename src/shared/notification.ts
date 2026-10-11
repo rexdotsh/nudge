@@ -1,6 +1,6 @@
 import type { Notice } from './fire';
-import { dueAt, type Reminder } from './reminder';
-import { MINUTE_MS } from './time';
+import { dueAt, local, type Reminder } from './reminder';
+import { MINUTE_MS, wallMs } from './time';
 
 export interface PushData {
   fire: string;
@@ -62,6 +62,14 @@ export function fireId(reminderId: string, at: number): string {
   return `${reminderId}@${at}`;
 }
 
+export function occurrenceTag(reminderId: string, due: string): string {
+  return `${reminderId}:${due}`;
+}
+
+export function occurrenceTopic(reminderId: string, due: string): string {
+  return `${reminderId}${(wallMs(local(due)) / MINUTE_MS).toString(36)}`;
+}
+
 export function reminderMessage(reminder: Reminder, notice: Notice, view: Presentation): PushMessage {
   const due = dueAt({ ...reminder, due: notice.due }, view.zone) ?? notice.at;
   return {
@@ -71,7 +79,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
       title: reminder.title,
       body: bodyFor(reminder, notice, due, view),
       navigate: `${view.origin}/?open=${reminder.id}`,
-      tag: reminder.id,
+      tag: occurrenceTag(reminder.id, notice.due),
       silent: false,
       app_badge: String(view.badge),
       data: { fire: fireId(reminder.id, notice.at), id: reminder.id, due: notice.due },

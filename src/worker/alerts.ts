@@ -14,5 +14,5 @@ export async function sendTelegram(config: TelegramConfig, text: string): Promis
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true }),
   });
-  if (!response.ok) console.error(`telegram alert failed with ${response.status}`);
+  if (!response.ok) throw new Error(`telegram responded ${response.status}`);
 }

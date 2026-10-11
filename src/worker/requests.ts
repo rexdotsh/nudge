@@ -1,6 +1,7 @@
 import {
   PLATFORMS,
   type ApiError,
+  type Change,
   type DeviceInput,
   type DeviceRoute,
   type DeviceRoutes,
@@ -11,7 +12,6 @@ import {
 } from '../shared/api';
 import { BASE64URL } from '../shared/encoding';
 import { parseOp } from '../shared/input';
-import type { Op } from '../shared/ops';
 import { isTimeZone } from '../shared/time';
 import { isUlid } from '../shared/ulid';
 import { isInteger, isRecord, isText } from '../shared/validate';
@@ -23,7 +23,7 @@ export class ApiFailure extends Error {
   }
 }
 
-const MAX_OPS = 200;
+const MAX_CHANGES = 200;
 
 function invalid(): never {
   throw new ApiFailure('bad_request');
@@ -52,10 +52,11 @@ function base64urlLength(value: unknown, bytes: number): value is string {
 }
 
 function deviceInput(value: unknown): DeviceInput {
-  const { label, platform, zone, locale } = record(value);
+  const { key, label, platform, zone, locale } = record(value);
   const known = PLATFORMS.find((candidate) => candidate === platform);
+  if (!isText(key, 64, 22) || !/^[\w-]+$/.test(key)) invalid();
   if (!isText(label, 60, 1) || !known || !isText(zone, 64) || !isTimeZone(zone) || !isLocale(locale)) invalid();
-  return { label: label.trim(), platform: known, zone, locale };
+  return { key, label: label.trim(), platform: known, zone, locale };
 }
 
 function enrollment(value: unknown): { code: string; device: DeviceInput } {
@@ -72,12 +73,16 @@ function pushKeys(value: unknown): PushKeys | null {
   return { endpoint, p256dh, auth };
 }
 
+function change(value: unknown): Change {
+  const { opId, op } = record(value);
+  return isUlid(opId) ? { opId, op: parseOp(op) ?? invalid() } : invalid();
+}
+
 function syncRequest(value: unknown): SyncRequest {
-  const { since, zone, ops } = record(value);
+  const { since, zone, changes } = record(value);
   if (!isInteger(since, 0, Number.MAX_SAFE_INTEGER) || !isText(zone, 64) || !isTimeZone(zone)) invalid();
-  if (!Array.isArray(ops) || ops.length > MAX_OPS) invalid();
-  const parsed = ops.map((op): Op => parseOp(op) ?? invalid());
-  return { since, zone, ops: parsed };
+  if (!Array.isArray(changes) || changes.length > MAX_CHANGES) invalid();
+  return { since, zone, changes: changes.map(change) };
 }
 
 export const PUBLIC_REQUESTS: { [R in PublicRoute]: (body: unknown) => PublicRoutes[R]['request'] } = {
