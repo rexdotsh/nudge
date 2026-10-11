@@ -23,14 +23,14 @@
 </script>
 
 <script lang="ts">
-  let { name, size = 20, filled = false }: { name: IconName; size?: number; filled?: boolean } = $props();
+  let { name, size = 20 }: { name: IconName; size?: number } = $props();
 </script>
 
 <svg
   width={size}
   height={size}
   viewBox="0 0 24 24"
-  fill={filled ? 'currentColor' : 'none'}
+  fill="none"
   stroke="currentColor"
   stroke-width="1.8"
   stroke-linecap="round"

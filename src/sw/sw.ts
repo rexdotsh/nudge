@@ -1,8 +1,8 @@
-import { request, vapidPublicKey } from '../browser/api';
+import { request } from '../browser/api';
 import { get } from '../browser/kv';
 import { SNOOZE_MINUTES, isShown, show } from '../browser/notify';
 import { acknowledge, currentZone, enqueue, wire } from '../browser/outbox';
-import { BASE64URL } from '../shared/encoding';
+import { subscribePush } from '../browser/push';
 import type { PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
@@ -11,7 +11,7 @@ import { isRecord } from '../shared/validate';
 declare const self: ServiceWorkerGlobalScope;
 
 const CACHE_PREFIX = 'nudge-';
-export const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
+const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
 function isPushMessage(value: unknown): value is PushMessage {
   return (
     isRecord(value) && value.web_push === 8030 && isRecord(value.notification) && isRecord(value.notification.data)
@@ -94,11 +94,12 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data: unknown = event.notification.data;
   if (!isShown(data)) return;
-  if (data.id !== null && data.due !== null && (event.action === 'done' || event.action === 'snooze')) {
+  const { reminder } = data;
+  if (reminder !== null && (event.action === 'done' || event.action === 'snooze')) {
     const op: Op =
       event.action === 'done'
-        ? { type: 'complete', id: data.id, due: data.due }
-        : { type: 'snooze', id: data.id, due: data.due, until: Date.now() + SNOOZE_MINUTES * MINUTE_MS };
+        ? { type: 'complete', id: reminder.id, due: reminder.due }
+        : { type: 'snooze', id: reminder.id, due: reminder.due, until: Date.now() + SNOOZE_MINUTES * MINUTE_MS };
     event.waitUntil(act(op));
     return;
   }
@@ -106,19 +107,5 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('pushsubscriptionchange', (event) => {
-  const change = event as Event & {
-    newSubscription?: PushSubscription | null;
-    waitUntil(promise: Promise<unknown>): void;
-  };
-  change.waitUntil(
-    (async () => {
-      const key = Uint8Array.fromBase64(await vapidPublicKey(), BASE64URL);
-      const subscription =
-        event.newSubscription ??
-        (await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }));
-      const { endpoint, keys } = subscription.toJSON();
-      if (endpoint && keys?.p256dh && keys.auth)
-        await request('subscribe', { endpoint, p256dh: keys.p256dh, auth: keys.auth });
-    })(),
-  );
+  event.waitUntil(subscribePush(self.registration, event.newSubscription));
 });

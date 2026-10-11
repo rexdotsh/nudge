@@ -1,4 +1,4 @@
-import type { DeliveryInfo, DeviceInfo, DeviceInput, Platform, PushKeys } from '../shared/api';
+import type { DeviceInfo, DeviceInput, Platform, PushKeys } from '../shared/api';
 import type { Reminder } from '../shared/reminder';
 
 export type SqlValue = string | number | null;
@@ -21,8 +21,6 @@ const SCHEMA = [
     endpoint TEXT,
     p256dh TEXT,
     auth TEXT,
-    push_failures INTEGER NOT NULL DEFAULT 0,
-    push_ok_at INTEGER,
     receipt_at INTEGER
   )`,
   `CREATE TABLE IF NOT EXISTS reminders (
@@ -76,8 +74,6 @@ export type DeviceRow = {
   endpoint: string | null;
   p256dh: string | null;
   auth: string | null;
-  push_failures: number;
-  push_ok_at: number | null;
   receipt_at: number | null;
 };
 
@@ -310,7 +306,7 @@ export class Store {
 
   setSubscription(id: string, keys: PushKeys | null): void {
     this.sql.exec(
-      'UPDATE devices SET endpoint = ?, p256dh = ?, auth = ?, push_failures = 0 WHERE id = ?',
+      'UPDATE devices SET endpoint = ?, p256dh = ?, auth = ? WHERE id = ?',
       keys?.endpoint ?? null,
       keys?.p256dh ?? null,
       keys?.auth ?? null,
@@ -327,19 +323,12 @@ export class Store {
     return this.devices().flatMap((row) => target(row) ?? []);
   }
 
-  recordPush(sent: Target, ok: boolean, gone: boolean, now: number): void {
-    const where = 'WHERE id = ? AND endpoint = ?';
-    if (gone) {
-      this.sql.exec(
-        `UPDATE devices SET endpoint = NULL, p256dh = NULL, auth = NULL ${where}`,
-        sent.deviceId,
-        sent.endpoint,
-      );
-    } else if (ok) {
-      this.sql.exec(`UPDATE devices SET push_failures = 0, push_ok_at = ? ${where}`, now, sent.deviceId, sent.endpoint);
-    } else {
-      this.sql.exec(`UPDATE devices SET push_failures = push_failures + 1 ${where}`, sent.deviceId, sent.endpoint);
-    }
+  dropSubscription(sent: Target): void {
+    this.sql.exec(
+      'UPDATE devices SET endpoint = NULL, p256dh = NULL, auth = NULL WHERE id = ? AND endpoint = ?',
+      sent.deviceId,
+      sent.endpoint,
+    );
   }
 
   queue(outgoing: Outgoing, deviceId: string, at: number, now: number): void {
@@ -415,10 +404,6 @@ export class Store {
     this.sql.exec('UPDATE devices SET receipt_at = ? WHERE id = ?', now, deviceId);
   }
 
-  recentDeliveries(limit: number): DeliveryRow[] {
-    return this.sql.exec<DeliveryRow>('SELECT * FROM deliveries ORDER BY created_at DESC LIMIT ?', limit).toArray();
-  }
-
   purgeDeliveries(before: number): void {
     this.sql.exec('DELETE FROM deliveries WHERE created_at < ? AND next_at IS NULL', before);
   }
@@ -428,26 +413,6 @@ export function deviceInfo(row: DeviceRow): DeviceInfo {
   return {
     id: row.id,
     label: row.label,
-    platform: row.platform,
-    zone: row.zone,
-    createdAt: row.created_at,
-    seenAt: row.seen_at,
-    push: {
-      enabled: row.endpoint !== null,
-      failures: row.push_failures,
-      okAt: row.push_ok_at,
-      receiptAt: row.receipt_at,
-    },
-  };
-}
-
-export function deliveryInfo(row: DeliveryRow): DeliveryInfo {
-  return {
-    fire: row.fire,
-    title: row.title,
-    deviceId: row.device_id,
-    sentAt: row.sent_at,
-    status: row.status,
-    receiptAt: row.receipt_at,
+    push: { enabled: row.endpoint !== null, receiptAt: row.receipt_at },
   };
 }

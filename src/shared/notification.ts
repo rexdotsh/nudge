@@ -4,8 +4,7 @@ import { MINUTE_MS, wallMs } from './time';
 
 export interface PushData {
   fire: string;
-  id: string | null;
-  due: string | null;
+  reminder: { id: string; due: string } | null;
 }
 
 export interface NotificationContent {
@@ -16,6 +15,10 @@ export interface NotificationContent {
   silent: false;
   app_badge?: string;
   data: PushData;
+}
+
+function declarative(notification: Omit<NotificationContent, 'silent'>): PushMessage {
+  return { web_push: 8030, mutable: true, notification: { ...notification, silent: false } };
 }
 
 export interface PushMessage {
@@ -72,32 +75,22 @@ export function occurrenceTopic(reminderId: string, due: string): string {
 
 export function reminderMessage(reminder: Reminder, notice: Notice, view: Presentation): PushMessage {
   const due = dueAt({ ...reminder, due: notice.due }, view.zone) ?? notice.at;
-  return {
-    web_push: 8030,
-    mutable: true,
-    notification: {
-      title: reminder.title,
-      body: bodyFor(reminder, notice, due, view),
-      navigate: `${view.origin}/?open=${reminder.id}`,
-      tag: occurrenceTag(reminder.id, notice.due),
-      silent: false,
-      app_badge: String(view.badge),
-      data: { fire: fireId(reminder.id, notice.at), id: reminder.id, due: notice.due },
-    },
-  };
+  return declarative({
+    title: reminder.title,
+    body: bodyFor(reminder, notice, due, view),
+    navigate: `${view.origin}/?open=${reminder.id}`,
+    tag: occurrenceTag(reminder.id, notice.due),
+    app_badge: String(view.badge),
+    data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
+  });
 }
 
 export function testMessage(fire: string, view: Presentation): PushMessage {
-  return {
-    web_push: 8030,
-    mutable: true,
-    notification: {
-      title: 'Notifications work',
-      body: 'This is a test from Nudge. Reminders will arrive just like this.',
-      navigate: `${view.origin}/?settings`,
-      tag: 'test',
-      silent: false,
-      data: { fire, id: null, due: null },
-    },
-  };
+  return declarative({
+    title: 'Notifications work',
+    body: 'This is a test from Nudge. Reminders will arrive just like this.',
+    navigate: `${view.origin}/?settings`,
+    tag: 'test',
+    data: { fire, reminder: null },
+  });
 }

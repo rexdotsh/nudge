@@ -1,6 +1,6 @@
 import { describeRepeat } from '../../shared/describe';
 import { memoize } from '../../shared/memoize';
-import { dueAt, local, type Reminder } from '../../shared/reminder';
+import { local, type Repeat } from '../../shared/reminder';
 import { MINUTE_MS, epochDay, toLocal } from '../../shared/time';
 
 const locale = navigator.language;
@@ -20,11 +20,6 @@ const formatter = memoize((key) => {
 });
 
 const format = (instant: number, zone: string, style: string) => formatter(`${zone}|${style}`).format(instant);
-
-export function shownAt(reminder: Reminder, now: number, zone: string): number | null {
-  if (reminder.snoozedUntil !== null && reminder.snoozedUntil > now) return reminder.snoozedUntil;
-  return dueAt(reminder, zone);
-}
 
 export function daysFromToday(instant: number, now: number, zone: string): number {
   return epochDay(toLocal(instant, zone)) - epochDay(toLocal(now, zone));
@@ -71,6 +66,6 @@ export function shortWhen(instant: number, now: number, zone: string): string {
   return days < 7 ? `${format(instant, zone, 'short')} ${time}` : format(instant, zone, 'day');
 }
 
-export function repeatLabel(reminder: Reminder, zone: string): string | null {
-  return reminder.repeat ? describeRepeat(reminder.repeat, local(reminder.start), { locale, zone, time: false }) : null;
+export function repeatLabel(repeat: Repeat, start: string, zone: string): string {
+  return describeRepeat(repeat, local(start), locale, zone);
 }

@@ -1,6 +1,7 @@
 import type { ServerMessage } from '../shared/api';
 import type { Sql } from './store';
-import type { PushOptions, PushResult, PushTarget } from './webpush';
+import type { PushKeys } from '../shared/api';
+import type { PushOptions, PushResult } from './webpush';
 
 export const DEVICE_HEADER = 'X-Nudge-Device';
 
@@ -14,7 +15,7 @@ export interface Runtime {
   };
   broadcast: (message: ServerMessage, except?: string) => void;
   disconnect: (deviceId: string) => void;
-  push: (target: PushTarget, json: string, subject: string, options: PushOptions) => Promise<PushResult>;
+  push: (target: PushKeys, json: string, subject: string, options: PushOptions) => Promise<PushResult>;
   alert: (text: string) => Promise<void>;
   sleep: (ms: number) => Promise<void>;
   now: () => number;

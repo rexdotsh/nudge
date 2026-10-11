@@ -1,12 +1,7 @@
+import type { PushKeys } from '../shared/api';
 import { BASE64URL, utf8 } from '../shared/encoding';
 import { isRecord } from '../shared/validate';
 import { memoize } from '../shared/memoize';
-
-export interface PushTarget {
-  endpoint: string;
-  p256dh: string;
-  auth: string;
-}
 
 export interface VapidKeys {
   publicKey: string;
@@ -107,7 +102,7 @@ export const MAX_PUSH_PLAINTEXT = RECORD_SIZE - HEADER_BYTES - TAG_BYTES - 1;
 
 export async function encrypt(
   plaintext: Uint8Array,
-  target: Pick<PushTarget, 'p256dh' | 'auth'>,
+  target: Pick<PushKeys, 'p256dh' | 'auth'>,
   salt: Uint8Array<ArrayBuffer> = crypto.getRandomValues(new Uint8Array(16)),
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (plaintext.length > MAX_PUSH_PLAINTEXT) {
@@ -186,7 +181,7 @@ export async function vapidAuthorization(endpoint: string, sender: Sender, now =
 }
 
 export async function sendPush(
-  target: PushTarget,
+  target: PushKeys,
   json: string,
   sender: Sender,
   options: PushOptions,

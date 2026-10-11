@@ -1,4 +1,4 @@
-import { API_ERRORS, SOCKET_PROTOCOL, isDeviceRoute, isPublicRoute, type Reply } from '../shared/api';
+import { API_ERRORS, SOCKET_PROTOCOL, isDeviceRoute, isPublicRoute, type ApiError, type Reply } from '../shared/api';
 import { DEVICE_HEADER } from './runtime';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
@@ -13,11 +13,13 @@ function reply(result: Reply<unknown>): Response {
   return Response.json(result, { status: result.ok ? 200 : API_ERRORS[result.error] });
 }
 
-const failure = (error: keyof typeof API_ERRORS) => reply({ ok: false, error });
+const failure = (error: ApiError) => reply({ ok: false, error });
 
 async function readJson(request: Request): Promise<{ body: unknown } | null> {
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return null;
+  if (Number(request.headers.get('Content-Length') ?? 0) > MAX_BODY_BYTES) return null;
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_BODY_BYTES) return null;
+  const text = new TextDecoder().decode(bytes);
   try {
     return { body: text === '' ? null : JSON.parse(text) };
   } catch {

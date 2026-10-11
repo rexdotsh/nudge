@@ -105,10 +105,9 @@ function cadence(rule: Rule, start: LocalDateTime, names: Names): string | null 
 }
 
 function times(rule: Rule, start: LocalDateTime, names: Names): string {
-  if (rule.freq === 'HOURLY') return '';
+  if (rule.freq === 'HOURLY' || rule.byHour.length < 2) return '';
   const minute = rule.byMinute[0] ?? start.minute;
-  const hours = rule.byHour.length > 0 ? rule.byHour : [start.hour];
-  return ` at ${list(hours.map((hour) => names.time(hour, minute)))}`;
+  return ` at ${list(rule.byHour.map((hour) => names.time(hour, minute)))}`;
 }
 
 function ending(rule: Rule, names: Names, zone: string): string {
@@ -118,17 +117,7 @@ function ending(rule: Rule, names: Names, zone: string): string {
   return `, until ${names.month(until.month, 'short')} ${until.day}`;
 }
 
-export interface DescribeOptions {
-  locale: string;
-  zone: string;
-  time?: boolean;
-}
-
-export function describeRepeat(
-  repeat: Repeat,
-  start: LocalDateTime,
-  { locale, zone, time = true }: DescribeOptions,
-): string {
+export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: string, zone: string): string {
   const rule = parseRule(repeat.rule);
   const names = new Names(locale);
   if (repeat.anchor === 'completion') {
@@ -137,5 +126,5 @@ export function describeRepeat(
   }
   const phrase = cadence(rule, start, names);
   if (phrase === null) return 'Custom repeat';
-  return `${phrase}${time ? times(rule, start, names) : ''}${ending(rule, names, zone)}`;
+  return `${phrase}${times(rule, start, names)}${ending(rule, names, zone)}`;
 }

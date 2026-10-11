@@ -10,7 +10,7 @@
   const focus = $derived(triage.focus);
   const options = $derived(snoozeOptions(now, zone));
   const hour = $derived(options.find((option) => option.key === 'hour'));
-  const later = $derived(options.find((option) => option.key === 'evening' || option.key === 'morning'));
+  const tonight = $derived(options.find((option) => option.key === 'evening' || option.key === 'morning'));
   const summary = $derived(quietSummary(triage, now, zone));
 </script>
 
@@ -24,9 +24,9 @@
     <div class="acts">
       <button class="btn primary" onclick={() => void complete(focus.reminder)}>Done</button>
       {#if hour}<button class="btn" onclick={() => void snooze(focus.reminder, hour.at)}>+1 hour</button>{/if}
-      {#if later}
-        <button class="btn" onclick={() => void snooze(focus.reminder, later.at)}>
-          {later.key === 'evening' ? 'Tonight' : 'Tomorrow'}
+      {#if tonight}
+        <button class="btn" onclick={() => void snooze(focus.reminder, tonight.at)}>
+          {tonight.key === 'evening' ? 'Tonight' : 'Tomorrow'}
         </button>
       {/if}
       <button class="btn more" onclick={() => ui.snooze(focus.reminder.id)} aria-label="More snooze options">···</button

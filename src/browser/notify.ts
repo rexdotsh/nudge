@@ -18,7 +18,11 @@ export interface Shown extends PushData {
 }
 
 export function isShown(value: unknown): value is Shown {
-  return isRecord(value) && typeof value.fire === 'string' && typeof value.navigate === 'string';
+  if (!isRecord(value) || typeof value.fire !== 'string' || typeof value.navigate !== 'string') return false;
+  const { reminder } = value;
+  return (
+    reminder === null || (isRecord(reminder) && typeof reminder.id === 'string' && typeof reminder.due === 'string')
+  );
 }
 
 export function show(registration: ServiceWorkerRegistration, content: NotificationContent): Promise<void> {
@@ -29,7 +33,7 @@ export function show(registration: ServiceWorkerRegistration, content: Notificat
     data,
     icon: '/icons/icon-192.png',
     renotify: true,
-    actions: content.data.id === null ? [] : ACTIONS,
+    actions: content.data.reminder === null ? [] : ACTIONS,
   };
   return registration.showNotification(content.title, options);
 }

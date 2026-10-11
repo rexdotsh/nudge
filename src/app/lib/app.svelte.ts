@@ -32,7 +32,6 @@ class App {
   phase = $state<Phase>('loading');
   reminders = $state<Reminder[]>([]);
   online = $state(true);
-  pendingCount = $state(0);
   now = $state(Date.now());
   zone = currentZone();
   travelling = $state(false);
@@ -147,7 +146,7 @@ class App {
     if (document.visibilityState === 'visible') {
       this.notifications = pushState();
       void this.noteZone();
-      this.connection?.resume();
+      this.connection?.open();
       void this.reloadPending().then(() => this.sync());
       void syncSubscription();
     } else if (this.pending.length > 0 && this.token) {
@@ -180,7 +179,6 @@ class App {
 
   private refresh(): void {
     this.reminders = this.replica.view(this.pending, this.zone);
-    this.pendingCount = this.pending.length;
   }
 }
 

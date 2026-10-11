@@ -1,9 +1,7 @@
-export interface TelegramConfig {
-  TELEGRAM_BOT_TOKEN?: string;
-  TELEGRAM_CHAT_ID?: string;
-}
-
-export async function sendTelegram(config: TelegramConfig, text: string): Promise<void> {
+export async function sendTelegram(
+  config: Pick<Env, 'TELEGRAM_BOT_TOKEN' | 'TELEGRAM_CHAT_ID'>,
+  text: string,
+): Promise<void> {
   const { TELEGRAM_BOT_TOKEN: token, TELEGRAM_CHAT_ID: chat } = config;
   if (!token || !chat) {
     console.warn(`alert (telegram not configured): ${text}`);

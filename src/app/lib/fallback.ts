@@ -1,7 +1,7 @@
 import { show } from '../../browser/notify';
 import { fire, nextFireAt } from '../../shared/fire';
 import { fireId, reminderMessage } from '../../shared/notification';
-import { isOverdue, type Reminder } from '../../shared/reminder';
+import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
 
 const GRACE_MS = 45_000;
@@ -29,8 +29,7 @@ class Fallback {
   private async check(reminders: readonly Reminder[], zone: string): Promise<void> {
     const now = Date.now();
     const registration = await navigator.serviceWorker.ready;
-    const badge = reminders.filter((reminder) => !reminder.deleted && isOverdue(reminder, now, zone)).length;
-    const view = { origin: location.origin, zone, locale: navigator.language, badge };
+    const view = { origin: location.origin, zone, locale: navigator.language, badge: lateCount(reminders, now, zone) };
     const missed = reminders.flatMap((reminder) => {
       const { reminder: advanced, notice } = fire(this.locally(reminder), now - GRACE_MS, zone);
       this.watermarks.set(reminder.id, advanced.firedThrough);

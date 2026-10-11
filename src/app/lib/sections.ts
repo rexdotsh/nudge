@@ -1,6 +1,6 @@
-import { isOverdue, type Reminder } from '../../shared/reminder';
+import { isLate, shownAt, type Reminder } from '../../shared/reminder';
 import { DAY_MS, HOUR_MS } from '../../shared/time';
-import { daysFromToday, shownAt, shortWhen } from './format';
+import { daysFromToday, shortWhen } from './format';
 
 export interface Entry {
   reminder: Reminder;
@@ -20,7 +20,7 @@ const FOCUS_WINDOW_MS = 3 * HOUR_MS;
 export function triage(reminders: readonly Reminder[], now: number, zone: string): Triage {
   const entries = reminders
     .filter((reminder) => !reminder.deleted && reminder.due !== null)
-    .map((reminder) => ({ reminder, at: shownAt(reminder, now, zone) ?? now, late: isOverdue(reminder, now, zone) }))
+    .map((reminder) => ({ reminder, at: shownAt(reminder, now, zone) ?? now, late: isLate(reminder, now, zone) }))
     .toSorted((a, b) => a.at - b.at);
   const late = entries.filter((entry) => entry.late);
   const upcoming = entries.filter((entry) => !entry.late);

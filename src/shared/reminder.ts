@@ -115,7 +115,21 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour, minute });
 }
 
-export function isOverdue(reminder: Reminder, now: number, currentZone: string): boolean {
+export function isSnoozed(reminder: Reminder, now: number): boolean {
+  return reminder.snoozedUntil !== null && reminder.snoozedUntil > now;
+}
+
+export function shownAt(reminder: Reminder, now: number, currentZone: string): number | null {
+  return reminder.snoozedUntil !== null && isSnoozed(reminder, now)
+    ? reminder.snoozedUntil
+    : dueAt(reminder, currentZone);
+}
+
+export function isLate(reminder: Reminder, now: number, currentZone: string): boolean {
   const due = dueAt(reminder, currentZone);
-  return due !== null && due <= now && (reminder.snoozedUntil === null || reminder.snoozedUntil <= now);
+  return due !== null && due <= now && !isSnoozed(reminder, now);
+}
+
+export function lateCount(reminders: readonly Reminder[], now: number, currentZone: string): number {
+  return reminders.filter((reminder) => !reminder.deleted && isLate(reminder, now, currentZone)).length;
 }

@@ -20,7 +20,7 @@ import { isRecord } from '../shared/validate';
 import { ApiFailure, DEVICE_REQUESTS, PUBLIC_REQUESTS } from './requests';
 import type { Runtime } from './runtime';
 import { Scheduler } from './scheduler';
-import { Store, deliveryInfo, deviceInfo, type DeviceRow } from './store';
+import { Store, deviceInfo, type DeviceRow } from './store';
 import { digest, issueToken, sameSecret } from './tokens';
 
 export interface Caller {
@@ -32,7 +32,6 @@ const PAIR_CODE_TTL_MS = 10 * MINUTE_MS;
 const LOCKOUT_MS = 15 * MINUTE_MS;
 const FAILURE_LIMIT = 10;
 const MAX_PENDING_TESTS = 5;
-const HEALTH_DELIVERIES = 20;
 
 type Handlers<R extends { [K in keyof R]: { request: unknown; response: unknown } }, Context> = {
   [K in keyof R]: (request: R[K]['request'], context: Context) => R[K]['response'] | Promise<R[K]['response']>;
@@ -72,7 +71,6 @@ export class Nudge {
     },
     health: () => ({
       devices: this.store.devices().map(deviceInfo),
-      deliveries: this.store.recentDeliveries(HEALTH_DELIVERIES).map(deliveryInfo),
     }),
     revoke: ({ id }) => {
       this.store.revokeDevice(id);
@@ -213,7 +211,6 @@ export class Nudge {
 
   private async sync({ since, zone, changes }: SyncRequest, device: DeviceRow): Promise<SyncResponse> {
     const now = this.runtime.now();
-    let rejected = 0;
     let applied = 0;
     const zoneChanged = this.runtime.transaction(() => {
       this.store.touchDevice(device.id, zone, now);
@@ -225,8 +222,6 @@ export class Nudge {
         if (next) {
           this.scheduler.save(next, now);
           applied++;
-        } else {
-          rejected++;
         }
         this.store.recordApplied(opId, now);
       }
@@ -239,6 +234,6 @@ export class Nudge {
     }
     const purged = Number(this.store.meta('purged') ?? 0);
     const reset = since < purged || since > version;
-    return { version, reminders: this.store.changedSince(reset ? 0 : since), reset, rejected };
+    return { version, reminders: this.store.changedSince(reset ? 0 : since), reset };
   }
 }
