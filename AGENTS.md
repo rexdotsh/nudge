@@ -16,6 +16,8 @@ Bun is the only package manager and script runner. Never use npm, pnpm or yarn. 
 | Build client + SW        | `bun run build`                       |
 | Local dev                | `bun run dev`                         |
 | Deploy an instance       | `bun run deploy --name <worker-name>` |
+| Instance secrets         | `bun run secrets <worker-name>`       |
+| Local dev secrets        | `bun run secrets --dev`               |
 
 `bun run fmt:check`, `bun run lint`, `bun run check`, `bun run test` and `bun run build` must all pass before every push. CI runs the same steps.
 

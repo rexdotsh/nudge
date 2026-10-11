@@ -23,3 +23,15 @@ export async function verifyToken(secret: string, token: string): Promise<string
   const valid = await crypto.subtle.verify('HMAC', await hmacKey(secret), bytes, utf8(`${deviceId}.${issued}`));
   return valid ? deviceId : null;
 }
+
+export function sameSecret(given: string, expected: string): boolean {
+  const a = utf8(given);
+  const b = utf8(expected);
+  let difference = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) difference |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return difference === 0;
+}
+
+export async function digest(text: string): Promise<string> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', utf8(text))).toHex();
+}

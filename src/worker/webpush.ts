@@ -24,6 +24,8 @@ export interface PushOptions {
   topic: string;
 }
 
+const PUSH_TIMEOUT_MS = 15_000;
+
 export interface PushResult {
   status: number;
   detail: string;
@@ -197,6 +199,7 @@ export async function sendPush(
   const response = await fetch(target.endpoint, {
     method: 'POST',
     redirect: 'manual',
+    signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
     headers: {
       Authorization: authorization,
       'Content-Encoding': 'aes128gcm',
