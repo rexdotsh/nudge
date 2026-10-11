@@ -9,6 +9,7 @@ import {
   parseLocal,
   toInstant,
   toLocal,
+  wallAtOrAfter,
   type LocalDate,
   type LocalDateTime,
 } from './time';
@@ -106,7 +107,9 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
     return occurrenceAfter(reminder, Math.max(due, completedAt), currentZone);
   }
   const { freq, interval } = parsedRule(repeat.rule);
-  if (freq === 'HOURLY') return wallOf(reminder, completedAt + interval * HOUR_MS, currentZone);
+  if (freq === 'HOURLY') {
+    return formatLocal(wallAtOrAfter(completedAt + interval * HOUR_MS, zoneFor(reminder, currentZone)));
+  }
   const { hour, minute } = local(reminder.start);
   const date = ADVANCE[freq](toLocal(completedAt, zoneFor(reminder, currentZone)), interval);
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour, minute });

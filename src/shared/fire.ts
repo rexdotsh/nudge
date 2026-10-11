@@ -62,6 +62,7 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
       continue;
     }
     current.firedThrough = step.at;
+    current.revision += 1;
     if (current.due !== null) notice = { alert: step.alert, at: step.at, due: current.due, missed: current.missed };
   }
   return { reminder: current, notice };

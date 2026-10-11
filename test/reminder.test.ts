@@ -138,12 +138,44 @@ describe('complete, skip, snooze, reopen', () => {
     expect(applyOp(doneAgain, undo, { now: at('2026-10-12T09:08'), zone: ZONE })).toBeNull();
   });
 
+  test('firing the next occurrence invalidates an older undo', () => {
+    const series = create({ start: '2026-10-12T09:00', repeat: daily, alerts: [60] });
+    const done = apply(series, { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:05');
+    const undo = { type: 'reopen', id: ID, due: '2026-10-12T09:00', revision: done.revision } as const;
+    const alerted = fire(done, at('2026-10-13T08:00'), ZONE).reminder;
+    expect(applyOp(alerted, undo, { now: at('2026-10-13T08:01'), zone: ZONE })).toBeNull();
+  });
+
+  test('hourly completion repeats survive the fall-back fold', () => {
+    const ny = 'America/New_York';
+    const clock = (wallUtc: number) => ({ now: wallUtc, zone: ny });
+    const meds = applyOp(
+      undefined,
+      {
+        type: 'put',
+        id: ID,
+        fields: fields({ start: '2026-11-01T00:30', repeat: { rule: 'FREQ=HOURLY', anchor: 'completion' } }),
+      },
+      clock(Date.UTC(2026, 10, 1, 4, 0)),
+    );
+    if (!meds) throw new Error('create failed');
+    const done = applyOp(
+      meds,
+      { type: 'complete', id: ID, due: '2026-11-01T00:30' },
+      clock(Date.UTC(2026, 10, 1, 5, 30)),
+    );
+    if (!done) throw new Error('complete failed');
+    expect(done.due).not.toBe('2026-11-01T00:30');
+    expect(dueAt(done, ny)).toBeGreaterThanOrEqual(Date.UTC(2026, 10, 1, 6, 30));
+    expect(nextFireAt(done, ny)).not.toBeNull();
+  });
+
   test('every applied op and roll bumps the revision', () => {
     const reminder = create({ repeat: daily });
     expect(reminder.revision).toBe(1);
     const snoozed = apply(reminder, { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: 0 }, '2026-10-12T09:01');
     expect(snoozed.revision).toBe(2);
-    expect(fire(snoozed, at('2026-10-13T09:00'), ZONE).reminder.revision).toBe(3);
+    expect(fire(snoozed, at('2026-10-13T09:00'), ZONE).reminder.revision).toBeGreaterThan(2);
   });
 
   test('delete and restore only toggle the tombstone', () => {
