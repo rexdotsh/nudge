@@ -33,7 +33,7 @@ export function show(registration: ServiceWorkerRegistration, content: Notificat
     data,
     icon: '/icons/icon-192.png',
     renotify: true,
-    actions: content.data.reminder === null ? [] : ACTIONS,
+    actions: content.data.reminder ? ACTIONS : [],
   };
   return registration.showNotification(content.title, options);
 }
