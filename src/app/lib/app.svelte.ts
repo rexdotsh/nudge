@@ -2,8 +2,8 @@ import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set } from '../../browser/kv';
 import type { PendingChange } from '../../browser/schema';
 import { acknowledge, currentZone, enqueue, wire } from '../../browser/outbox';
-import type { Change } from '../../shared/api';
-import { BASE64URL } from '../../shared/encoding';
+import { MAX_CHANGES, type Change } from '../../shared/api';
+import { BASE64URL, utf8 } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
 import { Connection } from './connection';
@@ -13,14 +13,13 @@ import { Replica } from './replica';
 
 export type Phase = 'loading' | 'enroll' | 'ready';
 
-const MAX_BATCH = 200;
 const KEEPALIVE_BYTES = 48 * 1024;
 
 function withinKeepalive(pending: readonly PendingChange[]): Change[] {
   const batch: Change[] = [];
   let bytes = 0;
-  for (const change of wire(pending)) {
-    bytes += JSON.stringify(change).length;
+  for (const change of wire(pending.slice(0, MAX_CHANGES))) {
+    bytes += utf8(JSON.stringify(change)).length + 1;
     if (bytes > KEEPALIVE_BYTES) break;
     batch.push(change);
   }
@@ -98,7 +97,7 @@ class App {
 
   private async exchange(): Promise<void> {
     if (!this.connection) return;
-    const sent = this.pending.slice(0, MAX_BATCH);
+    const sent = this.pending.slice(0, MAX_CHANGES);
     this.zone = currentZone();
     try {
       const response = await this.connection.sync({
