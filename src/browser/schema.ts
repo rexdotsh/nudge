@@ -11,5 +11,4 @@ export interface Schema {
   vapidPublicKey: string;
   replica: { version: number; reminders: Reminder[] };
   pending: PendingChange[];
-  seen: string[];
 }

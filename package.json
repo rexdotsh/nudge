@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun run build && wrangler dev",
     "build": "vite build && vite build -c vite.sw.config.ts",
-    "check": "svelte-check --tsgo --tsconfig src/app/tsconfig.json && tsc -p src/worker && tsc -p src/sw && tsc -p .",
+    "check": "svelte-check --tsgo-experimental-api --tsconfig src/app/tsconfig.json && tsc -p src/worker && tsc -p src/sw && tsc -p .",
     "lint": "oxlint --type-aware --deny-warnings",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

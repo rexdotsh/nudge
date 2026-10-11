@@ -40,10 +40,14 @@ export async function request<R extends Route>(
 }
 
 export async function vapidPublicKey(): Promise<string> {
-  const cached = await get('vapidPublicKey');
-  if (cached) return cached;
-  const response = await fetch('/api/config');
-  const { vapidPublicKey: key }: { vapidPublicKey: string } = await response.json();
-  await set('vapidPublicKey', key);
-  return key;
+  try {
+    const response = await fetch('/api/config', { cache: 'no-store' });
+    const { vapidPublicKey: key }: { vapidPublicKey: string } = await response.json();
+    await set('vapidPublicKey', key);
+    return key;
+  } catch (error) {
+    const cached = await get('vapidPublicKey');
+    if (cached) return cached;
+    throw new Unreachable(error instanceof Error ? error.message : 'could not load the push key');
+  }
 }

@@ -2,6 +2,7 @@ import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set } from '../../browser/kv';
 import type { PendingChange } from '../../browser/schema';
 import { acknowledge, currentZone, enqueue, wire } from '../../browser/outbox';
+import type { Change } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
@@ -11,6 +12,20 @@ import { syncSubscription } from './push';
 import { Replica } from './replica';
 
 export type Phase = 'loading' | 'enroll' | 'ready';
+
+const MAX_BATCH = 200;
+const KEEPALIVE_BYTES = 48 * 1024;
+
+function withinKeepalive(pending: readonly PendingChange[]): Change[] {
+  const batch: Change[] = [];
+  let bytes = 0;
+  for (const change of wire(pending)) {
+    bytes += JSON.stringify(change).length;
+    if (bytes > KEEPALIVE_BYTES) break;
+    batch.push(change);
+  }
+  return batch;
+}
 
 class App {
   phase = $state<Phase>('loading');
@@ -23,11 +38,14 @@ class App {
 
   private replica = new Replica();
   private pending: PendingChange[] = [];
+  private token: string | null = null;
   private connection: Connection | null = null;
   private inflight: Promise<void> | null = null;
   private again = false;
 
   async start(): Promise<void> {
+    navigator.serviceWorker?.addEventListener('message', () => void this.reloadPending().then(() => this.sync()));
+    document.addEventListener('visibilitychange', () => this.visibilityChanged());
     const [session, snapshot, pending] = await Promise.all([get('session'), get('replica'), get('pending')]);
     this.replica = new Replica(snapshot);
     this.pending = pending ?? [];
@@ -37,8 +55,6 @@ class App {
     setInterval(() => {
       this.now = Date.now();
     }, 30_000);
-    document.addEventListener('visibilitychange', () => this.visibilityChanged());
-    navigator.serviceWorker?.addEventListener('message', () => void this.reloadPending());
   }
 
   async enroll(kind: 'setup' | 'join', code: string): Promise<void> {
@@ -82,7 +98,7 @@ class App {
 
   private async exchange(): Promise<void> {
     if (!this.connection) return;
-    const sent = this.pending;
+    const sent = this.pending.slice(0, MAX_BATCH);
     this.zone = currentZone();
     try {
       const response = await this.connection.sync({
@@ -95,6 +111,7 @@ class App {
       await set('replica', this.replica.snapshot());
       this.pending = remaining;
       this.online = true;
+      if (remaining.length > 0) this.again = true;
     } catch (error) {
       if (error instanceof Unreachable) this.online = false;
       else if (error instanceof ApiRejected && error.code === 'unauthorized') this.phase = 'enroll';
@@ -105,6 +122,7 @@ class App {
   }
 
   private connect(token: string): void {
+    this.token = token;
     this.connection = new Connection(
       token,
       (version) => {
@@ -122,11 +140,11 @@ class App {
       this.connection?.resume();
       void this.reloadPending().then(() => this.sync());
       void syncSubscription();
-    } else if (this.pending.length > 0 && this.phase === 'ready') {
+    } else if (this.pending.length > 0 && this.token) {
       void request(
         'sync',
-        { since: this.replica.version, zone: this.zone, changes: wire(this.pending) },
-        { keepalive: true },
+        { since: this.replica.version, zone: this.zone, changes: withinKeepalive(this.pending) },
+        { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
     }
   }

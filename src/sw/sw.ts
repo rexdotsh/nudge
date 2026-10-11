@@ -1,5 +1,5 @@
 import { request, vapidPublicKey } from '../browser/api';
-import { get, update } from '../browser/kv';
+import { get } from '../browser/kv';
 import { acknowledge, currentZone, enqueue, wire } from '../browser/outbox';
 import { BASE64URL } from '../shared/encoding';
 import type { NotificationContent, PushData, PushMessage } from '../shared/notification';
@@ -12,7 +12,6 @@ declare const self: ServiceWorkerGlobalScope;
 const CACHE_PREFIX = 'nudge-';
 export const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
 const SNOOZE_MINUTES = 15;
-const SEEN_LIMIT = 200;
 interface ActionButton {
   action: string;
   title: string;

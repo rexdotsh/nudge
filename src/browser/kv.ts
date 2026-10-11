@@ -15,32 +15,46 @@ function database(): Promise<IDBDatabase> {
   return opened;
 }
 
-function settle<T>(request: IDBRequest<T>): Promise<T> {
+async function transact<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => () => T): Promise<T> {
+  const transaction = (await database()).transaction(STORE, mode);
+  const result = work(transaction.objectStore(STORE));
   return new Promise((resolve, reject) => {
-    request.addEventListener('success', () => resolve(request.result));
-    request.addEventListener('error', () => reject(request.error ?? new Error('IndexedDB request failed')));
+    transaction.addEventListener('complete', () => resolve(result()));
+    transaction.addEventListener('error', () => reject(transaction.error ?? new Error('IndexedDB transaction failed')));
+    transaction.addEventListener('abort', () =>
+      reject(transaction.error ?? new Error('IndexedDB transaction aborted')),
+    );
   });
 }
 
-export async function get<K extends keyof Schema>(key: K): Promise<Schema[K] | undefined> {
-  const db = await database();
-  const value: Schema[K] | undefined = await settle(db.transaction(STORE).objectStore(STORE).get(key));
-  return value;
+export function get<K extends keyof Schema>(key: K): Promise<Schema[K] | undefined> {
+  return transact('readonly', (store) => {
+    const request: IDBRequest<Schema[K] | undefined> = store.get(key);
+    return () => request.result;
+  });
 }
 
-export async function set<K extends keyof Schema>(key: K, value: Schema[K]): Promise<void> {
-  const db = await database();
-  await settle(db.transaction(STORE, 'readwrite').objectStore(STORE).put(value, key));
+export function set<K extends keyof Schema>(key: K, value: Schema[K]): Promise<void> {
+  return transact('readwrite', (store) => {
+    store.put(value, key);
+    return () => undefined;
+  });
 }
 
-export async function update<K extends keyof Schema>(
+export function update<K extends keyof Schema>(
   key: K,
   change: (current: Schema[K] | undefined) => Schema[K],
 ): Promise<Schema[K]> {
-  const db = await database();
-  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
-  const current: Schema[K] | undefined = await settle(store.get(key));
-  const next = change(current);
-  await settle(store.put(next, key));
-  return next;
+  return transact('readwrite', (store) => {
+    let next: Schema[K] | undefined;
+    const read: IDBRequest<Schema[K] | undefined> = store.get(key);
+    read.addEventListener('success', () => {
+      next = change(read.result);
+      store.put(next, key);
+    });
+    return () => {
+      if (next === undefined) throw new Error(`update of ${key} did not run`);
+      return next;
+    };
+  });
 }
