@@ -263,7 +263,7 @@
 
   .done-row .when {
     font-size: 13px;
-    color: var(--label-3);
+    color: var(--label-2);
   }
 
   :global([data-platform='windows']) .home {

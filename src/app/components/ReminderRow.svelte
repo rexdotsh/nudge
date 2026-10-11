@@ -178,6 +178,14 @@
     align-items: center;
   }
 
+  .content:focus-within .hover {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+
   @media (hover: hover) {
     .hover {
       position: static;

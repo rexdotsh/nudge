@@ -40,7 +40,7 @@
   }
 
   button {
-    color: var(--brand);
+    color: var(--brand-text);
     font-weight: 600;
   }
 

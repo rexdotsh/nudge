@@ -163,7 +163,7 @@
   }
 
   .chip.important {
-    color: var(--brand);
+    color: var(--brand-text);
   }
 
   .bar {
@@ -213,14 +213,14 @@
 
   .mirror span.when,
   .mirror span.repeat {
-    color: var(--brand);
+    color: var(--brand-text);
     background: var(--brand-soft);
     border-radius: 5px;
     box-shadow: 0 0 0 2px var(--brand-soft);
   }
 
   .mirror span.flag {
-    color: var(--brand);
+    color: var(--brand-text);
     font-weight: 700;
   }
 

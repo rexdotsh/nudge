@@ -38,7 +38,7 @@
 
   .count {
     font: 500 14px var(--font);
-    color: var(--label-3);
+    color: var(--label-2);
   }
 
   .group {

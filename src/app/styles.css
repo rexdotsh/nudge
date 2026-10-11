@@ -1,6 +1,7 @@
 :root {
   --brand: #ff5a36;
   --brand-fill: #d63c18;
+  --brand-text: #c2350f;
   --brand-soft: color-mix(in oklab, var(--brand) 14%, transparent);
   --danger: #ff3b30;
   --success: #34c759;
@@ -14,7 +15,7 @@
   --surface: #ffffff;
   --surface-raised: #ffffff;
   --label: #000000;
-  --label-2: rgb(60 60 67 / 0.6);
+  --label-2: rgb(60 60 67 / 0.75);
   --label-3: rgb(60 60 67 / 0.3);
   --separator: rgb(60 60 67 / 0.18);
   --fill: rgb(120 120 128 / 0.12);
@@ -51,6 +52,7 @@
     --surface-raised: #2c2c2e;
     --label: #ffffff;
     --label-2: rgb(235 235 245 / 0.6);
+    --brand-text: var(--brand);
     --label-3: rgb(235 235 245 / 0.3);
     --separator: rgb(84 84 88 / 0.6);
     --fill: rgb(118 118 128 / 0.24);
@@ -89,6 +91,7 @@
     --surface-raised: #2b2b2b;
     --label: #ffffff;
     --label-2: #c5c5c5;
+    --brand-text: var(--brand);
     --label-3: #8b8b8b;
     --separator: rgb(255 255 255 / 0.08);
     --fill: rgb(255 255 255 / 0.06);

@@ -103,7 +103,6 @@
     text-transform: uppercase;
     box-shadow: inset 0 0 0 1px var(--separator);
     outline: none;
-    transition: box-shadow 0.2s;
   }
 
   .code:focus {

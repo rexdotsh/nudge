@@ -144,7 +144,7 @@
     gap: 2px;
     margin-left: -6px;
     padding: 8px 6px;
-    color: var(--brand);
+    color: var(--brand-text);
     font-size: 17px;
   }
 
@@ -211,7 +211,7 @@
   }
 
   .action {
-    color: var(--brand);
+    color: var(--brand-text);
   }
 
   .remove {
@@ -237,12 +237,12 @@
       'Cascadia Mono',
       monospace;
     letter-spacing: 0.12em;
-    color: var(--brand);
+    color: var(--brand-text);
   }
 
   .footer {
     margin: 22px 16px 0;
-    color: var(--label-3);
+    color: var(--label-2);
     font-size: 13px;
     text-align: center;
   }
