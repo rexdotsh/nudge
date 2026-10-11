@@ -1,0 +1,120 @@
+import { memoize } from './memoize';
+
+export interface LocalDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
+export interface LocalDateTime extends LocalDate {
+  hour: number;
+  minute: number;
+}
+
+export const MINUTE_MS = 60_000;
+export const HOUR_MS = 3_600_000;
+export const DAY_MS = 86_400_000;
+
+export function epochDay({ year, month, day }: LocalDate): number {
+  return Date.UTC(year, month - 1, day) / DAY_MS;
+}
+
+export function fromEpochDay(days: number): LocalDate {
+  const date = new Date(days * DAY_MS);
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+export const WEEKDAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
+
+export function weekday(days: number): number {
+  return (((days + 3) % 7) + 7) % 7;
+}
+
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+export function wallMs(local: LocalDateTime): number {
+  return Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute);
+}
+
+function fromWallMs(ms: number): LocalDateTime {
+  const date = new Date(ms);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
+  };
+}
+
+export function addMinutes(local: LocalDateTime, minutes: number): LocalDateTime {
+  return fromWallMs(wallMs(local) + minutes * MINUTE_MS);
+}
+
+const formatter = memoize(
+  (zone) =>
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+    }),
+);
+
+export function isTimeZone(zone: string): boolean {
+  try {
+    formatter(zone);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function toLocal(instant: number, zone: string): LocalDateTime {
+  const parts: Record<string, number> = {};
+  for (const { type, value } of formatter(zone).formatToParts(instant)) parts[type] = Number(value);
+  return {
+    year: parts.year ?? 0,
+    month: parts.month ?? 0,
+    day: parts.day ?? 0,
+    hour: parts.hour ?? 0,
+    minute: parts.minute ?? 0,
+  };
+}
+
+function offsetAt(instant: number, zone: string): number {
+  return wallMs(toLocal(instant, zone)) - Math.floor(instant / MINUTE_MS) * MINUTE_MS;
+}
+
+/** Ambiguous times resolve to the earlier instant; nonexistent ones move forward by the gap, like Temporal's "compatible". */
+export function toInstant(local: LocalDateTime, zone: string): number {
+  const wall = wallMs(local);
+  const before = wall - offsetAt(wall - DAY_MS, zone);
+  const after = wall - offsetAt(wall + DAY_MS, zone);
+  const valid = [before, after].filter((instant) => wallMs(toLocal(instant, zone)) === wall);
+  return valid.length > 0 ? Math.min(...valid) : before;
+}
+
+const pad = (value: number, width = 2) => String(value).padStart(width, '0');
+
+export function formatLocal(local: LocalDateTime): string {
+  return `${pad(local.year, 4)}-${pad(local.month)}-${pad(local.day)}T${pad(local.hour)}:${pad(local.minute)}`;
+}
+
+export function parseLocal(text: string): LocalDateTime | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(text);
+  if (!match) return null;
+  const local = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+  };
+  return formatLocal(fromWallMs(wallMs(local))) === text ? local : null;
+}
