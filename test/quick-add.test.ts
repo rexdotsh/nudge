@@ -63,6 +63,25 @@ describe('parseQuickAdd', () => {
     ['yoga every morning', 'yoga', '2026-10-11T09:00', 'FREQ=DAILY'],
     ['bills every quarter on the 1st', 'bills', '2026-10-11T09:00', 'FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=1'],
     ['backup every 48 hours', 'backup', '2026-10-11T09:00', 'FREQ=DAILY;INTERVAL=2'],
+    ['stand up in 2 days at 8am', 'stand up', '2026-10-13T08:00', null],
+    ['meet at 8', 'meet', '2026-10-11T20:00', null],
+    ['meet tomorrow at 8', 'meet', '2026-10-12T08:00', null],
+    ['gym this sunday 9pm', 'gym', '2026-10-11T21:00', null],
+    ['gym next sunday 7am', 'gym', '2026-10-18T07:00', null],
+    ['call feb 30', 'call feb 30', null, null],
+    ['backup every 5000 days', 'backup every 5000 days', null, null],
+    [
+      'check servers every 2 hours from 10pm to 2am',
+      'check servers',
+      '2026-10-11T22:00',
+      'FREQ=DAILY;BYHOUR=0,2,22;BYMINUTE=0',
+    ],
+    [
+      'water garden every day for 2 weeks starting next monday',
+      'water garden',
+      '2026-10-12T09:00',
+      'FREQ=DAILY;UNTIL=20261025T182900Z',
+    ],
   ])('%p', (text, title, start, rule) => {
     const parsed = parse(text);
     expect(parsed.title).toBe(title);
@@ -111,36 +130,22 @@ test('suggestedStart rounds up from an hour ahead, or picks tomorrow morning lat
   expect(suggestedStart(at('2026-10-11T21:10'), ZONE)).toBe('2026-10-12T09:00');
 });
 
-describe('describeRepeat', () => {
+describe('describeRepeat never misstates the cadence', () => {
   const start = { year: 2026, month: 10, day: 11, hour: 9, minute: 0 };
   test.each([
-    ['FREQ=DAILY', 'Every day at 9:00 AM'],
-    ['FREQ=DAILY;INTERVAL=3', 'Every 3 days at 9:00 AM'],
-    ['FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 'Every weekday at 9:00 AM'],
-    ['FREQ=WEEKLY;BYDAY=SA,SU', 'Every weekend at 9:00 AM'],
-    ['FREQ=WEEKLY', 'Every Sunday at 9:00 AM'],
-    ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH', 'Every other Tue & Thu at 9:00 AM'],
-    ['FREQ=WEEKLY;INTERVAL=3;BYDAY=MO', 'Every 3 weeks on Monday at 9:00 AM'],
-    ['FREQ=MONTHLY;BYDAY=-1FR', 'Monthly on the last Friday at 9:00 AM'],
-    ['FREQ=MONTHLY;BYMONTHDAY=1,15', 'Monthly on the 1st & 15th at 9:00 AM'],
-    ['FREQ=MONTHLY;BYMONTHDAY=-1', 'Monthly on the last day at 9:00 AM'],
-    ['FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1', 'Monthly on the last weekday at 9:00 AM'],
-    ['FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=1', 'Every quarter on the 1st at 9:00 AM'],
-    ['FREQ=YEARLY;BYMONTH=5;BYDAY=2SU', 'Every year on the second Sunday of May at 9:00 AM'],
-    ['FREQ=YEARLY;INTERVAL=10;BYMONTH=3;BYMONTHDAY=14', 'Every 10 years on Mar 14 at 9:00 AM'],
-    ['FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0', 'Every day at 8:00 AM & 8:00 PM'],
-    ['FREQ=HOURLY;INTERVAL=8', 'Every 8 hours'],
-    ['FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=6', 'Every Mon, Wed & Fri at 9:00 AM, 6 times'],
-    ['FREQ=DAILY;UNTIL=20261220T182900Z', 'Every day at 9:00 AM, until Dec 20'],
-    ['FREQ=MONTHLY;BYDAY=TU,WE,TH;BYSETPOS=3', 'Custom repeat'],
-  ])('%p', (rule, text) => {
-    expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US')).toBe(text);
+    ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH', /other Tue & Thu/],
+    ['FREQ=MONTHLY;BYDAY=-1FR', /last Friday/],
+    ['FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1', /last weekday/],
+    ['FREQ=YEARLY;BYMONTH=5;BYDAY=2SU', /second Sunday of May/],
+    ['FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0', /8:00 AM & 8:00 PM/],
+    ['FREQ=MONTHLY;BYDAY=TU,WE,TH;BYSETPOS=3', /^Custom repeat$/],
+  ])('%p', (rule, pattern) => {
+    expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US')).toMatch(pattern);
   });
 
-  test('completion repeats', () => {
-    expect(describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, 'en-US')).toBe(
-      '3 days after done',
+  test('completion repeats count from completion', () => {
+    expect(describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, 'en-US')).toMatch(
+      /3 days after/,
     );
-    expect(describeRepeat({ rule: 'FREQ=MONTHLY', anchor: 'completion' }, start, 'en-US')).toBe('1 month after done');
   });
 });

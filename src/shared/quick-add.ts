@@ -1,12 +1,14 @@
 import type { Repeat } from './reminder';
-import { formatRule, rule, type ByDay, type Frequency, type Rule } from './rrule';
+import { RuleError, formatRule, parseRule, rule, type ByDay, type Frequency, type Rule } from './rrule';
 import {
   DAY_MS,
   MINUTE_MS,
   WEEKDAY_CODES,
+  daysInMonth,
   epochDay,
   formatLocal,
   fromEpochDay,
+  parseLocal,
   toInstant,
   toLocal,
   wallAtOrAfter,
@@ -38,9 +40,12 @@ interface Draft {
   anchor: Repeat['anchor'];
   date: LocalDate | null;
   time: Time | null;
+  bareHour: number | null;
   times: Time[];
   defaultTime: Time | null;
   offset: number | null;
+  offsetDays: number | null;
+  duration: { unit: 'day' | 'week' | 'month'; amount: number } | null;
   important: boolean;
 }
 
@@ -101,30 +106,42 @@ const byDays = (list: string) =>
     .map((day) => ({ weekday: day, nth: 0 }));
 const numbers = (text: string) => (text.match(/\d{1,2}/g) ?? []).map(Number);
 
-function clock(
-  hourText: string,
-  minuteText: string | undefined,
-  meridiem: string | undefined,
-  bare = false,
-): Time | null {
+function clock(hourText: string, minuteText: string | undefined, meridiem: string | undefined): Time | null {
   let hour = Number(hourText);
   const minute = Number(minuteText ?? 0);
   if (minute > 59) return null;
   if (meridiem) {
     if (hour < 1 || hour > 12) return null;
     hour = (hour % 12) + (meridiem.startsWith('p') ? 12 : 0);
-  } else if (bare && hour >= 1 && hour <= 7) {
-    hour += 12;
   }
   return hour > 23 ? null : { hour, minute };
 }
+
+function isRealDate({ year, month, day }: LocalDate): boolean {
+  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
+}
+
+function isValidRule(candidate: Rule): boolean {
+  try {
+    parseRule(formatRule(candidate));
+    return true;
+  } catch (error) {
+    if (error instanceof RuleError) return false;
+    throw error;
+  }
+}
+
+const CONSUMED = '\u0001';
 
 class Scanner {
   readonly spans: Span[] = [];
   private text: string;
 
   constructor(readonly original: string) {
-    this.text = original.toLowerCase();
+    this.text = Array.from(original, (char) => {
+      const lower = char.toLowerCase();
+      return lower.length === char.length ? lower : char;
+    }).join('');
   }
 
   take(
@@ -138,13 +155,15 @@ class Scanner {
     if (!match || handle(match) === false) return false;
     this.spans.push({ start: match.index, end: match.index + match[0].length, kind });
     this.text =
-      this.text.slice(0, match.index) + ' '.repeat(match[0].length) + this.text.slice(match.index + match[0].length);
+      this.text.slice(0, match.index) +
+      CONSUMED.repeat(match[0].length) +
+      this.text.slice(match.index + match[0].length);
     return true;
   }
 
   rest(): string {
     let rest = '';
-    for (let i = 0; i < this.original.length; i++) rest += this.text[i] === ' ' ? ' ' : this.original[i];
+    for (let i = 0; i < this.original.length; i++) rest += this.text[i] === CONSUMED ? ' ' : this.original[i];
     return rest;
   }
 }
@@ -201,13 +220,15 @@ const REPEATS: RepeatPattern[] = [
     (m, draft) => {
       const step = Number(m[1]);
       const from = clock(m[2] ?? '', m[3], m[4]);
-      let to = clock(m[5] ?? '', m[6], m[7]);
+      const to = clock(m[5] ?? '', m[6], m[7]);
       if (!from || !to || step < 1) return null;
-      if (to.hour <= from.hour && !m[7]) to = { hour: to.hour + 12, minute: to.minute };
-      const hours: number[] = [];
-      for (let hour = from.hour; hour <= to.hour && hour < 24; hour += step) hours.push(hour);
+      let end = to.hour;
+      if (!m[7] && end <= from.hour && end + 12 > from.hour) end += 12;
+      if (end <= from.hour) end += 24;
+      const hours = new Set<number>();
+      for (let hour = from.hour; hour <= end; hour += step) hours.add(hour % 24);
       draft.defaultTime = from;
-      return rule('DAILY', { byHour: hours, byMinute: [from.minute] });
+      return rule('DAILY', { byHour: [...hours].toSorted((a, b) => a - b), byMinute: [from.minute] });
     },
   ],
   [
@@ -258,9 +279,10 @@ function addMonthsClamped(date: LocalDate, months: number): LocalDate {
   return { year, month: index - year * 12 + 1, day: date.day };
 }
 
-function nextWeekday(today: LocalDate, target: number): LocalDate {
+function nextWeekday(today: LocalDate, target: number, includeToday = false): LocalDate {
   const day = epochDay(today);
-  return fromEpochDay(day + ((target - weekday(day) + 7) % 7 || 7));
+  const ahead = (target - weekday(day) + 7) % 7;
+  return fromEpochDay(day + (ahead === 0 && !includeToday ? 7 : ahead));
 }
 
 function nextDate(today: LocalDate, month: number, day: number, year?: number): LocalDate {
@@ -270,34 +292,34 @@ function nextDate(today: LocalDate, month: number, day: number, year?: number): 
     : candidate;
 }
 
+const endOfDay = (date: LocalDate, zone: string) => toInstant({ ...date, hour: 23, minute: 59 }, zone);
+
 function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string): void {
   const current = draft.rule;
   if (!current) return;
-  const endOfDay = (date: LocalDate) => toInstant({ ...date, hour: 23, minute: 59 }, zone);
   scanner.take(
     `until\\s+${MONTH}\\s+(\\d{1,2})${SUFFIX}|until\\s+(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}`,
     'repeat',
     (m) => {
-      const month = monthIndex(m[1] ?? m[4] ?? '');
-      current.until = endOfDay(nextDate(today, month, Number(m[2] ?? m[3])));
+      const date = nextDate(today, monthIndex(m[1] ?? m[4] ?? ''), Number(m[2] ?? m[3]));
+      if (!isRealDate(date)) return false;
+      current.until = endOfDay(date, zone);
+      return true;
     },
   );
   scanner.take(`(?:for\\s+)?(\\d+)\\s+times`, 'repeat', (m) => {
     current.count = Number(m[1]);
   });
   scanner.take(`for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`, 'repeat', (m) => {
-    const amount = /^\d+$/.test(m[1] ?? '') ? Number(m[1]) : 1;
-    const last =
-      m[2] === 'month'
-        ? addMonthsClamped(today, amount)
-        : fromEpochDay(epochDay(today) + (m[2] === 'week' ? amount * 7 : amount) - 1);
-    current.until = endOfDay(last);
+    const unit = m[2] === 'week' || m[2] === 'month' ? m[2] : 'day';
+    draft.duration = { unit, amount: /^\d+$/.test(m[1] ?? '') ? Number(m[1]) : 1 };
   });
 }
 
 function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
-  const setDate = (date: LocalDate) => {
-    draft.date = date;
+  const setDate = (date: LocalDate): boolean => {
+    if (isRealDate(date)) draft.date = date;
+    return isRealDate(date);
   };
   scanner.take(
     `in\\s+(an?|half\\s+an|\\d+(?:\\.\\d+)?)\\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)`,
@@ -305,8 +327,8 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
     (m) => {
       const amount = m[1] === 'half an' ? 0.5 : /^\d/.test(m[1] ?? '') ? Number(m[1]) : 1;
       const unit = m[2]?.[0] ?? 'm';
-      const scale = unit === 'm' ? MINUTE_MS : unit === 'h' ? 60 * MINUTE_MS : unit === 'd' ? DAY_MS : 7 * DAY_MS;
-      draft.offset = amount * scale;
+      if (unit === 'd' || unit === 'w') draft.offsetDays = Math.round(amount * (unit === 'w' ? 7 : 1));
+      else draft.offset = amount * (unit === 'h' ? 60 * MINUTE_MS : MINUTE_MS);
     },
   );
   scanner.take(`(?:the\\s+)?day\\s+after\\s+tomorrow`, 'when', () => setDate(fromEpochDay(epochDay(today) + 2)));
@@ -335,14 +357,15 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
     const thisMonth = { ...today, day };
     setDate(day >= today.day ? thisMonth : addMonthsClamped(thisMonth, 1));
   });
-  scanner.take(`(?:on\\s+|next\\s+|this\\s+|coming\\s+)?(${DAY})`, 'when', (m) =>
-    setDate(nextWeekday(today, dayIndex(m[1] ?? ''))),
+  scanner.take(`(?:on\\s+|(next|this|coming)\\s+)?(${DAY})`, 'when', (m) =>
+    setDate(nextWeekday(today, dayIndex(m[2] ?? ''), m[1] === 'this')),
   );
 
   scanner.take(`(?:at\\s+)?${TIME}(?:\\s*(?:,|and|&)\\s*${TIME})+`, 'when', (m) => {
     const times = [...m[0].matchAll(new RegExp(TIME, 'g'))].map((part) => clock(part[1] ?? '', part[2], part[3]));
     const valid = times.filter((time): time is Time => time !== null);
-    if (draft.rule && valid.length === times.length) draft.times = valid;
+    const encodable = valid.length === times.length && new Set(valid.map((time) => time.minute)).size === 1;
+    if (draft.rule && encodable) draft.times = valid;
     return draft.times.length > 0;
   });
   const setTime = (time: Time | null): boolean => {
@@ -353,7 +376,12 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   scanner.take(`(?:at\\s+|@\\s*)?([01]?\\d|2[0-3]):([0-5]\\d)`, 'when', (m) =>
     setTime(clock(m[1] ?? '', m[2], undefined)),
   );
-  scanner.take(`(?:at|@)\\s*(\\d{1,2})`, 'when', (m) => setTime(clock(m[1] ?? '', undefined, undefined, true)));
+  scanner.take(`(?:at|@)\\s*(\\d{1,2})`, 'when', (m) => {
+    const hour = Number(m[1]);
+    if (hour < 1 || hour > 12) return setTime(clock(m[1] ?? '', undefined, undefined));
+    draft.bareHour = hour;
+    return true;
+  });
   scanner.take(`(?:at\\s+)?(?:noon|midday)`, 'when', () => setTime({ hour: 12, minute: 0 }));
   scanner.take(`(?:at\\s+)?midnight`, 'when', () => setTime({ hour: 23, minute: 59 }));
   scanner.take(`(?:in\\s+the\\s+|this\\s+)?(morning|afternoon|evening|night)`, 'when', (m) => {
@@ -361,17 +389,45 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   });
 }
 
+function resolveBareHour(hour: number, date: LocalDate | null, now: number, zone: string): Time {
+  const morning = { hour: hour % 12, minute: 0 };
+  const afternoon = { hour: (hour % 12) + 12, minute: 0 };
+  if (hour === 12) return { hour: 12, minute: 0 };
+  if (date) return hour >= 7 ? morning : afternoon;
+  const today = toLocal(now, zone);
+  return toInstant({ ...today, ...morning }, zone) > now ? morning : afternoon;
+}
+
 function startOf(draft: Draft, now: number, zone: string): string | null {
   if (draft.offset !== null) return formatLocal(wallAtOrAfter(now + draft.offset, zone));
-  const time = draft.times[0] ?? draft.time ?? draft.defaultTime;
+  const today = toLocal(now, zone);
+  const bare =
+    draft.bareHour === null
+      ? null
+      : resolveBareHour(draft.bareHour, draft.date ?? (draft.rule ? today : null), now, zone);
+  const time = draft.times[0] ?? draft.time ?? bare ?? draft.defaultTime;
+  if (draft.offsetDays !== null) {
+    if (!time) return formatLocal(wallAtOrAfter(now + draft.offsetDays * DAY_MS, zone));
+    draft.date = fromEpochDay(epochDay(today) + draft.offsetDays);
+  }
   if (!draft.date && !time && !draft.rule) return null;
   if (draft.rule?.freq === 'HOURLY' && !draft.date && !time) return formatLocal(wallAtOrAfter(now, zone));
-  const today = toLocal(now, zone);
   const at = time ?? DEFAULT_TIME;
   let date: LocalDate = draft.date ?? today;
   const passed = !draft.date && toInstant({ ...date, ...at }, zone) <= now;
   if (passed && (!draft.rule || draft.anchor === 'completion')) date = fromEpochDay(epochDay(date) + 1);
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour: at.hour, minute: at.minute });
+}
+
+function applyDuration(draft: Draft, start: string | null, zone: string): void {
+  const startDate = start === null ? null : parseLocal(start);
+  if (!draft.rule || !draft.duration || !startDate) return;
+  const { unit, amount } = draft.duration;
+  const last =
+    unit === 'month'
+      ? fromEpochDay(epochDay(addMonthsClamped(startDate, amount)) - 1)
+      : fromEpochDay(epochDay(startDate) + (unit === 'week' ? amount * 7 : amount) - 1);
+  draft.rule.until = endOfDay(last, zone);
 }
 
 function cleanTitle(text: string): string {
@@ -392,9 +448,12 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
     anchor: 'schedule',
     date: null,
     time: null,
+    bareHour: null,
     times: [],
     defaultTime: null,
     offset: null,
+    offsetDays: null,
+    duration: null,
     important: false,
   };
   scanner.take(
@@ -407,7 +466,8 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
   );
   for (const [pattern, build] of REPEATS) {
     const matched = scanner.take(pattern, 'repeat', (m) => {
-      draft.rule = build(m, draft);
+      const built = build(m, draft);
+      draft.rule = built && isValidRule(built) ? built : null;
       return draft.rule !== null;
     });
     if (matched) break;
@@ -418,9 +478,12 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
     draft.rule.byHour = draft.times.map((time) => time.hour).toSorted((a, b) => a - b);
     draft.rule.byMinute = [draft.times[0]?.minute ?? 0];
   }
+  const start = startOf(draft, now, zone);
+  applyDuration(draft, start, zone);
+  if (draft.rule && !isValidRule(draft.rule)) draft.rule = null;
   return {
     title: cleanTitle(scanner.rest()),
-    start: startOf(draft, now, zone),
+    start,
     repeat: draft.rule ? { rule: formatRule(draft.rule), anchor: draft.anchor } : null,
     important: draft.important,
     spans: scanner.spans.toSorted((a, b) => a.start - b.start),
