@@ -1,7 +1,6 @@
 import type { Repeat } from './reminder';
 import { parseRule, type ByDay, type Rule } from './rrule';
-import type { LocalDateTime } from './time';
-import { epochDay, weekday } from './time';
+import { epochDay, toLocal, weekday, type LocalDateTime } from './time';
 
 const ORDINAL_WORDS = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
 const UNITS = { HOURLY: 'hour', DAILY: 'day', WEEKLY: 'week', MONTHLY: 'month', YEARLY: 'year' } as const;
@@ -60,7 +59,8 @@ function nthWeekday(day: ByDay, names: Names): string {
   return `the ${position} ${names.weekday(day.weekday, 'long')}`;
 }
 
-function monthDays(days: number[]): string {
+function monthDays(days: number[]): string | null {
+  if (days.some((day) => day < -1)) return null;
   return `the ${list(days.map((day) => (day === -1 ? 'last day' : ordinal(day))))}`;
 }
 
@@ -71,9 +71,8 @@ function cadence(rule: Rule, start: LocalDateTime, names: Names): string | null 
     case 'HOURLY':
       return every(rule.interval, 'hour');
     case 'DAILY':
-      return rule.byDay.length > 0
-        ? weekdays({ ...rule, interval: 1 }, names, startWeekday)
-        : every(rule.interval, 'day');
+      if (rule.byDay.length === 0) return every(rule.interval, 'day');
+      return rule.interval === 1 ? weekdays(rule, names, startWeekday) : null;
     case 'WEEKLY':
       return weekdays(rule, names, startWeekday);
     case 'MONTHLY': {
@@ -86,7 +85,8 @@ function cadence(rule: Rule, start: LocalDateTime, names: Names): string | null 
       }
       if (nth && rule.byDay.length === 1) return `${base} on ${nthWeekday(nth, names)}`;
       if (rule.byDay.length > 0) return null;
-      return `${base} on ${monthDays(rule.byMonthDay.length > 0 ? rule.byMonthDay : [start.day])}`;
+      const days = monthDays(rule.byMonthDay.length > 0 ? rule.byMonthDay : [start.day]);
+      return days === null ? null : `${base} on ${days}`;
     }
     case 'YEARLY': {
       const base = rule.interval === 1 ? 'Every year' : every(rule.interval, 'year');
@@ -111,14 +111,14 @@ function times(rule: Rule, start: LocalDateTime, names: Names): string {
   return ` at ${list(hours.map((hour) => names.time(hour, minute)))}`;
 }
 
-function ending(rule: Rule, names: Names): string {
+function ending(rule: Rule, names: Names, zone: string): string {
   if (rule.count !== null) return `, ${rule.count} times`;
   if (rule.until === null) return '';
-  const until = new Date(rule.until);
-  return `, until ${names.month(until.getUTCMonth() + 1, 'short')} ${until.getUTCDate()}`;
+  const until = toLocal(rule.until, zone);
+  return `, until ${names.month(until.month, 'short')} ${until.day}`;
 }
 
-export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: string): string {
+export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: string, zone: string): string {
   const rule = parseRule(repeat.rule);
   const names = new Names(locale);
   if (repeat.anchor === 'completion') {
@@ -126,5 +126,5 @@ export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: str
     return `${rule.interval} ${unit}${rule.interval === 1 ? '' : 's'} after done`;
   }
   const phrase = cadence(rule, start, names);
-  return phrase === null ? 'Custom repeat' : `${phrase}${times(rule, start, names)}${ending(rule, names)}`;
+  return phrase === null ? 'Custom repeat' : `${phrase}${times(rule, start, names)}${ending(rule, names, zone)}`;
 }

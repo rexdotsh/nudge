@@ -139,12 +139,15 @@ describe('describeRepeat never misstates the cadence', () => {
     ['FREQ=YEARLY;BYMONTH=5;BYDAY=2SU', /second Sunday of May/],
     ['FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0', /8:00 AM & 8:00 PM/],
     ['FREQ=MONTHLY;BYDAY=TU,WE,TH;BYSETPOS=3', /^Custom repeat$/],
+    ['FREQ=DAILY;INTERVAL=3;BYDAY=MO', /^Custom repeat$/],
+    ['FREQ=MONTHLY;BYMONTHDAY=-2', /^Custom repeat$/],
+    ['FREQ=DAILY;UNTIL=20261221T030000Z', /until Dec 20$/],
   ])('%p', (rule, pattern) => {
-    expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US')).toMatch(pattern);
+    expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US', 'America/New_York')).toMatch(pattern);
   });
 
   test('completion repeats count from completion', () => {
-    expect(describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, 'en-US')).toMatch(
+    expect(describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, 'en-US', ZONE)).toMatch(
       /3 days after/,
     );
   });

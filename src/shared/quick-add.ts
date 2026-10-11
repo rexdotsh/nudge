@@ -132,6 +132,7 @@ function isValidRule(candidate: Rule): boolean {
 }
 
 const CONSUMED = '\u0001';
+const SHIELDED = '\u0002';
 
 class Scanner {
   readonly spans: Span[] = [];
@@ -159,6 +160,15 @@ class Scanner {
       CONSUMED.repeat(match[0].length) +
       this.text.slice(match.index + match[0].length);
     return true;
+  }
+
+  shield(pattern: string): void {
+    const match = new RegExp(`(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`, 'u').exec(this.text);
+    if (!match) return;
+    this.text =
+      this.text.slice(0, match.index) +
+      SHIELDED.repeat(match[0].length) +
+      this.text.slice(match.index + match[0].length);
   }
 
   rest(): string {
@@ -307,9 +317,11 @@ function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string
       return true;
     },
   );
-  scanner.take(`(?:for\\s+)?(\\d+)\\s+times`, 'repeat', (m) => {
+  if (current.until !== null) return;
+  const counted = scanner.take(`(?:for\\s+)?(\\d+)\\s+times`, 'repeat', (m) => {
     current.count = Number(m[1]);
   });
+  if (counted) return;
   scanner.take(`for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`, 'repeat', (m) => {
     const unit = m[2] === 'week' || m[2] === 'month' ? m[2] : 'day';
     draft.duration = { unit, amount: /^\d+$/.test(m[1] ?? '') ? Number(m[1]) : 1 };
@@ -327,8 +339,13 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
     (m) => {
       const amount = m[1] === 'half an' ? 0.5 : /^\d/.test(m[1] ?? '') ? Number(m[1]) : 1;
       const unit = m[2]?.[0] ?? 'm';
-      if (unit === 'd' || unit === 'w') draft.offsetDays = Math.round(amount * (unit === 'w' ? 7 : 1));
-      else draft.offset = amount * (unit === 'h' ? 60 * MINUTE_MS : MINUTE_MS);
+      const days = unit === 'w' ? amount * 7 : amount;
+      if (unit === 'd' || unit === 'w') {
+        if (Number.isInteger(days)) draft.offsetDays = days;
+        else draft.offset = days * DAY_MS;
+      } else {
+        draft.offset = amount * (unit === 'h' ? 60 * MINUTE_MS : MINUTE_MS);
+      }
     },
   );
   scanner.take(`(?:the\\s+)?day\\s+after\\s+tomorrow`, 'when', () => setDate(fromEpochDay(epochDay(today) + 2)));
@@ -339,7 +356,7 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   });
   scanner.take(`tomorrow|tmrw|tmr|tomo`, 'when', () => setDate(fromEpochDay(epochDay(today) + 1)));
   scanner.take(`(?:this\\s+)?weekend`, 'when', () => {
-    setDate(nextWeekday(today, 5));
+    setDate(weekday(epochDay(today)) >= 5 ? today : nextWeekday(today, 5));
     draft.defaultTime = { hour: 10, minute: 0 };
   });
   scanner.take(`next\\s+week`, 'when', () => setDate(nextWeekday(today, 0)));
@@ -368,6 +385,7 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
     if (draft.rule && encodable) draft.times = valid;
     return draft.times.length > 0;
   });
+  scanner.shield(`(?:at\\s+)?${TIME}(?:\\s*(?:,|and|&)\\s*${TIME})+`);
   const setTime = (time: Time | null): boolean => {
     if (time) draft.time = time;
     return time !== null;
