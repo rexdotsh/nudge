@@ -74,10 +74,11 @@ class App {
     this.connect(session.token);
   }
 
-  async apply(op: Op): Promise<void> {
+  async apply(op: Op): Promise<Reminder | undefined> {
     this.pending = [...this.pending, await enqueue(op)];
     this.refresh();
-    await this.sync();
+    void this.sync();
+    return this.reminders.find((reminder) => reminder.id === op.id);
   }
 
   sync(): Promise<void> {

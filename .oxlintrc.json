@@ -23,7 +23,13 @@
     ],
     "eqeqeq": "error",
     "prefer-const": "error",
-    "no-var": "error"
+    "no-var": "error",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": ["**/*.css"]
+      }
+    ]
   },
   "ignorePatterns": ["dist", "public/icons", ".wrangler", ".svelte-check"]
 }
