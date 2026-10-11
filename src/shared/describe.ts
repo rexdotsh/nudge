@@ -94,7 +94,7 @@ function cadence(rule: Rule, start: LocalDateTime, names: Names): string | null 
       if (rule.byMonth.length > 1 || rule.bySetPos.length > 0) return null;
       if (nth && rule.byDay.length === 1)
         return `${base} on ${nthWeekday(nth, names)} of ${names.month(month, 'long')}`;
-      if (rule.byDay.length > 0 || rule.byMonthDay.length > 1) return null;
+      if (rule.byDay.length > 0 || rule.byMonthDay.length > 1 || (rule.byMonthDay[0] ?? 1) < 1) return null;
       return `${base} on ${names.month(month, 'short')} ${rule.byMonthDay[0] ?? start.day}`;
     }
     default: {

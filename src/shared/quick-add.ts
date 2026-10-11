@@ -173,7 +173,7 @@ class Scanner {
 
   rest(): string {
     let rest = '';
-    for (let i = 0; i < this.original.length; i++) rest += this.text[i] === CONSUMED ? ' ' : this.original[i];
+    for (let i = 0; i < this.original.length; i++) rest += this.text[i] === CONSUMED ? CONSUMED : this.original[i];
     return rest;
   }
 }
@@ -319,7 +319,10 @@ function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string
   );
   if (current.until !== null) return;
   const counted = scanner.take(`(?:for\\s+)?(\\d+)\\s+times`, 'repeat', (m) => {
-    current.count = Number(m[1]);
+    const times = Number(m[1]);
+    if (times < 1) return false;
+    current.count = times;
+    return true;
   });
   if (counted) return;
   scanner.take(`for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`, 'repeat', (m) => {
@@ -448,12 +451,15 @@ function applyDuration(draft: Draft, start: string | null, zone: string): void {
   draft.rule.until = endOfDay(last, zone);
 }
 
+const CONNECTOR_BEFORE_CONSUMED = new RegExp(`\\s+(?:by|due|starting|from|until|every|each)\\s*(?=${CONSUMED})`, 'giu');
+
 function cleanTitle(text: string): string {
   return text
+    .replace(CONNECTOR_BEFORE_CONSUMED, ' ')
+    .replaceAll(CONSUMED, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/^(?:remind\s+me\s+(?:to\s+)?|reminder\s*:?\s*|to\s+)/i, '')
-    .replace(/(?:\s+(?:at|on|by|in|every|each|for|from|starting|due|,|-|–))+$/i, '')
+    .replace(/^(?:remind\s+me\s+(?:to\s+)?|reminder\s*:?\s*)/i, '')
     .replace(/[,;:\-–]+$/, '')
     .trim();
 }

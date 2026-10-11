@@ -70,6 +70,19 @@ describe('parseQuickAdd', () => {
     ['gym next sunday 7am', 'gym', '2026-10-18T07:00', null],
     ['call feb 30', 'call feb 30', null, null],
     ['backup every 5000 days', 'backup every 5000 days', null, null],
+    ['pills 8pm and 8:30pm every day', 'pills 8pm and 8:30pm', '2026-10-11T09:00', 'FREQ=DAILY'],
+    [
+      'stretch every day 5 times until dec 20',
+      'stretch 5 times',
+      '2026-10-11T09:00',
+      'FREQ=DAILY;UNTIL=20261220T182900Z',
+    ],
+    ['stretch every day for 0 times', 'stretch for 0 times', '2026-10-11T09:00', 'FREQ=DAILY'],
+    ['ship it in 1.5 days', 'ship it', '2026-10-13T07:43', null],
+    ['brunch this weekend', 'brunch', '2026-10-11T10:00', null],
+    ['check in tomorrow', 'check in', '2026-10-12T09:00', null],
+    ['log in at 9pm', 'log in', '2026-10-11T21:00', null],
+    ['pay rent by friday', 'pay rent', '2026-10-16T09:00', null],
     [
       'check servers every 2 hours from 10pm to 2am',
       'check servers',
@@ -141,6 +154,7 @@ describe('describeRepeat never misstates the cadence', () => {
     ['FREQ=MONTHLY;BYDAY=TU,WE,TH;BYSETPOS=3', /^Custom repeat$/],
     ['FREQ=DAILY;INTERVAL=3;BYDAY=MO', /^Custom repeat$/],
     ['FREQ=MONTHLY;BYMONTHDAY=-2', /^Custom repeat$/],
+    ['FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=-2', /^Custom repeat$/],
     ['FREQ=DAILY;UNTIL=20261221T030000Z', /until Dec 20$/],
   ])('%p', (rule, pattern) => {
     expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US', 'America/New_York')).toMatch(pattern);
