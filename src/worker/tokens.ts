@@ -31,3 +31,7 @@ export function sameSecret(given: string, expected: string): boolean {
   for (let i = 0; i < Math.max(a.length, b.length); i++) difference |= (a[i] ?? 0) ^ (b[i] ?? 0);
   return difference === 0;
 }
+
+export async function digest(text: string): Promise<string> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', utf8(text))).toHex();
+}

@@ -87,7 +87,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
   };
 }
 
-export function testMessage(at: number, view: Presentation): PushMessage {
+export function testMessage(fire: string, view: Presentation): PushMessage {
   return {
     web_push: 8030,
     mutable: true,
@@ -97,7 +97,7 @@ export function testMessage(at: number, view: Presentation): PushMessage {
       navigate: `${view.origin}/?settings`,
       tag: 'test',
       silent: false,
-      data: { fire: fireId('test', at), id: null, due: null },
+      data: { fire, id: null, due: null },
     },
   };
 }

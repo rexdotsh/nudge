@@ -21,7 +21,7 @@ import { ApiFailure, DEVICE_REQUESTS, PUBLIC_REQUESTS } from './requests';
 import type { Runtime } from './runtime';
 import { Scheduler } from './scheduler';
 import { Store, deliveryInfo, deviceInfo, type DeviceRow } from './store';
-import { issueToken, sameSecret } from './tokens';
+import { digest, issueToken, sameSecret } from './tokens';
 
 export interface Caller {
   deviceId: string | null;
@@ -51,19 +51,16 @@ export class Nudge {
     setup: ({ code, device }) =>
       this.enroll(
         device,
-        () =>
-          sameSecret(code, this.runtime.secrets.setupCode.toUpperCase()) &&
-          (this.store.deviceCount() === 0 || this.store.deviceByKey(device.key) !== undefined),
+        code,
+        () => this.store.deviceCount() === 0 && sameSecret(code, this.runtime.secrets.setupCode.toUpperCase()),
         () => {},
       ),
     join: ({ code, device }) =>
       this.enroll(
         device,
-        () => this.pairCodeAccepts(code, device.key),
-        () => {
-          const pair = this.pairCode();
-          if (pair) this.store.setMeta('pair', JSON.stringify({ ...pair, key: device.key }));
-        },
+        code,
+        () => this.pairCodeAccepts(code),
+        () => this.store.setMeta('pair', 'null'),
       ),
   };
 
@@ -82,7 +79,7 @@ export class Nudge {
       this.runtime.disconnect(id);
       return null;
     },
-    test: ({ delay }) => this.scheduleTest(delay),
+    test: ({ id, delay }) => this.scheduleTest(id, delay),
     receipt: ({ fire }, device) => {
       this.store.receipt(fire, device.id, this.runtime.now());
       return null;
@@ -155,52 +152,57 @@ export class Nudge {
       : [];
   }
 
-  private async enroll(device: DeviceInput, accepts: () => boolean, consume: () => void): Promise<Session> {
+  private async enroll(device: DeviceInput, code: string, fresh: () => boolean, consume: () => void): Promise<Session> {
+    const credential = await digest(code);
     const now = this.runtime.now();
-    const failures = this.recentFailures(now);
-    if (failures.length >= FAILURE_LIMIT) throw new ApiFailure('locked');
-    if (!accepts()) {
-      this.store.setMeta('failures', JSON.stringify([...failures, now]));
-      throw new ApiFailure('forbidden');
-    }
-    const id = this.runtime.transaction(() => {
+    const outcome = this.runtime.transaction((): { id: string } | ApiFailure => {
+      const failures = this.recentFailures(now);
+      if (failures.length >= FAILURE_LIMIT) return new ApiFailure('locked');
       const existing = this.store.deviceByKey(device.key);
-      if (existing) return existing.id;
+      const valid = fresh();
+      if (!valid && !(existing && sameSecret(credential, existing.enrolled_with))) {
+        this.store.setMeta('failures', JSON.stringify([...failures, now]));
+        return new ApiFailure('forbidden');
+      }
+      if (valid) consume();
+      this.store.setMeta('failures', '[]');
+      if (existing) return { id: existing.id };
       const created = ulid(now);
-      this.store.addDevice(created, device, now);
-      consume();
+      this.store.addDevice(created, device, credential, now);
       if (this.store.meta('zone') === null) this.store.setMeta('zone', device.zone);
       this.store.setMeta('locale', device.locale);
-      this.store.setMeta('failures', '[]');
-      return created;
+      return { id: created };
     });
-    return { token: await issueToken(this.runtime.secrets.auth, id), deviceId: id };
+    if (outcome instanceof ApiFailure) throw outcome;
+    return { token: await issueToken(this.runtime.secrets.auth, outcome.id), deviceId: outcome.id };
   }
 
-  private pairCode(): { code: string; expiresAt: number; key: string | null } | null {
+  private pairCode(): { code: string; expiresAt: number } | null {
     const stored: unknown = JSON.parse(this.store.meta('pair') ?? 'null');
     if (!isRecord(stored) || typeof stored.code !== 'string' || typeof stored.expiresAt !== 'number') return null;
-    return { code: stored.code, expiresAt: stored.expiresAt, key: typeof stored.key === 'string' ? stored.key : null };
+    return { code: stored.code, expiresAt: stored.expiresAt };
   }
 
   private issuePairCode(): { code: string; expiresAt: number } {
     const [random = 0] = crypto.getRandomValues(new Uint32Array(1));
     const code = String(random % 1_000_000).padStart(6, '0');
     const expiresAt = this.runtime.now() + PAIR_CODE_TTL_MS;
-    this.store.setMeta('pair', JSON.stringify({ code, expiresAt, key: null }));
+    this.store.setMeta('pair', JSON.stringify({ code, expiresAt }));
     return { code, expiresAt };
   }
 
-  private pairCodeAccepts(given: string, key: string): boolean {
+  private pairCodeAccepts(given: string): boolean {
     const pair = this.pairCode();
-    if (!pair || !sameSecret(given, pair.code)) return false;
-    return pair.key === null ? pair.expiresAt > this.runtime.now() : pair.key === key;
+    return pair !== null && pair.expiresAt > this.runtime.now() && sameSecret(given, pair.code);
   }
 
-  private async scheduleTest(delay: number): Promise<{ at: number }> {
-    if (this.store.pendingCount('test@') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
+  private async scheduleTest(id: string, delay: number): Promise<{ at: number }> {
+    const fire = `test:${id}`;
+    const existing = this.store.scheduledAt(fire);
+    if (existing !== null) return { at: existing };
+    if (this.store.pendingCount('test:') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
     const at = this.runtime.now() + delay * 1000;
-    this.scheduler.queueTest(at);
+    this.scheduler.queueTest(fire, at);
     await this.scheduler.rearm();
     return { at };
   }

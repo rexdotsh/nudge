@@ -75,7 +75,7 @@ export interface DeviceRoutes {
   subscribe: { request: PushKeys | null; response: null };
   health: { request: null; response: Health };
   revoke: { request: { id: string }; response: null };
-  test: { request: { delay: number }; response: { at: number } };
+  test: { request: { id: string; delay: number }; response: { at: number } };
   receipt: { request: { fire: string }; response: null };
   sync: { request: SyncRequest; response: SyncResponse };
 }

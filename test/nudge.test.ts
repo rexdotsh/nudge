@@ -52,6 +52,8 @@ function harness() {
     alarm: null as number | null,
     status: (_target: PushTarget, _attempt: number): number => 201,
     onPush: (_target: PushTarget): void => {},
+    held: null as ((status: number) => void) | null,
+    holdNext: false,
     failTransactions: 0,
     failAlerts: false,
     pushes: [] as { endpoint: string; message: PushMessage; topic: string }[],
@@ -89,6 +91,10 @@ function harness() {
       state.onPush(target);
       const message: PushMessage = JSON.parse(json);
       state.pushes.push({ endpoint: target.endpoint, message, topic: options.topic });
+      if (state.holdNext) {
+        state.holdNext = false;
+        return { status: await new Promise<number>((resolve) => (state.held = resolve)), detail: '' };
+      }
       return { status: state.status(target, attempt), detail: '' };
     },
     alert: async (text) => {
@@ -157,20 +163,30 @@ describe('enrollment', () => {
     });
   });
 
-  test('pair codes are single-use, short-lived, and replayable only by the device that used them', async () => {
+  test('pair codes are single-use and short-lived; a join can be retried by the device that used it', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const { code } = await h.ok('pair', null, deviceId);
     const laptop = device('Windows PC');
     const joined = await h.ok('join', { code, device: laptop });
+    await h.ok('pair', null, deviceId);
     expect((await h.ok('join', { code, device: laptop })).deviceId).toBe(joined.deviceId);
     expect(await h.call('join', { code, device: device('Intruder') })).toEqual({ ok: false, error: 'forbidden' });
 
-    const next = await h.ok('pair', null, deviceId);
+    const late = await h.ok('pair', null, deviceId);
     h.state.now += 11 * MINUTE_MS;
-    expect(await h.call('join', { code: next.code, device: device('Late') })).toEqual({
+    expect(await h.call('join', { code: late.code, device: device('Late') })).toEqual({
       ok: false,
       error: 'forbidden',
     });
+  });
+
+  test('a fresh code used by an already-enrolled install is consumed', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    const laptop = device('Windows PC');
+    await h.ok('join', { code: (await h.ok('pair', null, deviceId)).code, device: laptop });
+    const { code } = await h.ok('pair', null, deviceId);
+    await h.ok('join', { code, device: laptop });
+    expect(await h.call('join', { code, device: device('Someone else') })).toEqual({ ok: false, error: 'forbidden' });
   });
 
   test('ten failures lock enrollment for fifteen minutes', async () => {
@@ -189,7 +205,7 @@ describe('enrollment', () => {
       ['subscribe', { endpoint: 'https://evil.example/x', p256dh: 'a', auth: 'b' }],
       ['sync', { since: 0, zone: ZONE, changes: [{ opId: ulid(), op: { type: 'complete' } }] }],
       ['sync', { since: 0, zone: ZONE, changes: [{ opId: 'not-an-id', op: { type: 'delete', id: ulid() } }] }],
-      ['test', { delay: 99_999 }],
+      ['test', { id: ulid(), delay: 99_999 }],
     ] as const;
     const results = await Promise.all(malformed.map(([route, body]) => h.call(route, body, deviceId)));
     expect(results.every((result) => !result.ok && result.error === 'bad_request')).toBe(true);
@@ -199,14 +215,16 @@ describe('enrollment', () => {
 });
 
 describe('sync', () => {
-  test('replayed changes are applied once, even after newer edits', async () => {
+  test('a replayed change never overwrites a newer edit', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const id = ulid();
-    const put = { opId: ulid(), op: { type: 'put', id, fields: fields() } };
-    await h.ok('sync', { since: 0, zone: ZONE, changes: [put] }, deviceId);
-    await h.sync(deviceId, [{ type: 'delete', id }]);
-    const replay = await h.ok('sync', { since: 0, zone: ZONE, changes: [put] }, deviceId);
-    expect(replay.reminders.find((r) => r.id === id)?.deleted).toBe(true);
+    const first = { opId: ulid(), op: { type: 'put', id, fields: fields({ title: 'Old' }) } };
+    await h.ok('sync', { since: 0, zone: ZONE, changes: [first] }, deviceId);
+    await h.sync(deviceId, [{ type: 'put', id, fields: fields({ title: 'New' }) }]);
+    h.state.now += 90 * 24 * 60 * MINUTE_MS;
+    await h.nudge.watchdog();
+    const replay = await h.ok('sync', { since: 0, zone: ZONE, changes: [first] }, deviceId);
+    expect(replay.reminders.find((r) => r.id === id)?.title).toBe('New');
   });
 
   test('returns only newer changes, and resets a client that is ahead', async () => {
@@ -264,8 +282,41 @@ describe('delivery', () => {
     expect([h.sentTo(1), h.sentTo(2)]).toEqual([1, 2]);
     expect(h.state.alarm).toBe(h.state.now + ESCALATE_AFTER_MS);
     await h.runAlarm();
-    expect(h.state.alerts.at(-1)).toContain('has not confirmed');
+    expect(h.state.alerts).toHaveLength(1);
     expect(h.state.alarm).toBeNull();
+  });
+
+  test('an escalation whose alert could not be delivered is retried until it is', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId);
+    await h.runAlarm();
+    await h.runAlarm();
+    h.state.failAlerts = true;
+    await h.runAlarm();
+    expect(h.state.alerts).toHaveLength(0);
+    expect(h.state.alarm).not.toBeNull();
+    h.state.failAlerts = false;
+    await h.runAlarm();
+    expect(h.state.alerts).toHaveLength(1);
+    expect(h.state.alarm).toBeNull();
+  });
+
+  test('a push that outlives its lease cannot undo the retry that replaced it', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId);
+    h.state.holdNext = true;
+    h.state.now = DUE;
+    const stalled = h.nudge.alarm();
+    h.state.now = DUE + LEASE_MS + MINUTE_MS;
+    await h.nudge.watchdog();
+    expect(h.sentTo(1)).toBe(2);
+    h.state.held?.(410);
+    await stalled;
+    const health = await h.ok('health', null, deviceId);
+    expect(health.devices[0]?.push.enabled).toBe(true);
+    expect(h.state.alarm).toBe(DUE + LEASE_MS + MINUTE_MS + RESEND_AFTER_MS);
   });
 
   test('a crash after claiming a delivery resends it once the lease runs out', async () => {
@@ -297,10 +348,14 @@ describe('delivery', () => {
     expect(health.devices.map((d) => d.push.enabled)).toEqual([true, true]);
   });
 
-  test('test notifications are capped and go out at the requested time', async () => {
+  test('test notifications are capped, go out on time, and replays return the original schedule', async () => {
     const { phone } = await h.pair();
-    await Promise.all(Array.from({ length: 5 }, (_, i) => h.ok('test', { delay: 30 + i }, phone)));
-    expect(await h.call('test', { delay: 30 }, phone)).toEqual({ ok: false, error: 'locked' });
+    const [first = '', ...rest] = Array.from({ length: 5 }, () => ulid());
+    const original = await h.ok('test', { id: first, delay: 30 }, phone);
+    await Promise.all(rest.map((id, i) => h.ok('test', { id, delay: 31 + i }, phone)));
+    expect(await h.call('test', { id: ulid(), delay: 30 }, phone)).toEqual({ ok: false, error: 'locked' });
+    h.state.now += 10_000;
+    expect(await h.ok('test', { id: first, delay: 99 }, phone)).toEqual(original);
     h.state.alarm = h.state.now + 40_000;
     await h.runAlarm();
     expect(h.state.pushes).toHaveLength(10);
@@ -308,13 +363,13 @@ describe('delivery', () => {
 });
 
 describe('resilience', () => {
-  test('a failing run keeps the dead-man alarm and alerts', async () => {
+  test('a failing run keeps the dead-man alarm and alerts once', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.put(deviceId);
     h.state.failTransactions = 1;
     await h.runAlarm();
     expect(h.state.alarm).toBe(DUE + DEAD_MAN_MS);
-    expect(h.state.alerts[0]).toContain('The scheduler failed');
+    expect(h.state.alerts).toHaveLength(1);
   });
 
   test('the watchdog repairs a lost alarm even when alerts cannot be delivered', async () => {
@@ -327,7 +382,6 @@ describe('resilience', () => {
     expect(h.state.pushes).toHaveLength(2);
     h.state.failAlerts = false;
     h.state.now += 3 * MINUTE_MS;
-    await h.nudge.watchdog();
-    expect(h.state.alerts.some((alert) => alert.includes('late'))).toBe(false);
+    expect(await h.nudge.watchdog()).toEqual({ healthy: true });
   });
 });

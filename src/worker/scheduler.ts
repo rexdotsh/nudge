@@ -23,7 +23,7 @@ const ALERT_COOLDOWN_MS = HOUR_MS;
 const PUSH_TTL_SECONDS = 24 * 3600;
 const DELIVERY_RETENTION_MS = 14 * DAY_MS;
 const TOMBSTONE_RETENTION_MS = 30 * DAY_MS;
-const APPLIED_OP_RETENTION_MS = 30 * DAY_MS;
+const ALERT_RETRY_MS = 5 * MINUTE_MS;
 
 const isOk = (status: number) => status >= 200 && status < 300;
 const isRetryable = (status: number) => status === 0 || status === 429 || status >= 500;
@@ -66,13 +66,13 @@ export class Scheduler {
     };
   }
 
-  queueTest(at: number): void {
+  queueTest(testFire: string, at: number): void {
     const now = this.runtime.now();
     const item = outgoing(
-      fireId('test', at),
+      testFire,
       'Test notification',
       `test${at.toString(36)}`,
-      testMessage(at, this.presentation(0)),
+      testMessage(testFire, this.presentation(0)),
     );
     for (const target of this.store.targets()) this.store.queue(item, target.deviceId, at, now);
   }
@@ -107,7 +107,6 @@ export class Scheduler {
     else if (stalled) await this.rearm();
     this.runtime.transaction(() => {
       this.store.purgeDeliveries(now - DELIVERY_RETENTION_MS);
-      this.store.purgeApplied(now - APPLIED_OP_RETENTION_MS);
       if (this.store.purgeTombstones(now - TOMBSTONE_RETENTION_MS) > 0) {
         this.store.setMeta('purged', String(this.store.version()));
       }
@@ -147,20 +146,24 @@ export class Scheduler {
     });
     if (fired.length > 0) this.runtime.broadcast({ kind: 'changed', version: this.store.version() });
 
-    const claimed = this.runtime.transaction(() => this.store.claim(now, LEASE_MS));
+    const lease = crypto.randomUUID();
+    const claimed = this.runtime.transaction(() => this.store.claim(now, LEASE_MS, lease));
     await Promise.all(claimed.map((row) => (row.sends >= 2 ? this.escalate(row) : this.send(row))));
   }
 
   private async escalate(row: DeliveryRow): Promise<void> {
     const label = this.store.device(row.device_id)?.label ?? 'a device';
-    await this.alertOnce(`unconfirmed:${row.device_id}`, `"${label}" has not confirmed "${row.title}" after a resend.`);
-    this.store.settle(row);
+    const delivered = await this.alertOnce(
+      `unconfirmed:${row.device_id}`,
+      `"${label}" has not confirmed "${row.title}" after a resend.`,
+    );
+    this.store.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);
   }
 
   private async send(row: DeliveryRow): Promise<void> {
     const target = this.store.target(row.device_id);
     if (!target) {
-      this.store.settle(row);
+      this.store.release(row, null);
       return;
     }
     const result = await this.pushWithRetry(target, row);
@@ -168,10 +171,12 @@ export class Scheduler {
     const gone = isGone(result.status);
     const now = this.runtime.now();
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
-    this.runtime.transaction(() => {
-      this.store.recordSend(row, result.status, ok ? now + followUp : null, now);
+    const owned = this.runtime.transaction(() => {
+      if (!this.store.recordSend(row, result.status, ok ? now + followUp : null, now)) return false;
       this.store.recordPush(target, ok, gone, now);
+      return true;
     });
+    if (!owned) return;
     if (gone) {
       await this.alertOnce(
         `gone:${target.deviceId}`,
@@ -206,16 +211,29 @@ export class Scheduler {
     }
   }
 
-  async alertOnce(key: string, text: string): Promise<void> {
+  private readonly alerting = new Map<string, Promise<boolean>>();
+
+  alertOnce(key: string, text: string): Promise<boolean> {
+    let pending = this.alerting.get(key);
+    if (!pending) {
+      pending = this.deliverAlert(key, text).finally(() => this.alerting.delete(key));
+      this.alerting.set(key, pending);
+    }
+    return pending;
+  }
+
+  private async deliverAlert(key: string, text: string): Promise<boolean> {
     const now = this.runtime.now();
     const metaKey = `alert:${key}`;
-    if (now - Number(this.store.meta(metaKey) ?? 0) < ALERT_COOLDOWN_MS) return;
+    if (now - Number(this.store.meta(metaKey) ?? 0) < ALERT_COOLDOWN_MS) return true;
     const host = URL.parse(this.store.meta('origin') ?? '')?.host ?? 'nudge';
     try {
       await this.runtime.alert(`⚠️ ${host}: ${text}`);
-      this.store.setMeta(metaKey, String(now));
     } catch (error) {
       console.error(`alert could not be delivered: ${describe(error)}`);
+      return false;
     }
+    this.store.setMeta(metaKey, String(now));
+    return true;
   }
 }

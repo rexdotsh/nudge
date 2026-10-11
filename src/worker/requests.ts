@@ -99,8 +99,8 @@ export const DEVICE_REQUESTS: { [R in DeviceRoute]: (body: unknown) => DeviceRou
     return isUlid(id) ? { id } : invalid();
   },
   test: (body) => {
-    const { delay } = record(body);
-    return isInteger(delay, 0, 3600) ? { delay } : invalid();
+    const { id, delay } = record(body);
+    return isUlid(id) && isInteger(delay, 0, 3600) ? { id, delay } : invalid();
   },
   receipt: (body) => {
     const { fire } = record(body);

@@ -11,6 +11,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
     install_key TEXT NOT NULL UNIQUE,
+    enrolled_with TEXT NOT NULL,
     label TEXT NOT NULL,
     platform TEXT NOT NULL,
     zone TEXT NOT NULL,
@@ -42,6 +43,8 @@ const SCHEMA = [
     topic TEXT NOT NULL,
     payload TEXT NOT NULL,
     created_at INTEGER NOT NULL,
+    scheduled_at INTEGER NOT NULL,
+    lease TEXT,
     sends INTEGER NOT NULL DEFAULT 0,
     status INTEGER NOT NULL DEFAULT 0,
     sent_at INTEGER,
@@ -57,6 +60,7 @@ const SCHEMA_VERSION = '1';
 export type DeviceRow = {
   id: string;
   install_key: string;
+  enrolled_with: string;
   label: string;
   platform: Platform;
   zone: string;
@@ -79,6 +83,8 @@ export type DeliveryRow = {
   topic: string;
   payload: string;
   created_at: number;
+  scheduled_at: number;
+  lease: string | null;
   sends: number;
   status: number;
   sent_at: number | null;
@@ -200,10 +206,6 @@ export class Store {
     this.sql.exec('INSERT INTO applied_ops (id, at) VALUES (?, ?)', opId, now);
   }
 
-  purgeApplied(before: number): void {
-    this.sql.exec('DELETE FROM applied_ops WHERE at < ?', before);
-  }
-
   nextWake(): number | null {
     const row = first(
       this.sql
@@ -244,12 +246,13 @@ export class Store {
     return this.sql.exec<DeviceRow>('SELECT * FROM devices WHERE revoked = 0 ORDER BY created_at').toArray();
   }
 
-  addDevice(id: string, input: DeviceInput, now: number): void {
+  addDevice(id: string, input: DeviceInput, enrolledWith: string, now: number): void {
     this.sql.exec(
-      `INSERT INTO devices (id, install_key, label, platform, zone, locale, created_at, seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO devices (id, install_key, enrolled_with, label, platform, zone, locale, created_at, seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.key,
+      enrolledWith,
       input.label,
       input.platform,
       input.zone,
@@ -303,7 +306,8 @@ export class Store {
 
   queue(outgoing: Outgoing, deviceId: string, at: number, now: number): void {
     this.sql.exec(
-      `INSERT INTO deliveries (fire, device_id, title, topic, payload, created_at, next_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO deliveries (fire, device_id, title, topic, payload, created_at, scheduled_at, next_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (fire, device_id) DO NOTHING`,
       outgoing.fire,
       deviceId,
@@ -312,7 +316,17 @@ export class Store {
       outgoing.payload,
       now,
       at,
+      at,
     );
+  }
+
+  scheduledAt(fire: string): number | null {
+    const row = first(
+      this.sql
+        .exec<{ at: number | null }>('SELECT MIN(scheduled_at) AS at FROM deliveries WHERE fire = ?', fire)
+        .toArray(),
+    );
+    return row?.at ?? null;
   }
 
   pendingCount(firePrefix: string): number {
@@ -322,32 +336,43 @@ export class Store {
     );
   }
 
-  claim(now: number, lease: number): DeliveryRow[] {
+  claim(now: number, leaseMs: number, lease: string): DeliveryRow[] {
     return this.sql
       .exec<DeliveryRow>(
-        'UPDATE deliveries SET next_at = ? WHERE next_at <= ? AND receipt_at IS NULL RETURNING *',
-        now + lease,
+        'UPDATE deliveries SET next_at = ?, lease = ? WHERE next_at <= ? AND receipt_at IS NULL RETURNING *',
+        now + leaseMs,
+        lease,
         now,
       )
       .toArray();
   }
 
-  recordSend(row: DeliveryRow, status: number, nextAt: number | null, now: number): void {
-    this.sql.exec(
-      `UPDATE deliveries SET sends = ?, status = ?, sent_at = ?,
-         next_at = CASE WHEN receipt_at IS NULL THEN ? ELSE NULL END
-       WHERE fire = ? AND device_id = ?`,
-      row.sends + 1,
-      status,
-      now,
-      nextAt,
-      row.fire,
-      row.device_id,
+  recordSend(row: DeliveryRow, status: number, nextAt: number | null, now: number): boolean {
+    return (
+      this.sql
+        .exec<{ fire: string }>(
+          `UPDATE deliveries SET sends = sends + 1, status = ?, sent_at = ?, lease = NULL,
+             next_at = CASE WHEN receipt_at IS NULL THEN ? ELSE NULL END
+           WHERE fire = ? AND device_id = ? AND lease = ? RETURNING fire`,
+          status,
+          now,
+          nextAt,
+          row.fire,
+          row.device_id,
+          row.lease,
+        )
+        .toArray().length > 0
     );
   }
 
-  settle(row: DeliveryRow): void {
-    this.sql.exec('UPDATE deliveries SET next_at = NULL WHERE fire = ? AND device_id = ?', row.fire, row.device_id);
+  release(row: DeliveryRow, nextAt: number | null): void {
+    this.sql.exec(
+      'UPDATE deliveries SET next_at = ?, lease = NULL WHERE fire = ? AND device_id = ? AND lease = ?',
+      nextAt,
+      row.fire,
+      row.device_id,
+      row.lease,
+    );
   }
 
   receipt(fire: string, deviceId: string, now: number): void {
