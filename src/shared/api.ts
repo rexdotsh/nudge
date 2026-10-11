@@ -47,6 +47,8 @@ export interface Health {
   deliveries: DeliveryInfo[];
 }
 
+export const MAX_CHANGES = 200;
+
 export interface Change {
   opId: string;
   op: Op;

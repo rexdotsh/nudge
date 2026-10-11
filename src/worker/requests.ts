@@ -1,4 +1,5 @@
 import {
+  MAX_CHANGES,
   PLATFORMS,
   type ApiError,
   type Change,
@@ -22,8 +23,6 @@ export class ApiFailure extends Error {
     super(code);
   }
 }
-
-const MAX_CHANGES = 200;
 
 function invalid(): never {
   throw new ApiFailure('bad_request');

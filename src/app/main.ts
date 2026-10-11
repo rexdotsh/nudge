@@ -1,8 +1,9 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
+import { app } from './lib/app.svelte';
 
 const target = document.getElementById('app');
 if (!target) throw new Error('missing #app');
-mount(App, { target });
-
 if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
+mount(App, { target });
+void app.start();
