@@ -3,14 +3,18 @@
   import EditSheet from '../components/EditSheet.svelte';
   import FocusCard from '../components/FocusCard.svelte';
   import Icon from '../components/Icon.svelte';
+  import Pane from '../components/Pane.svelte';
   import ReminderRow from '../components/ReminderRow.svelte';
+  import RowMenu from '../components/RowMenu.svelte';
+  import ShortcutsSheet from '../components/ShortcutsSheet.svelte';
   import SnoozeSheet from '../components/SnoozeSheet.svelte';
   import Toast from '../components/Toast.svelte';
   import { remove } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { dayHeading, whenLabel } from '../lib/format';
   import { recentlyCompleted, triage } from '../lib/sections';
-  import { shortcut } from '../lib/shortcuts';
+  import { rowOf } from '../lib/selection';
+  import { shortcut, tip } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
 
   let { onSettings, composing = false }: { onSettings: () => void; composing?: boolean } = $props();
@@ -20,18 +24,36 @@
   const day = $derived(dayHeading(app.now, app.zone));
   const lists = $derived(triage(app.reminders, app.now, app.zone));
   const completed = $derived(recentlyCompleted(app.reminders, app.now));
-  const editing = $derived(app.reminders.find((reminder) => reminder.id === ui.editing));
+  const editing = $derived(app.reminders.find((reminder) => reminder.id === ui.editing && !reminder.deleted));
   const snoozing = $derived(app.reminders.find((reminder) => reminder.id === ui.snoozing));
+  const menu = $derived.by(() => {
+    const at = ui.menu;
+    const reminder = at && app.reminders.find((candidate) => candidate.id === at.id);
+    return at && reminder ? { ...at, reminder } : null;
+  });
+
+  function openMenu(event: MouseEvent) {
+    const row = rowOf(event.target instanceof Element ? event.target : null);
+    const id = row?.dataset.reminder;
+    if (!row || !id) return;
+    event.preventDefault();
+    // A context menu opened from the keyboard has no pointer position, so it hangs off the row.
+    const fromKeyboard = event.clientX === 0 && event.clientY === 0;
+    const box = row.getBoundingClientRect();
+    ui.menu = { id, x: fromKeyboard ? box.left + 32 : event.clientX, y: fromKeyboard ? box.bottom : event.clientY };
+  }
 </script>
 
-<svelte:window onkeydown={shortcut} />
+<svelte:window onkeydown={(event) => shortcut(event, onSettings)} oncontextmenu={openMenu} />
 
 <div class="page home">
   <header>
     <h1>{day.weekday} <span>{day.date}</span></h1>
     <div class="tools">
       {#if !app.online}<span class="chip">Offline</span>{/if}
-      <button class="round" onclick={onSettings} aria-label="Settings"><Icon name="settings" size={16} /></button>
+      <button class="round" onclick={onSettings} aria-label="Settings" title={tip('Settings', 'mod+,')}
+        ><Icon name="settings" size={16} /></button
+      >
     </div>
   </header>
 
@@ -66,7 +88,7 @@
         {#each completed as { reminder, at } (reminder.id)}
           <div class="done">
             <span class="title">{reminder.title}</span>
-            <span>{whenLabel(at, app.now, app.zone)}</span>
+            <span class="stamp">{whenLabel(at, app.now, app.zone)}</span>
             <button
               class="forget"
               onclick={() => void remove(reminder)}
@@ -82,12 +104,15 @@
     </section>
   {/if}
 
-  {#if editing && !snoozing}
+  {#if editing && !snoozing && !ui.docked}
     {#key editing.id}<EditSheet reminder={editing} />{/key}
   {/if}
   {#if snoozing}<SnoozeSheet reminder={snoozing} />{/if}
+  {#if menu}<RowMenu reminder={menu.reminder} x={menu.x} y={menu.y} />{/if}
+  {#if ui.help}<ShortcutsSheet />{/if}
   <Toast />
 </div>
+{#if ui.docked}<Pane {editing} />{/if}
 
 <style>
   .home {
@@ -181,13 +206,28 @@
   }
 
   @media (hover: hover) {
+    .done {
+      position: relative;
+    }
+
     .forget {
+      position: absolute;
+      right: 0;
+      margin: 0;
       opacity: 0;
+      transition: opacity 0.12s;
+    }
+
+    .stamp {
       transition: opacity 0.12s;
     }
 
     .done:is(:hover, :focus-within) .forget {
       opacity: 1;
+    }
+
+    .done:is(:hover, :focus-within) .stamp {
+      opacity: 0;
     }
 
     .forget:hover {
@@ -198,8 +238,18 @@
 
   @media (min-width: 720px) {
     .home {
-      padding-top: 28px;
+      padding-top: calc(env(titlebar-area-height, 0px) + 28px);
       padding-bottom: 60px;
+    }
+  }
+
+  @media (min-width: 960px) {
+    .home {
+      --pane: var(--pane-width);
+      --gutter: max(32px, calc((100% - var(--pane) - 680px) / 2));
+      max-width: none;
+      padding-left: var(--gutter);
+      padding-right: calc(var(--gutter) + var(--pane));
     }
   }
 </style>

@@ -15,7 +15,7 @@
 <style>
   .toast {
     position: fixed;
-    left: 50%;
+    left: calc((100% - var(--pane, 0px)) / 2);
     bottom: calc(82px + max(12px, env(safe-area-inset-bottom)));
     translate: -50% 0;
     z-index: 30;

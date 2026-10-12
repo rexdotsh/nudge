@@ -1,0 +1,161 @@
+<script lang="ts">
+  import type { Reminder } from '../../shared/reminder';
+  import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
+  import { app } from '../lib/app.svelte';
+  import { shortWhen } from '../lib/format';
+  import { focusRow, keepSelection, openEditor } from '../lib/selection';
+  import { composing, keyLabel } from '../lib/shortcuts';
+  import { ui } from '../lib/ui.svelte';
+
+  let { reminder, x, y }: { reminder: Reminder; x: number; y: number } = $props();
+
+  const MARGIN_PX = 8;
+  const STEPS: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 };
+
+  const options = $derived(snoozeOptions(reminder, app.now, app.zone));
+  let left = $state(0);
+  let top = $state(0);
+
+  let menu: HTMLElement | undefined = $state();
+
+  function show(node: HTMLElement) {
+    const { width, height } = node.getBoundingClientRect();
+    left = Math.max(MARGIN_PX, Math.min(x, innerWidth - width - MARGIN_PX));
+    top = y + height > innerHeight - MARGIN_PX ? Math.max(MARGIN_PX, y - height) : y;
+    node.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }
+
+  function close() {
+    ui.menu = null;
+  }
+
+  function outside(event: Event) {
+    if (!(event.target instanceof Node && menu?.contains(event.target))) close();
+  }
+
+  // Once closed, Home has no reminder left to pass down, so take it before closing.
+  function run(action: (target: Reminder) => unknown) {
+    const target = reminder;
+    close();
+    void action(target);
+  }
+
+  function navigate(event: KeyboardEvent & { currentTarget: HTMLElement }) {
+    if (composing(event)) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      run(({ id }) => focusRow(id));
+      return;
+    }
+    const step = STEPS[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    const index = items.findIndex((item) => item === document.activeElement);
+    items[(index + step + items.length) % items.length]?.focus();
+  }
+</script>
+
+<svelte:window onpointerdowncapture={outside} onresize={close} onblur={close} />
+
+<div
+  class="menu"
+  role="menu"
+  tabindex="-1"
+  aria-label={reminder.title}
+  style:left="{left}px"
+  style:top="{top}px"
+  bind:this={menu}
+  {@attach show}
+  onkeydown={navigate}
+  onfocusout={(event) => event.relatedTarget instanceof Node && !menu?.contains(event.relatedTarget) && close()}
+>
+  <button role="menuitem" onclick={() => run(({ id }) => openEditor(id))}>Open<kbd>{keyLabel('Enter')}</kbd></button>
+  <button role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
+    >Done<kbd>{keyLabel('x')}</kbd></button
+  >
+  <div class="rule" role="separator"></div>
+  <p class="caption" role="presentation">Snooze</p>
+  {#each options as option (option.key)}
+    <button role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => snooze(target, option.at)))}
+      >{option.label}<span class="time">{shortWhen(option.at, app.now, app.zone)}</span></button
+    >
+  {/each}
+  <button role="menuitem" onclick={() => run(({ id }) => ui.snooze(id))}>Pick a time…<kbd>{keyLabel('s')}</kbd></button>
+  <div class="rule" role="separator"></div>
+  <button role="menuitem" class="danger" onclick={() => run((target) => keepSelection(target.id, () => remove(target)))}
+    >Delete<kbd>{keyLabel('Delete')}</kbd></button
+  >
+</div>
+
+<style>
+  .menu {
+    position: fixed;
+    z-index: 50;
+    width: 248px;
+    padding: 4px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow);
+    transform-origin: top left;
+    animation: open 0.12s var(--ease);
+  }
+
+  .menu:focus {
+    outline: none;
+  }
+
+  button {
+    width: 100%;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    text-align: left;
+  }
+
+  button:is(:hover, :focus) {
+    outline: none;
+    background: var(--edge);
+  }
+
+  kbd,
+  .time {
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .danger {
+    color: var(--accent);
+  }
+
+  .rule {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--edge);
+  }
+
+  .caption {
+    margin: 0;
+    padding: 6px 10px 2px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  @keyframes open {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+</style>

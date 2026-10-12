@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { complete, snooze, snoozeOptions } from '../lib/actions';
+  import { snooze, snoozeOptions } from '../lib/actions';
   import { timeLabel, untilLabel, whenLabel } from '../lib/format';
   import { quietSummary, type Triage } from '../lib/sections';
+  import { completeFrom } from '../lib/selection';
   import { ui } from '../lib/ui.svelte';
   import CheckCircle from './CheckCircle.svelte';
 
@@ -15,14 +16,14 @@
 </script>
 
 {#if focus}
-  <section class="surface card" aria-label="Now">
+  <section class="surface card" aria-label="Now" data-reminder={focus.reminder.id}>
     <p class="when">
       <span class="chip hot">{focus.late ? 'late' : untilLabel(focus.at, now)}</span>
       {focus.late ? whenLabel(focus.at, now, zone) : timeLabel(focus.at, zone)}
     </p>
-    <button class="heading title" onclick={() => ui.edit(focus.reminder.id)}>{focus.reminder.title}</button>
+    <button class="heading title open" onclick={() => ui.edit(focus.reminder.id)}>{focus.reminder.title}</button>
     <div class="acts">
-      <button class="btn primary" onclick={() => void complete(focus.reminder)}>Done</button>
+      <button class="btn primary" onclick={(event) => void completeFrom(event, focus.reminder)}>Done</button>
       {#if hour}<button class="btn" onclick={() => void snooze(focus.reminder, hour.at)}>+1 hour</button>{/if}
       {#if tonight}
         <button class="btn" onclick={() => void snooze(focus.reminder, tonight.at)}>
@@ -33,14 +34,14 @@
       >
     </div>
     {#each triage.late as entry (entry.reminder.id)}
-      <div class="also">
+      <div class="also" data-reminder={entry.reminder.id}>
         <CheckCircle
           late
           small
           label={`Complete ${entry.reminder.title}`}
-          onToggle={() => void complete(entry.reminder)}
+          onToggle={(event) => void completeFrom(event, entry.reminder)}
         />
-        <button class="name" onclick={() => ui.edit(entry.reminder.id)}>{entry.reminder.title}</button>
+        <button class="name open" onclick={() => ui.edit(entry.reminder.id)}>{entry.reminder.title}</button>
         <span class="chip hot">late</span>
       </div>
     {/each}
@@ -87,6 +88,18 @@
 
   .acts .more {
     flex: 0 0 44px;
+  }
+
+  @media (pointer: fine) {
+    .acts .btn {
+      flex: none;
+      padding: 0 14px;
+    }
+
+    .acts .more {
+      flex: none;
+      width: 40px;
+    }
   }
 
   .also {

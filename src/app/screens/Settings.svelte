@@ -8,6 +8,7 @@
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
   import type { PushState } from '../lib/push';
+  import { composing } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
 
   let { onBack }: { onBack: () => void } = $props();
@@ -103,6 +104,8 @@
   });
 </script>
 
+<svelte:window onkeydown={(event) => event.key === 'Escape' && !composing(event) && onBack()} />
+
 <div class="page settings">
   <header>
     <button class="back" onclick={onBack}><Icon name="arrowLeft" size={18} />Back</button>
@@ -180,12 +183,12 @@
       >{NUDGE_COMMIT.slice(0, 7)}</a
     >
   </p>
-  <Toast />
 </div>
+<Toast />
 
 <style>
   .settings {
-    animation: rise 0.4s var(--ease) both;
+    animation: rise 0.4s var(--ease) backwards;
   }
 
   .back {
