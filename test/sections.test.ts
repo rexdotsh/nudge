@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { triage } from '../src/app/lib/sections';
+import { recentlyCompleted, triage } from '../src/app/lib/sections';
 import { applyOp } from '../src/shared/ops';
 import type { Reminder } from '../src/shared/reminder';
 import { HOUR_MS } from '../src/shared/time';
@@ -31,4 +31,14 @@ test.each([
   const shown = [focus, ...late, ...today, ...later].flatMap((entry) => (entry ? [entry.reminder.id] : []));
   const open = reminders.filter((item) => !item.deleted && item.due !== null).map((item) => item.id);
   expect(shown.toSorted()).toEqual(open.toSorted());
+});
+
+test('Completed offers only finished reminders, so clearing it can never end a repeating series', () => {
+  const clock = { now: NOW, zone: ZONE };
+  const complete = (item: Reminder) => applyOp(item, { type: 'complete', id: item.id, due: item.due ?? '' }, clock);
+  const once = complete(reminder('2026-10-12T09:00'));
+  const series = complete(reminder('2026-10-12T09:00', { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } }));
+  if (!once || !series) throw new Error('complete failed');
+  expect(series.due).not.toBeNull();
+  expect(recentlyCompleted([once, series], NOW).map((entry) => entry.reminder.id)).toEqual([once.id]);
 });
