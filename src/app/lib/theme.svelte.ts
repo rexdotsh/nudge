@@ -3,7 +3,7 @@ import type { ThemeState } from '../../browser/schema';
 import { DEFAULT_THEME, type SyncResponse, type Theme, type ThemeChoice } from '../../shared/api';
 import { ulid } from '../../shared/ulid';
 
-export const THEME_LABELS: Record<Theme, string> = { classic: 'Classic', rex: 'Rex' };
+export const THEME_LABELS: Record<Theme, string> = { classic: 'Classic', rex: 'Rex Dark', 'rex-light': 'Rex Light' };
 
 /** Read by the inline script in index.html, which paints the last theme before the app loads. */
 const PAINTED_KEY = 'theme';

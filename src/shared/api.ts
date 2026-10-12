@@ -42,7 +42,7 @@ export interface Change {
   at: number;
 }
 
-export const THEMES = ['classic', 'rex'] as const;
+export const THEMES = ['classic', 'rex', 'rex-light'] as const;
 export type Theme = (typeof THEMES)[number];
 export const DEFAULT_THEME: Theme = 'classic';
 

@@ -2,6 +2,7 @@
 
 :root,
 [data-theme='classic'] {
+  color-scheme: dark;
   --bg: #111110;
   --surface: #1b1a18;
   --raised: #24231f;
@@ -20,6 +21,7 @@
 /* The dark palette of rexdotsh/www. Its rose (#e94b70) is too dim for small text on the raised surfaces here, so
    attention takes the hottest cell of its heatmap. */
 [data-theme='rex'] {
+  color-scheme: dark;
   --bg: #131315;
   --surface: #1c1c1f;
   --raised: #232326;
@@ -35,6 +37,24 @@
   --shadow: 0 18px 40px -20px rgb(23 20 15 / 0.38);
 }
 
+/* The light palette of rexdotsh/www, where its rose is dark enough for small text everywhere. */
+[data-theme='rex-light'] {
+  color-scheme: light;
+  --bg: #faf8f2;
+  --surface: #ffffff;
+  --raised: #efe9dc;
+  --line: color-mix(in oklab, var(--ink) 8%, transparent);
+  --edge: color-mix(in oklab, var(--ink) 12%, transparent);
+  --faint: color-mix(in oklab, var(--ink) 28%, transparent);
+  --muted: #605849;
+  --ink-2: #2b2620;
+  --ink: #17140f;
+  --accent: #b3123a;
+  --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+  --scrim: color-mix(in oklab, var(--ink) 28%, transparent);
+  --shadow: 0 2px 6px -2px rgb(23 20 15 / 0.12), 0 18px 40px -20px rgb(23 20 15 / 0.38);
+}
+
 :root {
   --pane-width: 400px;
 
@@ -44,7 +64,6 @@
 
   height: 100%;
   background: var(--bg);
-  color-scheme: dark;
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
