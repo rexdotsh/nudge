@@ -16,7 +16,7 @@
   let health = $state<Health | null>(null);
   let me = $state<string | null>(null);
   let pairing = $state<{ code: string; expiresAt: number } | null>(null);
-  let unreachable = $state(false);
+  let devicesFailed = $state(false);
 
   const PUSH_LABELS: Record<PushState, string> = {
     enabled: 'On',
@@ -28,18 +28,22 @@
   async function attempt(action: () => Promise<void>) {
     try {
       await action();
-      unreachable = false;
     } catch (error) {
       if (!(error instanceof Unreachable)) throw error;
-      unreachable = true;
       toasts.show("Can't reach Nudge. Check your connection.");
     }
   }
 
   async function load() {
-    const [session, current] = await Promise.all([get('session'), request('health', null)]);
-    me = session?.deviceId ?? null;
-    health = current;
+    try {
+      const [session, current] = await Promise.all([get('session'), request('health', null)]);
+      me = session?.deviceId ?? null;
+      health = current;
+      devicesFailed = false;
+    } catch (error) {
+      devicesFailed = true;
+      throw error;
+    }
   }
 
   const turnOn = () =>
@@ -102,7 +106,7 @@
 
   <h2 class="label">Devices</h2>
   <div class="group">
-    {#if unreachable && health === null}
+    {#if devicesFailed && health === null}
       <div class="field">
         <span>Can't reach Nudge right now</span>
         <button class="link" onclick={() => attempt(load)}>Try again</button>
