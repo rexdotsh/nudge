@@ -12,9 +12,10 @@ function files(dir: string): string[] {
   });
 }
 
+// index.html is cached as '/', and iOS fetches launch images only when the app is added to the Home Screen.
 const precache = files(client)
   .map((path) => '/' + relative(client, path))
-  .filter((url) => !url.startsWith('/.vite/') && url !== '/index.html');
+  .filter((url) => !/^\/(\.vite\/|splash\/|index\.html$)/.test(url));
 
 const hash = createHash('sha256');
 for (const url of [...precache, '/index.html']) hash.update(url).update(readFileSync(join(client, url)));

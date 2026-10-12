@@ -4,7 +4,7 @@ import { Replica } from '../../browser/replica';
 import { EMPTY_LOCAL } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { commit, currentZone, enqueue } from '../../browser/outbox';
-import { MAX_REQUEST_BYTES, type Change } from '../../shared/api';
+import { MAX_REQUEST_BYTES, type Change, type Health } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
@@ -29,6 +29,9 @@ class App {
   notifications = $state<PushState>(pushState());
   /** Until the first sync attempt of this foreground settles, the replica can miss what was pushed while away. */
   caughtUp = $state(false);
+  /** The devices as last fetched, so Settings opens with them in place instead of filling in after a round trip. */
+  health = $state.raw<Health | null>(null);
+  deviceId = $state<string | null>(null);
   readonly platform = detectPlatform();
 
   private replica = new Replica();
@@ -37,6 +40,7 @@ class App {
   private connection: Connection | null = null;
   private inflight: Promise<void> | null = null;
   private again = false;
+  private healthRequests = 0;
   private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
   async start(): Promise<void> {
@@ -44,12 +48,18 @@ class App {
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
     let session;
     try {
-      [session] = await Promise.all([get('session'), this.reloadLocal(), this.noteZone()]);
+      [session, this.health] = await Promise.all([
+        get('session'),
+        get('health').then((health) => health ?? null),
+        this.reloadLocal(),
+        this.noteZone(),
+      ]);
     } catch (error) {
       console.error('local storage is unavailable', error);
       this.phase = 'failed';
       return;
     }
+    this.deviceId = session?.deviceId ?? null;
     this.phase = session ? 'ready' : 'enroll';
     if (session) this.connect(session.token);
     setInterval(() => {
@@ -71,8 +81,22 @@ class App {
       },
     });
     await set('session', session);
+    this.deviceId = session.deviceId;
     this.phase = 'ready';
     this.connect(session.token);
+    void this.refreshHealth().catch((error: unknown) => {
+      if (!(error instanceof Unreachable)) throw error;
+      console.warn('devices not fetched yet; Settings will fetch them', error);
+    });
+  }
+
+  /** Only the latest request may publish, so an older reply cannot bring back a device revoked since it was sent. */
+  async refreshHealth(): Promise<void> {
+    const asked = ++this.healthRequests;
+    const health = await request('health', null);
+    if (asked !== this.healthRequests) return;
+    this.health = health;
+    await set('health', health);
   }
 
   async apply(op: Op): Promise<Reminder | undefined> {

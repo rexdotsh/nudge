@@ -48,7 +48,7 @@
       aria-invalid={error !== ''}
       aria-describedby="enroll-error"
     />
-    <button class="btn primary" type="submit" disabled={busy || value.length < 6}>{busy ? '…' : 'Continue'}</button>
+    <button class="btn primary" type="submit" disabled={busy || value.length < 6}>Continue</button>
   </form>
   <p id="enroll-error" class="error" role="alert">{error}</p>
 </Onboarding>

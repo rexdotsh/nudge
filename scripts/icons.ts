@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
+import { SPLASH_IMAGES } from './splash';
 
 const out = 'public/icons';
 
@@ -19,6 +20,7 @@ const bleed = icon({ radius: 0, scale: 0.86 });
 const maskable = icon({ radius: 0, scale: 0.7 });
 
 mkdirSync(out, { recursive: true });
+mkdirSync('public/splash', { recursive: true });
 writeFileSync(`${out}/icon.svg`, rounded);
 
 const render = (svg: string, size: number, name: string) =>
@@ -29,4 +31,9 @@ await Promise.all([
   render(rounded, 512, 'icon-512.png'),
   render(maskable, 512, 'maskable-512.png'),
   render(bleed, 180, 'apple-touch-icon.png'),
+  ...SPLASH_IMAGES.map(({ href, width, height }) =>
+    sharp({ create: { width, height, channels: 3, background: '#111110' } })
+      .png({ palette: true, compressionLevel: 9 })
+      .toFile(`public${href}`),
+  ),
 ]);

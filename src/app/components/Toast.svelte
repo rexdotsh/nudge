@@ -16,7 +16,7 @@
   .toast {
     position: fixed;
     left: 50%;
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    bottom: calc(82px + max(12px, env(safe-area-inset-bottom)));
     translate: -50% 0;
     z-index: 30;
     display: flex;
