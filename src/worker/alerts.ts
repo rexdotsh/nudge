@@ -1,3 +1,5 @@
+const ALERT_TIMEOUT_MS = 10_000;
+
 export async function sendTelegram(
   config: Pick<Env, 'TELEGRAM_BOT_TOKEN' | 'TELEGRAM_CHAT_ID'>,
   text: string,
@@ -11,6 +13,7 @@ export async function sendTelegram(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true }),
+    signal: AbortSignal.timeout(ALERT_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`telegram responded ${response.status}`);
 }

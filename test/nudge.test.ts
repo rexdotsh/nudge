@@ -116,7 +116,7 @@ function harness() {
   }
 
   const sync = (deviceId: string, ops: Op[], zone = ZONE) =>
-    ok('sync', { since: 0, zone, changes: ops.map((op) => ({ opId: ulid(), op })) }, deviceId);
+    ok('sync', { since: 0, zone, changes: ops.map((op) => ({ opId: ulid(), op, at: state.now })) }, deviceId);
 
   async function put(deviceId: string, overrides: Partial<ReminderFields> = {}) {
     const id = ulid(state.now);
@@ -213,8 +213,8 @@ describe('enrollment', () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const malformed = [
       ['subscribe', { endpoint: 'https://evil.example/x', p256dh: 'a', auth: 'b' }],
-      ['sync', { since: 0, zone: ZONE, changes: [{ opId: ulid(), op: { type: 'complete' } }] }],
-      ['sync', { since: 0, zone: ZONE, changes: [{ opId: 'not-an-id', op: { type: 'delete', id: ulid() } }] }],
+      ['sync', { since: 0, zone: ZONE, changes: [{ opId: ulid(), op: { type: 'complete' }, at: 0 }] }],
+      ['sync', { since: 0, zone: ZONE, changes: [{ opId: 'not-an-id', op: { type: 'delete', id: ulid() }, at: 0 }] }],
       ['test', { id: ulid(), delay: 99_999 }],
     ] as const;
     const results = await Promise.all(malformed.map(([route, body]) => h.call(route, body, deviceId)));
@@ -228,7 +228,7 @@ describe('sync', () => {
   test('a replayed change never overwrites a newer edit', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const id = ulid();
-    const first = { opId: ulid(), op: { type: 'put', id, fields: fields({ title: 'Old' }) } };
+    const first = { opId: ulid(), op: { type: 'put', id, fields: fields({ title: 'Old' }) }, at: h.state.now };
     await h.ok('sync', { since: 0, zone: ZONE, changes: [first] }, deviceId);
     await h.sync(deviceId, [{ type: 'put', id, fields: fields({ title: 'New' }) }]);
     h.state.now += 90 * 24 * 60 * MINUTE_MS;
@@ -254,6 +254,60 @@ describe('sync', () => {
     expect(h.state.alarm).toBe(DUE);
     await h.sync(deviceId, [], 'Europe/Paris');
     expect(h.state.alarm).toBe(Date.UTC(2026, 9, 12, 4, 30));
+  });
+
+  test('a change made offline is applied at the time it was made, so a missed reminder still goes out', async () => {
+    const { phone } = await h.pair();
+    const madeAt = h.state.now;
+    h.state.now = DUE + 60 * MINUTE_MS;
+    const change = { opId: ulid(), op: { type: 'put', id: ulid(madeAt), fields: fields() }, at: madeAt };
+    await h.ok('sync', { since: 0, zone: ZONE, changes: [change] }, phone);
+    await h.nudge.alarm();
+    expect(h.sentTo(1)).toBe(1);
+  });
+
+  test('replaying a committed change repairs an alarm that was lost after the commit', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    const change = { opId: ulid(), op: { type: 'put', id: ulid(), fields: fields() }, at: h.state.now };
+    await h.ok('sync', { since: 0, zone: ZONE, changes: [change] }, deviceId);
+    h.state.alarm = null;
+    await h.ok('sync', { since: 0, zone: ZONE, changes: [change] }, deviceId);
+    expect(h.state).toMatchObject({ alarm: DUE });
+  });
+
+  test('flying west after a floating reminder fired does not fire it again', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
+    await h.runAlarm();
+    await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, deviceId);
+    await h.sync(deviceId, [], 'America/New_York');
+    if (h.state.alarm !== null && h.state.alarm <= h.state.now) await h.nudge.alarm();
+    expect(h.sentTo(1)).toBe(1);
+  });
+
+  test('snoozing a notification after flying west still brings it back after the snooze', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
+    await h.runAlarm();
+    await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, deviceId);
+    await h.sync(deviceId, [], 'America/New_York');
+    const until = h.state.now + 15 * MINUTE_MS;
+    await h.sync(deviceId, [{ type: 'snooze', id, due: '2026-10-12T09:00', until }], 'America/New_York');
+    expect(h.state.alarm).toBe(until);
+    await h.runAlarm();
+    expect(h.sentTo(1)).toBe(2);
+  });
+
+  test('flying east past a floating reminder that has not fired yet still fires it', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
+    await h.sync(deviceId, [], 'Asia/Tokyo');
+    expect(h.state.alarm).not.toBeNull();
+    if (h.state.alarm !== null && h.state.alarm <= h.state.now) await h.nudge.alarm();
+    expect(h.sentTo(1)).toBe(1);
   });
 
   test('socket messages run the same sync and echo their ref', async () => {
@@ -384,6 +438,49 @@ describe('delivery', () => {
     await h.runAlarm();
     expect(h.state.alerts).toHaveLength(2);
     expect(h.state.alarm).toBeNull();
+  });
+
+  test('completing a reminder cancels the resends of its notification', async () => {
+    const { phone } = await h.pair();
+    const id = await h.put(phone);
+    await h.runAlarm();
+    await h.sync(phone, [{ type: 'complete', id, due: '2026-10-12T09:00' }]);
+    h.state.now += RESEND_AFTER_MS + MINUTE_MS;
+    await h.nudge.alarm();
+    expect([h.sentTo(1), h.sentTo(2)]).toEqual([1, 1]);
+  });
+
+  test('every unconfirmed reminder escalates on its own, even within the alert cooldown', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId, { title: 'First' });
+    await h.put(deviceId, { title: 'Second' });
+    await h.runAlarm();
+    await h.runAlarm();
+    await h.runAlarm();
+    expect(h.state.alerts).toHaveLength(2);
+  });
+
+  test('a due reminder with no device to notify raises an alert', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.put(deviceId);
+    await h.runAlarm();
+    expect(h.state.alerts).toHaveLength(1);
+  });
+
+  test('a subscription that expired while being replaced is retried on its replacement', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId);
+    h.state.status = (target) => (target.endpoint === keys(1).endpoint ? 410 : 201);
+    h.state.onPush = (target) => {
+      if (target.endpoint === keys(1).endpoint) void h.ok('subscribe', keys(3), deviceId);
+    };
+    await h.runAlarm();
+    await h.runAlarm();
+    expect(h.sentTo(3)).toBe(1);
+    expect(h.state.alerts).toHaveLength(0);
+    expect(h.state.alarm).toBe(h.state.now + RESEND_AFTER_MS);
   });
 
   test('test notifications are capped, go out on time, and replays return the original schedule', async () => {

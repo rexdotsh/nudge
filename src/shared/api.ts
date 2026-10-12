@@ -38,6 +38,7 @@ export const MAX_CHANGES = 200;
 export interface Change {
   opId: string;
   op: Op;
+  at: number;
 }
 
 export interface SyncRequest {

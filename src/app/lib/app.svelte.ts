@@ -1,7 +1,6 @@
 import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set, update } from '../../browser/kv';
-import type { PendingChange } from '../../browser/schema';
-import { acknowledge, currentZone, enqueue, wire } from '../../browser/outbox';
+import { acknowledge, currentZone, enqueue } from '../../browser/outbox';
 import { MAX_CHANGES, type Change } from '../../shared/api';
 import { BASE64URL, utf8 } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
@@ -18,10 +17,10 @@ type Phase = 'loading' | 'enroll' | 'ready';
 const KEEPALIVE_BYTES = 48 * 1024;
 const TRAVEL_WINDOW_MS = 7 * DAY_MS;
 
-function withinKeepalive(pending: readonly PendingChange[]): Change[] {
+function withinKeepalive(pending: readonly Change[]): Change[] {
   const batch: Change[] = [];
   let bytes = 0;
-  for (const change of wire(pending.slice(0, MAX_CHANGES))) {
+  for (const change of pending.slice(0, MAX_CHANGES)) {
     bytes += utf8(JSON.stringify(change)).length + 1;
     if (bytes > KEEPALIVE_BYTES) break;
     batch.push(change);
@@ -42,7 +41,7 @@ class App {
   readonly platform = detectPlatform();
 
   private replica = new Replica();
-  private pending: PendingChange[] = [];
+  private pending: Change[] = [];
   private token: string | null = null;
   private connection: Connection | null = null;
   private inflight: Promise<void> | null = null;
@@ -120,7 +119,7 @@ class App {
       const response = await this.connection.sync({
         since: this.replica.version,
         zone: this.zone,
-        changes: wire(sent),
+        changes: sent,
       });
       this.replica.receive(response);
       const remaining = await acknowledge(new Set(sent.map((change) => change.opId)));

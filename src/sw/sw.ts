@@ -1,7 +1,7 @@
 import { request } from '../browser/api';
 import { get } from '../browser/kv';
 import { SNOOZE_MINUTES, isShown, show } from '../browser/notify';
-import { acknowledge, currentZone, enqueue, wire } from '../browser/outbox';
+import { acknowledge, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
 import type { PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
@@ -73,7 +73,7 @@ self.addEventListener('push', (event) => {
 async function act(op: Op): Promise<void> {
   const change = await enqueue(op);
   const replica = await get('replica');
-  await request('sync', { since: replica?.version ?? 0, zone: currentZone(), changes: wire([change]) })
+  await request('sync', { since: replica?.version ?? 0, zone: currentZone(), changes: [change] })
     .then(() => acknowledge(new Set([change.opId])))
     .catch((error: unknown) => console.warn('action queued for the app to send', error));
   for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });

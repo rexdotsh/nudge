@@ -28,7 +28,14 @@ function alertSteps(reminder: Reminder, due: number): Step[] {
         }))
       : []),
   ];
-  return steps.filter((step) => step.at >= quietUntil && step.at > reminder.firedThrough);
+  const eligible = steps.filter((step) => step.at >= quietUntil && step.at > reminder.firedThrough);
+  // Flying west can push an occurrence that already notified later than now; a snooze of that notification must
+  // still come back, even though it ends before the occurrence's new due time.
+  const { snoozedUntil } = reminder;
+  if (snoozedUntil !== null && snoozedUntil < due && reminder.firedThrough >= due) {
+    eligible.push({ at: snoozedUntil, alert: 'snoozed' });
+  }
+  return eligible;
 }
 
 function earliest(reminder: Reminder, zone: string): Step | null {
@@ -59,7 +66,9 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
       if (current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
       continue;
     }
-    current.firedThrough = step.at;
+    const consumesSnooze = step.at <= current.firedThrough || step.alert === 'due';
+    if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
+    current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
     if (current.due !== null) notice = { alert: step.alert, at: step.at, due: current.due, missed: current.missed };
   }

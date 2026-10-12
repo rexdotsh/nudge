@@ -14,7 +14,7 @@ import {
   type SyncResponse,
 } from '../shared/api';
 import { applyOp } from '../shared/ops';
-import { MINUTE_MS } from '../shared/time';
+import { DAY_MS, MINUTE_MS } from '../shared/time';
 import { ulid } from '../shared/ulid';
 import { isRecord } from '../shared/validate';
 import { deviceInfo, type DeviceRow } from './devices';
@@ -33,6 +33,7 @@ const PAIR_CODE_TTL_MS = 10 * MINUTE_MS;
 const LOCKOUT_MS = 15 * MINUTE_MS;
 const FAILURE_LIMIT = 10;
 const MAX_PENDING_TESTS = 5;
+const MAX_BACKDATE_MS = 30 * DAY_MS;
 
 type Handlers<R extends { [K in keyof R]: { request: unknown; response: unknown } }, Context> = {
   [K in keyof R]: (request: R[K]['request'], context: Context) => R[K]['response'] | Promise<R[K]['response']>;
@@ -74,7 +75,10 @@ export class Nudge {
       devices: this.store.devices.all().map(deviceInfo),
     }),
     revoke: ({ id }) => {
-      this.store.devices.revoke(id);
+      this.runtime.transaction(() => {
+        this.store.devices.revoke(id);
+        this.store.deliveries.cancelForDevice(id);
+      });
       this.runtime.disconnect(id);
       return null;
     },
@@ -204,7 +208,10 @@ export class Nudge {
 
   private async scheduleTest(id: string, delay: number): Promise<{ at: number }> {
     const existing = this.store.testRequest(id);
-    if (existing !== null) return { at: existing };
+    if (existing !== null) {
+      await this.scheduler.rearm();
+      return { at: existing };
+    }
     if (this.store.deliveries.pendingCount('test:') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
     const at = this.runtime.now() + delay * 1000;
     this.runtime.transaction(() => {
@@ -221,12 +228,13 @@ export class Nudge {
     const zoneChanged = this.runtime.transaction(() => {
       this.store.devices.touch(device.id, zone, now);
       const changed = this.scheduler.setZone(zone);
-      const clock = { now, zone };
-      for (const { opId, op } of changes) {
+      for (const { opId, op, at } of changes) {
         if (this.store.applied(opId)) continue;
-        const next = applyOp(this.store.reminder(op.id), op, clock);
+        const previous = this.store.reminder(op.id);
+        const next = applyOp(previous, op, { now: Math.min(now, Math.max(at, now - MAX_BACKDATE_MS)), zone });
         if (next) {
-          this.scheduler.save(next, now);
+          this.scheduler.save(next);
+          if (op.type !== 'put' || previous?.due !== next.due) this.store.deliveries.cancelForReminder(op.id);
           applied++;
         }
         this.store.recordApplied(opId, now);
@@ -234,12 +242,9 @@ export class Nudge {
       return changed;
     });
     const version = this.store.version();
-    if (zoneChanged || applied > 0) {
-      await this.scheduler.rearm();
-      this.runtime.broadcast({ kind: 'changed', version }, device.id);
-    }
-    const purged = Number(this.store.meta('purged') ?? 0);
-    const reset = since < purged || since > version;
+    await this.scheduler.rearm();
+    if (zoneChanged || applied > 0) this.runtime.broadcast({ kind: 'changed', version }, device.id);
+    const reset = since > version;
     return { version, reminders: this.store.changedSince(reset ? 0 : since), reset };
   }
 }

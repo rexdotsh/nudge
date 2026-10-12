@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { Replica } from '../src/app/lib/replica';
-import type { PendingChange } from '../src/browser/schema';
+import type { Change } from '../src/shared/api';
 import { applyOp } from '../src/shared/ops';
 import type { Reminder, ReminderFields } from '../src/shared/reminder';
 import { ulid } from '../src/shared/ulid';
@@ -25,7 +25,7 @@ function server(): Reminder {
   return created;
 }
 
-const complete: PendingChange = {
+const complete: Change = {
   opId: ulid(),
   op: { type: 'complete', id: ID, due: '2026-10-12T09:00' },
   at: NOW + 1,
