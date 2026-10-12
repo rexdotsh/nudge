@@ -1,6 +1,6 @@
 # Nudge
 
-A personal reminders app that is fast to use and hard to break. It installs as a PWA on the iPhone home screen and on Windows through Edge, and alerts on time through Web Push. All of it runs on Cloudflare's free plan: one Worker plus one SQLite Durable Object per person.
+Personal reminders that show up on time. An installable PWA for iPhone and Windows, running on one Cloudflare Worker and one SQLite Durable Object per person.
 
 <p>
   <img src="docs/screenshots/ios-home.webp" width="260" alt="Home on iPhone: the next reminder on top with Done and Snooze, then the rest of today and a quieter Later list" />
@@ -11,14 +11,12 @@ A personal reminders app that is fast to use and hard to break. It installs as a
   <img src="docs/screenshots/windows-home.webp" width="800" alt="Nudge on Windows: the list with the editor docked beside it" />
 </p>
 
-- **Now, next, later.** The reminder that matters right now sits on top with Done and Snooze ready. The rest of today follows, and everything later is quieter.
-- **Type it like you'd say it.** "dentist next tue 10am every 6 months", "water the plants every 3 days after done", "book club last fri of the month 7pm". What Nudge understood is highlighted as you type, and the send button says when it will remind you and how often.
-- **Repeats are real calendar rules (RFC 5545)**, plus repeats that count from when you finish. Times follow you when you travel.
-- **It always shows up.** The server wakes for each reminder on the exact second, retries, resends when the phone doesn't confirm, and tells you on Telegram if something's off.
-- **Works offline.** Everything is local first and syncs when you're back.
-- **Feels at home on a PC.** On a wide window the editor docks beside the list, rows have a right-click menu, and common actions have keyboard shortcuts (press `?` to see them).
+- Type it like you'd say it: "book club last fri of the month 7pm".
+- Real calendar repeats, plus "every 3 days after done".
+- Web Push on time, with retries and Telegram alerts if something's off.
+- Local first, works offline.
 
-## Deploy your own
+## Deploy
 
 ```sh
 bun install
@@ -26,8 +24,4 @@ bun run deploy --name <worker-name>
 bun run secrets <worker-name>
 ```
 
-`bun run secrets` generates the instance keys, stores them as Worker secrets, and prints the one-time setup code for the first device. To get health alerts on Telegram, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your environment before running it.
-
-Open `https://<worker-name>.<your-subdomain>.workers.dev`, install it, and enter the setup code. To add more devices, use **Settings → Add a device** on one that's already set up.
-
-On Windows 11, **Settings → Download the Windows app** builds a small zip with an app package for that instance (it takes a few seconds; nothing is stored): extract it and run `Install Nudge.cmd`. It installs like any other app (no admin rights, no certificate), runs on Edge's PWA engine so notifications work, and loads the live site, so deploys reach it without reinstalling. Edge's own "Install this site as an app" works too.
+For Telegram alerts, export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` before `secrets`. Then open the Worker's URL, install it, and enter the setup code it printed. Add more devices from Settings. On Windows 11, Settings also offers an installable app.
