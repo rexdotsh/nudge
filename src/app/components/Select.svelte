@@ -85,7 +85,7 @@
 {#if ui.fine}
   <button
     type="button"
-    class="trigger"
+    class="trigger press"
     role="combobox"
     aria-labelledby="{labelledby} {id}"
     aria-haspopup="listbox"
@@ -97,8 +97,8 @@
     onkeydown={keydown}
     onblur={() => (open = false)}><span {id}>{options[selected]?.label}</span></button
   >
-  {#if open && trigger}
-    <Popover anchor={trigger} onClose={() => (open = false)}>
+  {#each open && trigger ? [trigger] : [] as anchor (anchor)}
+    <Popover {anchor} onClose={() => (open = false)}>
       <Listbox
         id={listId}
         {options}
@@ -108,7 +108,7 @@
         aria-labelledby={labelledby}
       />
     </Popover>
-  {/if}
+  {/each}
 {:else}
   <select
     aria-labelledby={labelledby}
@@ -132,7 +132,6 @@
     border: 0;
     background: transparent;
     color: var(--ink-2);
-    font-size: inherit;
     text-align: right;
     outline: none;
     cursor: pointer;
@@ -151,7 +150,7 @@
 
   :is(.trigger, select):focus-visible {
     border-radius: 4px;
-    outline: 2px solid var(--faint);
+    outline: 2px solid var(--ring);
     outline-offset: 3px;
   }
 </style>

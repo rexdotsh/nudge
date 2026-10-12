@@ -21,37 +21,18 @@
   let active = $state(slots.indexOf(untrack(() => value)));
   const typed = $derived(typing ? parseTime(text) : null);
   const invalid = $derived(typing && text.trim() !== '' && typed === null);
-  let list: HTMLElement | undefined = $state();
-
-  function reveal(index: number, center = false) {
-    const option = list?.children[index];
-    if (!list || !(option instanceof HTMLElement)) return;
-    const top = option.offsetTop;
-    const bottom = top + option.offsetHeight;
-    if (center) list.scrollTop = top - Math.floor(list.clientHeight / option.offsetHeight / 2) * option.offsetHeight;
-    else if (top < list.scrollTop) list.scrollTop = top;
-    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
-  }
+  const reveal = $derived(typed ? slots.findLastIndex((slot) => slot <= formatClock(typed)) : active);
 
   function input() {
     typing = true;
-    const time = parseTime(text);
-    active = -1;
-    if (!time) return;
-    const exact = formatClock(time);
-    active = slots.indexOf(exact);
-    reveal(
-      slots.findLastIndex((slot) => slot <= exact),
-      true,
-    );
+    active = typed ? slots.indexOf(formatClock(typed)) : -1;
   }
 
   function step(by: number) {
-    const from = active >= 0 ? active : typed ? slots.findLastIndex((slot) => slot <= formatClock(typed)) : 0;
+    const from = Math.max(0, reveal);
     active = Math.max(0, Math.min(from + by, slots.length - 1));
     typing = false;
     text = labelOf(slots[active] ?? '');
-    reveal(active);
   }
 
   function keydown(event: KeyboardEvent) {
@@ -80,7 +61,6 @@
   placeholder="Type a time"
   data-autofocus
   bind:value={text}
-  onfocus={() => reveal(active, true)}
   oninput={input}
   onkeydown={keydown}
 />
@@ -91,7 +71,8 @@
   {active}
   {onPick}
   aria-label="Times"
-  bind:element={list}
+  {reveal}
+  center={typing}
 />
 
 <style>
@@ -111,7 +92,7 @@
   }
 
   .entry:focus {
-    box-shadow: inset 0 0 0 1px var(--faint);
+    box-shadow: inset 0 0 0 1px var(--ring);
   }
 
   .entry[aria-invalid='true'] {

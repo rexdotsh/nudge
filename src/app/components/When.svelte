@@ -29,7 +29,7 @@
   {#if ui.fine}
     <button
       type="button"
-      class="picker"
+      class="picker press"
       aria-label="Date, {dateText}"
       aria-haspopup="dialog"
       aria-expanded={open === 'date'}
@@ -38,35 +38,36 @@
     >
     <button
       type="button"
-      class="picker"
+      class="picker press"
       aria-label="Time, {timeText}"
       aria-haspopup="dialog"
       aria-expanded={open === 'time'}
       bind:this={timeChip}
       onclick={() => (open = open === 'time' ? null : 'time')}>{timeText}</button
     >
-    {#if open === 'date' && dateChip}
-      <Popover anchor={dateChip} role="dialog" aria-label="Choose a date" onClose={() => (open = null)}>
+    {#each open === 'date' && dateChip ? [dateChip] : [] as anchor (anchor)}
+      <Popover {anchor} role="dialog" aria-label="Choose a date" onClose={() => (open = null)}>
         <Calendar
           selected={day}
           today={epochDay(toLocal(app.now, zone))}
           onPick={(picked) => {
             date = formatDate(fromEpochDay(picked));
-            close(dateChip);
+            close(anchor);
           }}
         />
       </Popover>
-    {:else if open === 'time' && timeChip}
-      <Popover anchor={timeChip} role="dialog" aria-label="Choose a time" onClose={() => (open = null)}>
+    {/each}
+    {#each open === 'time' && timeChip ? [timeChip] : [] as anchor (anchor)}
+      <Popover {anchor} role="dialog" aria-label="Choose a time" onClose={() => (open = null)}>
         <TimeList
           value={time}
           onPick={(picked) => {
             time = picked;
-            close(timeChip);
+            close(anchor);
           }}
         />
       </Popover>
-    {/if}
+    {/each}
   {:else}
     <label class="picker">
       <span>{dateText}</span>

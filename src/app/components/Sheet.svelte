@@ -10,19 +10,14 @@
   let drag = $state(0);
   let startY = $state<number | null>(null);
 
-  // Without a tap since the dialog opened (one a notification opened, say), Android's back gesture closes it outright,
-  // with no cancel event to ask first.
-  function closed() {
-    onClose();
-  }
-
   function open(dialog: HTMLDialogElement) {
     const opener = document.activeElement;
-    dialog.addEventListener('close', closed);
+    // Android back can close an untouched dialog without sending cancel first.
+    dialog.addEventListener('close', onClose);
     dialog.showModal();
     dialog.focus();
     return () => {
-      dialog.removeEventListener('close', closed);
+      dialog.removeEventListener('close', onClose);
       dialog.close();
       if (opener instanceof HTMLElement) opener.focus();
     };
@@ -38,7 +33,6 @@
   }
 
   function release() {
-    // A dismissed sheet leaves from where it was let go.
     if (drag > DISMISS_PX) onClose();
     else drag = 0;
     startY = null;
@@ -86,7 +80,7 @@
     max-height: calc(100dvh - 48px - env(safe-area-inset-top));
     margin: auto auto 0;
     padding: 0;
-    /* A real border, not an inset shadow: content (the sticky grabber) paints over inset shadows but never over borders. */
+    /* The sticky grabber would cover an inset shadow, but cannot cover a border. */
     border: 0;
     border-top: 1px solid var(--edge);
     border-radius: 26px 26px 0 0;
@@ -94,7 +88,7 @@
     color: var(--ink);
     overflow-y: auto;
     overscroll-behavior: contain;
-    transition: translate 0.35s var(--spring);
+    transition: translate var(--base) var(--spring);
   }
 
   dialog:focus {

@@ -9,73 +9,85 @@
     anchor,
     onClose,
     children,
+    onkeydown: handleKey,
+    class: className,
     ...rest
-  }: { anchor: HTMLElement; onClose: () => void; children: Snippet } & HTMLAttributes<HTMLDivElement> = $props();
+  }: {
+    anchor: HTMLElement | { x: number; y: number };
+    onClose: () => void;
+    children: Snippet;
+  } & HTMLAttributes<HTMLDivElement> = $props();
 
   const GAP_PX = 6;
   const MARGIN_PX = 8;
   const MIN_ROOM_PX = 160;
 
-  let left = $state(0);
-  let top = $state(0);
-  let maxHeight = $state<number | null>(null);
-  let origin = $state('top left');
   let popup: HTMLElement | undefined = $state();
 
   // The top layer keeps it above an open sheet and unclipped by the scrolling pane it opens from.
   function show(node: HTMLElement) {
     node.showPopover();
-    const box = anchor.getBoundingClientRect();
+    const anchored = anchor instanceof HTMLElement;
+    const gap = anchored ? GAP_PX : 0;
+    const box =
+      anchor instanceof HTMLElement
+        ? anchor.getBoundingClientRect()
+        : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y, width: 0 };
     // Layout sizes, not the bounding box, which the opening animation is still scaling down.
     const width = node.offsetWidth;
-    const below = innerHeight - MARGIN_PX - box.bottom - GAP_PX;
-    const roomAbove = box.top - GAP_PX - MARGIN_PX;
+    const below = innerHeight - MARGIN_PX - box.bottom - gap;
+    const roomAbove = box.top - gap - MARGIN_PX;
     const above = node.offsetHeight > below && roomAbove > below;
     const room = above ? roomAbove : below;
     const height = Math.min(node.offsetHeight, room >= MIN_ROOM_PX ? room : innerHeight - 2 * MARGIN_PX);
-    const start = box.left + box.width / 2 < innerWidth / 2;
-    maxHeight = height;
-    top = Math.max(
+    const start = !anchored || box.left + box.width / 2 < innerWidth / 2;
+    node.style.maxHeight = `${height}px`;
+    node.style.top = `${Math.max(
       MARGIN_PX,
-      Math.min(above ? box.top - GAP_PX - height : box.bottom + GAP_PX, innerHeight - MARGIN_PX - height),
-    );
-    left = Math.max(MARGIN_PX, Math.min(start ? box.left : box.right - width, innerWidth - width - MARGIN_PX));
-    origin = `${above ? 'bottom' : 'top'} ${start ? 'left' : 'right'}`;
-    node.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+      Math.min(above ? box.top - gap - height : box.bottom + gap, innerHeight - MARGIN_PX - height),
+    )}px`;
+    node.style.left = `${Math.max(MARGIN_PX, Math.min(start ? box.left : box.right - width, innerWidth - width - MARGIN_PX))}px`;
+    node.style.transformOrigin = `${anchored && above ? 'bottom' : 'top'} ${start ? 'left' : 'right'}`;
+    (node.querySelector<HTMLElement>('[data-autofocus]') ?? (node.hasAttribute('tabindex') ? node : null))?.focus({
+      preventScroll: true,
+    });
   }
 
   const inside = (target: EventTarget | null) =>
-    target instanceof Node && (popup?.contains(target) === true || anchor.contains(target));
+    target instanceof Node &&
+    (popup?.contains(target) === true || (anchor instanceof HTMLElement && anchor.contains(target)));
 
-  function outside(event: Event) {
-    if (!inside(event.target)) onClose();
+  function close() {
+    // Outgoing popovers still receive window and focus events during their exit transition.
+    if (!popup?.inert) onClose();
   }
 
-  // It owns the keyboard while open, as the row menu does; Escape is kept from the sheet or editor around it.
-  function keydown(event: KeyboardEvent) {
+  function outside(event: Event) {
+    if (!inside(event.target)) close();
+  }
+
+  // Escape must not reach the sheet or editor beneath the popover.
+  function keydown(event: KeyboardEvent & { currentTarget: HTMLDivElement }) {
     event.stopPropagation();
-    if (event.key !== 'Escape' || composing(event)) return;
+    handleKey?.(event);
+    if (event.defaultPrevented || event.key !== 'Escape' || composing(event)) return;
     event.preventDefault();
-    onClose();
-    anchor.focus();
+    close();
+    if (anchor instanceof HTMLElement) anchor.focus();
   }
 </script>
 
-<svelte:window onpointerdowncapture={outside} onscrollcapture={outside} onresize={onClose} onblur={onClose} />
+<svelte:window onpointerdowncapture={outside} onscrollcapture={outside} onresize={close} onblur={close} />
 
 <div
   {...rest}
-  class="popup"
+  class={['popup', className]}
   popover="manual"
-  style:left="{left}px"
-  style:top="{top}px"
-  style:max-height={maxHeight === null ? null : `${maxHeight}px`}
-  style:transform-origin={origin}
   bind:this={popup}
   {@attach show}
   out:fade={depart()}
   onkeydown={keydown}
-  onfocusout={(event) => event.relatedTarget !== null && !inside(event.relatedTarget) && onClose()}
+  onfocusout={(event) => event.relatedTarget !== null && !inside(event.relatedTarget) && close()}
 >
   {@render children()}
 </div>
@@ -94,7 +106,7 @@
     flex-direction: column;
   }
 
-  .popup > :global(.list) {
-    min-height: 0;
+  .popup:focus {
+    outline: none;
   }
 </style>

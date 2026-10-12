@@ -95,7 +95,7 @@
   {#if completed.length > 0}
     <section>
       <button
-        class="label toggle-done"
+        class="label toggle-done press"
         data-glide="completed"
         aria-expanded={showCompleted}
         onclick={() => (showCompleted = !showCompleted)}
@@ -104,7 +104,7 @@
       </button>
       {#if showCompleted}
         {#each completed as { reminder, at } (reminder.id)}
-          <div class="done" data-glide="done:{reminder.id}">
+          <div class="done action-row hover-focus" data-glide="done:{reminder.id}">
             <!-- An ended series does not keep which occurrence was its last, so only a one-off can be put back. -->
             {#if !reminder.repeat}
               <CheckCircle
@@ -115,9 +115,9 @@
               />
             {/if}
             <span class="title">{reminder.title}</span>
-            <span class="stamp">{whenLabel(at, app.now, app.zone)}</span>
+            <span class="hover-trail">{whenLabel(at, app.now, app.zone)}</span>
             <button
-              class="forget"
+              class="forget icon-button press hover-actions"
               onclick={() => void remove(reminder)}
               aria-label={`Delete ${reminder.title}`}
               title="Delete"><Icon name="close" size={14} /></button
@@ -133,11 +133,15 @@
     </section>
   {/if}
 
-  {#if editing && !snoozing && !ui.docked}
-    {#key editing.id}<EditSheet reminder={editing} />{/key}
-  {/if}
-  {#if snoozing}<SnoozeSheet reminder={snoozing} />{/if}
-  {#if menu}<RowMenu reminder={menu.reminder} x={menu.x} y={menu.y} fromKeyboard={menu.fromKeyboard} />{/if}
+  {#each editing && !snoozing && !ui.docked ? [editing] : [] as reminder (reminder.id)}
+    <EditSheet {reminder} />
+  {/each}
+  {#each snoozing ? [snoozing] : [] as reminder (reminder.id)}
+    <SnoozeSheet {reminder} />
+  {/each}
+  {#each menu ? [menu] : [] as opened (opened.id)}
+    <RowMenu reminder={opened.reminder} x={opened.x} y={opened.y} fromKeyboard={opened.fromKeyboard} />
+  {/each}
   {#if ui.help}<ShortcutsSheet />{/if}
   <Toast />
 </div>
@@ -217,14 +221,13 @@
   }
 
   .forget {
-    flex: none;
-    width: 32px;
-    height: 32px;
-    display: grid;
-    place-items: center;
-    margin-right: -6px;
-    border-radius: 8px;
-    color: var(--muted);
+    --icon-size: 32px;
+  }
+
+  @media (hover: none) {
+    .forget {
+      margin-right: -6px;
+    }
   }
 
   .clear {
@@ -232,37 +235,6 @@
     margin: 4px 0 0 auto;
     padding: 10px 2px;
     font-size: 13.5px;
-  }
-
-  @media (hover: hover) {
-    .done {
-      position: relative;
-    }
-
-    .forget {
-      position: absolute;
-      right: 0;
-      margin: 0;
-      opacity: 0;
-      transition: opacity var(--fast);
-    }
-
-    .stamp {
-      transition: opacity var(--fast);
-    }
-
-    .done:is(:hover, :focus-within) .forget {
-      opacity: 1;
-    }
-
-    .done:is(:hover, :focus-within) .stamp {
-      opacity: 0;
-    }
-
-    .forget:hover {
-      background: var(--raised);
-      color: var(--ink);
-    }
   }
 
   @media (min-width: 720px) {

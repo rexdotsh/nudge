@@ -1,18 +1,17 @@
 <script lang="ts">
   import { Unreachable, request, windowsInstaller } from '../../browser/api';
-  import { THEMES, type DeviceInfo } from '../../shared/api';
+  import type { DeviceInfo } from '../../shared/api';
   import { MINUTE_MS } from '../../shared/time';
   import { ulid } from '../../shared/ulid';
   import Icon from '../components/Icon.svelte';
   import Toast from '../components/Toast.svelte';
+  import ThemeOptions from '../components/ThemeOptions.svelte';
   import { app } from '../lib/app.svelte';
   import { whenLabel, zoneLabel } from '../lib/format';
   import { closeOnBack } from '../lib/close';
   import { installer, type Prompted } from '../lib/install.svelte';
-  import { swap } from '../lib/motion.svelte';
   import { UNBLOCK_STEPS, type PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
-  import { THEME_LABELS, appearance } from '../lib/theme.svelte';
   import { toasts } from '../lib/toasts.svelte';
 
   let { onBack }: { onBack: () => void } = $props();
@@ -39,20 +38,16 @@
   async function attempt(action: () => Promise<void>) {
     try {
       await action();
+      return true;
     } catch (error) {
       if (!(error instanceof Unreachable)) throw error;
       toasts.show("Can't reach Nudge. Check your connection.");
+      return false;
     }
   }
 
   async function load() {
-    try {
-      await app.refreshHealth();
-      devicesFailed = false;
-    } catch (error) {
-      devicesFailed = error instanceof Unreachable;
-      throw error;
-    }
+    devicesFailed = !(await attempt(() => app.refreshHealth()));
   }
 
   const turnOn = () =>
@@ -113,7 +108,7 @@
   }
 
   $effect(() => {
-    void attempt(load);
+    void load();
   });
 
   $effect(() => closeOnBack(onBack));
@@ -129,7 +124,7 @@
 
 <div class="page settings">
   <header>
-    <button class="back" onclick={onBack}><Icon name="arrowLeft" size={18} />Back</button>
+    <button class="back press" onclick={onBack}><Icon name="arrowLeft" size={18} />Back</button>
     <h1 class="heading large">Settings</h1>
   </header>
 
@@ -170,7 +165,7 @@
     {#if devicesFailed && app.health === null}
       <div class="field">
         <span>Can't reach Nudge right now</span>
-        <button class="link" onclick={() => attempt(load)}>Try again</button>
+        <button class="link" onclick={load}>Try again</button>
       </div>
     {/if}
     {#each app.health?.devices ?? [] as device (device.id)}
@@ -237,22 +232,7 @@
 
   <h2 class="label" id="theme-heading">Theme</h2>
   <div class="group" role="radiogroup" aria-labelledby="theme-heading">
-    {#each THEMES as theme (theme)}
-      <label class="field option">
-        <span class="name">
-          <span class="swatch" data-theme={theme}><span></span></span>
-          {THEME_LABELS[theme]}
-        </span>
-        <input
-          class="sr-only"
-          type="radio"
-          name="theme"
-          checked={appearance.theme === theme}
-          onchange={() => swap(() => app.chooseTheme(theme))}
-        />
-        {#if appearance.theme === theme}<Icon name="check" size={18} />{/if}
-      </label>
-    {/each}
+    <ThemeOptions />
   </div>
 
   <h2 class="label">Data</h2>
@@ -292,44 +272,6 @@
 
   .remove {
     font-size: 14px;
-  }
-
-  .option {
-    cursor: pointer;
-  }
-
-  .option > :global(svg) {
-    color: var(--on);
-  }
-
-  .option:has(:focus-visible) .swatch {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-  }
-
-  .name {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .swatch {
-    width: 34px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 0 6px;
-    border-radius: 7px;
-    background: var(--bg);
-    box-shadow: inset 0 0 0 1px var(--edge);
-  }
-
-  .swatch span {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent);
   }
 
   .pairing {

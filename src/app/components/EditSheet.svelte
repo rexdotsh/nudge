@@ -46,8 +46,10 @@
 
 {#snippet form()}
   <nav>
-    <button class="link quiet" onclick={closeEditor} title={tip('Cancel', CLOSE)}>Cancel</button>
-    <button class="link" onclick={saveEditor} disabled={draft.parsed === null} title={tip('Save', SAVE)}>Save</button>
+    <button class="link quiet press" onclick={closeEditor} title={tip('Cancel', CLOSE)}>Cancel</button>
+    <button class="link press" onclick={saveEditor} disabled={draft.parsed === null} title={tip('Save', SAVE)}
+      >Save</button
+    >
   </nav>
 
   <input
@@ -75,7 +77,11 @@
       <span id="alerts-label">Also remind me before</span>
       <div class="alerts" role="group" aria-labelledby="alerts-label">
         {#each ALERTS as alert (alert.minutes)}
-          <button aria-pressed={draft.alerts.includes(alert.minutes)} onclick={() => draft.toggleAlert(alert.minutes)}>
+          <button
+            class="press"
+            aria-pressed={draft.alerts.includes(alert.minutes)}
+            onclick={() => draft.toggleAlert(alert.minutes)}
+          >
             {alert.label}
           </button>
         {/each}
