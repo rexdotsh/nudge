@@ -34,7 +34,7 @@ class App {
   reminders = $state<Reminder[]>([]);
   online = $state(true);
   now = $state(Date.now());
-  zone = currentZone();
+  zone = $state(currentZone());
   travelling = $state(false);
   notifications = $state<PushState>(pushState());
   /** Until the first sync attempt of this foreground settles, the replica can miss what was pushed while away. */

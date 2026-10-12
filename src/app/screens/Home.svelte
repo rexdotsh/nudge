@@ -62,10 +62,10 @@
         <span>Completed</span><span>{showCompleted ? 'hide' : completed.length}</span>
       </button>
       {#if showCompleted}
-        {#each completed as reminder (reminder.id)}
+        {#each completed as { reminder, at } (reminder.id)}
           <div class="done">
             <span>{reminder.title}</span>
-            <span>{reminder.completedAt === null ? '' : whenLabel(reminder.completedAt, app.now, app.zone)}</span>
+            <span>{whenLabel(at, app.now, app.zone)}</span>
           </div>
         {/each}
       {/if}
