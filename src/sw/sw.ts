@@ -1,6 +1,8 @@
 import { Unreachable, request } from '../browser/api';
 import { get } from '../browser/kv';
-import { SNOOZE_MINUTES, isShown, showUnlessOnScreen } from '../browser/notify';
+import { openInPlace, type WorkerMessage } from '../browser/messages';
+import { SNOOZE_MINUTES, showUnlessOnScreen } from '../browser/notify';
+import { isShown } from '../browser/shown';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
@@ -125,20 +127,31 @@ async function act(op: Op): Promise<void> {
       console.warn('action queued for the app to send', error);
     });
   } finally {
-    for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
+    const changed: WorkerMessage = { kind: 'changed' };
+    for (const client of await self.clients.matchAll()) client.postMessage(changed, { transfer: [] });
   }
   await recount();
 }
 
+const OPEN_ANSWER_MS = 1000;
+
+// Navigating an open window would push a history entry per notification, which Android's back gesture then walks
+// through, so the window shows the link itself when it can.
 async function focus(navigate: string): Promise<void> {
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = clients[0];
-  if (existing) {
-    await existing.focus();
-    await existing.navigate(navigate);
-  } else {
+  if (!existing) {
     await self.clients.openWindow(navigate);
+    return;
   }
+  await existing.focus();
+  const deadline = new Promise<void>((resolve) => setTimeout(resolve, OPEN_ANSWER_MS));
+  if (await openInPlace(existing, navigate, deadline)) return;
+  // Only windows this worker controls can be navigated.
+  await existing.navigate(navigate).catch(async (error: unknown) => {
+    if (!(error instanceof TypeError)) throw error;
+    await self.clients.openWindow(navigate);
+  });
 }
 
 self.addEventListener('notificationclick', (event) => {

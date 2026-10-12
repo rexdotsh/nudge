@@ -7,6 +7,7 @@ interface Menu {
   id: string;
   x: number;
   y: number;
+  fromKeyboard: boolean;
 }
 
 const wide = new MediaQuery('min-width: 960px');

@@ -1,10 +1,18 @@
 <script lang="ts">
   import type { Reminder } from '../../shared/reminder';
+  import { closeOnBack } from '../lib/close';
+  import { closeEditor } from '../lib/selection';
   import { FEATURED, HELP, hint, keyLabels } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
   import EditSheet from './EditSheet.svelte';
 
   let { editing }: { editing: Reminder | undefined } = $props();
+
+  const open = $derived(editing !== undefined);
+
+  $effect(() => {
+    if (open) return closeOnBack(closeEditor);
+  });
 </script>
 
 <aside class="pane" aria-label="Details">

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
+  import { OPENED, isWorkerMessage } from '../browser/messages';
   import { showUnlessOnScreen } from '../browser/notify';
   import { claim, settle } from '../browser/seen';
+  import { dismissSettled } from '../browser/shown';
   import { lateCount } from '../shared/reminder';
   import Onboarding from './components/Onboarding.svelte';
   import TitleBar from './components/TitleBar.svelte';
@@ -11,16 +13,37 @@
   import Enroll from './screens/Enroll.svelte';
   import Home from './screens/Home.svelte';
   import Install from './screens/Install.svelte';
+  import InstallOffer from './screens/InstallOffer.svelte';
   import Notify from './screens/Notify.svelte';
   import Settings from './screens/Settings.svelte';
 
   let guide = $state(installer.guide);
   let askForNotifications = $state(app.notifications === 'prompt');
+  /** Set up on this device just now: once that is done, Android is offered the app. */
+  let settingUp = false;
+  let offerApp = $state(false);
+  let screen = $state<'home' | 'settings'>('home');
+
+  function follow(link: URLSearchParams) {
+    screen = link.has('settings') ? 'settings' : 'home';
+    const opening = link.get('open');
+    if (opening) ui.edit(opening);
+  }
+
   const link = new URLSearchParams(location.search);
-  let screen = $state<'home' | 'settings'>(link.has('settings') ? 'settings' : 'home');
-  const opening = link.get('open');
-  if (opening) ui.edit(opening);
+  follow(link);
   if (link.size > 0) history.replaceState(null, '', '/');
+
+  navigator.serviceWorker?.addEventListener('message', ({ data, ports }) => {
+    if (!isWorkerMessage(data) || data.kind !== 'open') return;
+    follow(new URL(data.url).searchParams);
+    ports[0]?.postMessage(OPENED);
+  });
+
+  function setUpDone() {
+    offerApp = settingUp && installer.welcome;
+    settingUp = false;
+  }
 
   const fallback = new Fallback({
     ready: () =>
@@ -40,7 +63,11 @@
 
   // Pushes badge the icon as they arrive; only a replica synced in this foreground knows better than the latest push.
   $effect(() => {
-    if (app.freshness === 'synced' && 'setAppBadge' in navigator) void navigator.setAppBadge(late);
+    if (app.freshness !== 'synced') return;
+    if ('setAppBadge' in navigator) void navigator.setAppBadge(late);
+    const { reminders } = app;
+    const current = () => (app.reminders === reminders && app.freshness === 'synced' ? reminders : null);
+    void navigator.serviceWorker.ready.then((registration) => dismissSettled(registration, current, Date.now));
   });
 
   $effect(() => {
@@ -58,10 +85,26 @@
     <button class="btn primary block" onclick={() => location.reload()}>Try again</button>
   </Onboarding>
 {:else if app.phase === 'enroll'}
-  {#if guide}<Install {guide} onContinue={() => (guide = null)} />{:else}<Enroll />{/if}
+  {#if guide}
+    <Install {guide} onContinue={() => (guide = null)} />
+  {:else}
+    <Enroll
+      onEnrolled={() => {
+        settingUp = true;
+        if (!askForNotifications) setUpDone();
+      }}
+    />
+  {/if}
 {:else if app.phase === 'ready'}
   {#if askForNotifications}
-    <Notify onDone={() => (askForNotifications = false)} />
+    <Notify
+      onDone={() => {
+        askForNotifications = false;
+        setUpDone();
+      }}
+    />
+  {:else if offerApp}
+    <InstallOffer onDone={() => (offerApp = false)} />
   {:else if screen === 'settings'}
     <Settings onBack={() => (screen = 'home')} />
   {:else}

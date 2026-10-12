@@ -10,11 +10,19 @@
   let drag = $state(0);
   let startY = $state<number | null>(null);
 
+  // Without a tap since the dialog opened (one a notification opened, say), Android's back gesture closes it outright,
+  // with no cancel event to ask first.
+  function closed() {
+    onClose();
+  }
+
   function open(dialog: HTMLDialogElement) {
     const opener = document.activeElement;
+    dialog.addEventListener('close', closed);
     dialog.showModal();
     dialog.focus();
     return () => {
+      dialog.removeEventListener('close', closed);
       dialog.close();
       if (opener instanceof HTMLElement) opener.focus();
     };

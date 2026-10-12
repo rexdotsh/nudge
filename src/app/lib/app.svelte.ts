@@ -3,6 +3,7 @@ import { get, set, update } from '../../browser/kv';
 import { Replica } from '../../browser/replica';
 import { EMPTY_LOCAL } from '../../browser/schema';
 import { batch } from '../../browser/batch';
+import { isWorkerMessage } from '../../browser/messages';
 import { commit, currentZone, enqueue } from '../../browser/outbox';
 import { MAX_REQUEST_BYTES, type Change, type Health } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
@@ -49,7 +50,9 @@ class App {
   private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
   async start(): Promise<void> {
-    navigator.serviceWorker?.addEventListener('message', () => void this.reloadLocal().then(() => this.sync()));
+    navigator.serviceWorker?.addEventListener('message', ({ data }) => {
+      if (isWorkerMessage(data) && data.kind === 'changed') void this.reloadLocal().then(() => this.sync());
+    });
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
     watchPermission(() => void this.permissionChanged());
     let session;
