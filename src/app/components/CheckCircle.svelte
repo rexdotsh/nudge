@@ -2,9 +2,16 @@
   let {
     late = false,
     small = false,
+    checked = false,
     label,
     onToggle,
-  }: { late?: boolean; small?: boolean; label: string; onToggle: (event: MouseEvent) => void } = $props();
+  }: {
+    late?: boolean;
+    small?: boolean;
+    checked?: boolean;
+    label: string;
+    onToggle: (event: MouseEvent) => void;
+  } = $props();
 
   let popping = $state(false);
 
@@ -16,7 +23,7 @@
   }
 </script>
 
-<button class="check" class:late class:small class:popping aria-label={label} onclick={toggle}>
+<button class="check" class:late class:small class:checked class:popping aria-label={label} onclick={toggle}>
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <circle class="ring" cx="12" cy="12" r="10.2" />
     <circle class="disc" cx="12" cy="12" r="11" />
@@ -81,6 +88,12 @@
     transition-delay: 0.06s;
   }
 
+  .checked .disc {
+    fill: var(--faint);
+  }
+
+  .checked .disc,
+  .checked .tick,
   .popping .disc,
   .popping .tick {
     opacity: 1;

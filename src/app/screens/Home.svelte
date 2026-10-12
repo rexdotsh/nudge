@@ -2,6 +2,7 @@
   import Composer from '../components/Composer.svelte';
   import EditSheet from '../components/EditSheet.svelte';
   import FocusCard from '../components/FocusCard.svelte';
+  import CheckCircle from '../components/CheckCircle.svelte';
   import Icon from '../components/Icon.svelte';
   import Pane from '../components/Pane.svelte';
   import ReminderRow from '../components/ReminderRow.svelte';
@@ -9,7 +10,7 @@
   import ShortcutsSheet from '../components/ShortcutsSheet.svelte';
   import SnoozeSheet from '../components/SnoozeSheet.svelte';
   import Toast from '../components/Toast.svelte';
-  import { remove } from '../lib/actions';
+  import { remove, reopen } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { dayHeading, whenLabel } from '../lib/format';
   import { recentlyCompleted, triage } from '../lib/sections';
@@ -87,6 +88,15 @@
       {#if showCompleted}
         {#each completed as { reminder, at } (reminder.id)}
           <div class="done">
+            <!-- An ended series does not keep which occurrence was its last, so only a one-off can be put back. -->
+            {#if !reminder.repeat}
+              <CheckCircle
+                small
+                checked
+                label={`Mark ${reminder.title} not done`}
+                onToggle={() => void reopen(reminder)}
+              />
+            {/if}
             <span class="title">{reminder.title}</span>
             <span class="stamp">{whenLabel(at, app.now, app.zone)}</span>
             <button

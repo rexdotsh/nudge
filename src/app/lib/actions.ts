@@ -43,6 +43,13 @@ export async function complete(reminder: Reminder): Promise<void> {
   );
 }
 
+/** Puts a finished one-off back where it was due, without alerting again for anything already past. */
+export async function reopen(reminder: Reminder): Promise<void> {
+  tick();
+  await app.apply({ type: 'reopen', id: reminder.id, due: reminder.start, revision: reminder.revision });
+  toasts.show('Back on your list');
+}
+
 export async function snooze(reminder: Reminder, until: number): Promise<void> {
   if (reminder.due === null) return;
   tick();
