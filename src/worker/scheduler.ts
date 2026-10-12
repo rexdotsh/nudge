@@ -35,6 +35,12 @@ function outgoing(id: string, title: string, topic: string, message: PushMessage
   return { fire: id, title, topic, payload: JSON.stringify(message) };
 }
 
+// Every fire of an occurrence (its early alerts, due notice and nags) replaces the last on screen, so a problem
+// delivering one of them is one problem with the occurrence, reported once per cooldown rather than once per nag.
+function occurrenceAlertKey(problem: string, delivery: Pick<Outgoing, 'topic'>): string {
+  return `${problem}:${delivery.topic}`;
+}
+
 export class Scheduler {
   constructor(
     private readonly store: Store,
@@ -161,7 +167,10 @@ export class Scheduler {
     if (fired.length > 0) this.runtime.broadcast({ kind: 'changed', version: this.store.version() });
     await Promise.all(
       unreached.map((item) =>
-        this.alertOnce(`unreached:${item.fire}`, `No device has notifications on, so "${item.title}" was not sent.`),
+        this.alertOnce(
+          occurrenceAlertKey('unreached', item),
+          `No device has notifications on, so "${item.title}" was not sent.`,
+        ),
       ),
     );
 
@@ -177,7 +186,7 @@ export class Scheduler {
       return;
     }
     const delivered = await this.alertOnce(
-      `unconfirmed:${row.topic}:${row.device_id}`,
+      occurrenceAlertKey(`unconfirmed:${row.device_id}`, row),
       `"${device.label}" has not confirmed "${row.title}" after a resend.`,
     );
     this.store.deliveries.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);
