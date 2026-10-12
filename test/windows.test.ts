@@ -54,6 +54,19 @@ test.each([
       application('', '&#45;&#45;app-fallback-url=https://other.example/'),
   ],
   ['without an application to launch', identity(NAME, UNSIGNED)],
+  [
+    'whose real app uses single quotes behind a double-quoted decoy',
+    identity(NAME, UNSIGNED) +
+      `<?decoy ${application(`${ORIGIN}/`)}?>` +
+      `<Application Id='App' uap10:Parameters='--app-fallback-url=https://other.example/'/>`,
+  ],
+  [
+    'with a decoy app hidden in CDATA',
+    identity(NAME, UNSIGNED) +
+      `<![CDATA[${application(`${ORIGIN}/`)}]]>` +
+      application('', '--app-fallback-url=https://other.example/'),
+  ],
+  ['that declares its own entities', `<!DOCTYPE p [<!ENTITY x "y">]>${good}`],
 ])('a package %s is refused', async (_, manifest) => {
   const built = buildInstaller(ORIGIN, serve(serviceZip(manifest)));
   expect(await built.catch((error: unknown) => error)).toBeInstanceOf(InstallerError);
@@ -137,6 +150,14 @@ test.each([
     (zip: Uint8Array) => {
       const copy = zip.slice();
       new DataView(copy.buffer).setUint16(copy.length - 2, 7, true);
+      return copy;
+    },
+  ],
+  [
+    'a central directory that under-reports its size',
+    (zip: Uint8Array) => {
+      const copy = zip.slice();
+      new DataView(copy.buffer).setUint32(copy.length - 10, 0, true);
       return copy;
     },
   ],

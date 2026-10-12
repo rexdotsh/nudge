@@ -82,8 +82,11 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
   within(zip, at, directorySize);
   if (at + directorySize > directoryEnd) throw new ZipError('the central directory overlaps the end records');
   if (count > MAX_ENTRIES) throw new ZipError('too many entries');
+  const directoryStart = at;
+  const declaredEnd = at + directorySize;
   const entries: Entry[] = [];
   for (let i = 0; i < count; i++) {
+    if (at + 46 > declaredEnd) throw new ZipError('an entry lies outside the central directory');
     within(zip, at, 46);
     if (view.getUint32(at, true) !== CENTRAL) throw new ZipError('corrupt central directory');
     const nameLength = view.getUint16(at + 28, true);
@@ -113,7 +116,7 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
       }
       extra += 4 + length;
     }
-    if (extraEnd + view.getUint16(at + 32, true) > directoryEnd) throw new ZipError('an entry runs past the directory');
+    if (extraEnd + view.getUint16(at + 32, true) > declaredEnd) throw new ZipError('an entry runs past the directory');
     entries.push({
       name: new TextDecoder().decode(zip.subarray(at + 46, at + 46 + nameLength)),
       method: view.getUint16(at + 10, true),
@@ -124,6 +127,7 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
     });
     at = extraEnd + view.getUint16(at + 32, true);
   }
+  if (at !== declaredEnd || directoryStart > declaredEnd) throw new ZipError('the central directory size is wrong');
   return entries;
 }
 

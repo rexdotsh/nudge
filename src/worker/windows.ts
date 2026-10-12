@@ -93,12 +93,19 @@ function decodeXml(value: string): string {
 
 type Element = { tag: string; attributes: Map<string, string> };
 
+// An app manifest is plain XML: no DOCTYPE or custom entities, so comments, processing instructions and CDATA are the
+// only places markup can hide; they are removed before reading elements.
 function elements(xml: string): Element[] {
-  const body = xml.replace(/<!--[\s\S]*?-->/g, '');
-  return [...body.matchAll(/<([\w:]+)\b([^>]*)>/g)].map(([, tag = '', rest = '']) => ({
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml))
+    throw new InstallerError('the packaging service returned an unexpected manifest');
+  const body = xml.replace(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>/g, '');
+  return [...body.matchAll(/<([\w:]+)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g)].map(([, tag = '', rest = '']) => ({
     tag,
     attributes: new Map(
-      [...rest.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map(([, key = '', value = '']) => [key, decodeXml(value)]),
+      [...rest.matchAll(/([\w:]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(([, key = '', double, single]) => [
+        key,
+        decodeXml(double ?? single ?? ''),
+      ]),
     ),
   }));
 }
