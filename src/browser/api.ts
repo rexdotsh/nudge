@@ -59,3 +59,22 @@ export async function vapidPublicKey(): Promise<string> {
     throw new Unreachable(error instanceof Error ? error.message : 'could not load the push key');
   }
 }
+
+const INSTALLER_TIMEOUT_MS = 120_000;
+
+/** This instance's Windows installer; the server builds it on demand, which takes a few seconds. */
+export async function windowsInstaller(): Promise<Blob> {
+  const token = (await get('session'))?.token ?? '';
+  try {
+    const response = await fetch('/api/windows', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(INSTALLER_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Unreachable(`installer responded ${response.status}`);
+    return await response.blob();
+  } catch (error) {
+    if (error instanceof Unreachable) throw error;
+    throw new Unreachable(error instanceof Error ? error.message : 'could not download the installer');
+  }
+}

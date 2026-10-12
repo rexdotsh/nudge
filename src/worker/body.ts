@@ -1,22 +1,28 @@
-export async function readJson(request: Request, limit: number): Promise<{ body: unknown } | null> {
-  if (Number(request.headers.get('Content-Length') ?? 0) > limit) return null;
+/** Reads a body, giving up as soon as it exceeds `limit` bytes so an oversized one is never buffered. */
+export async function readBounded(source: Request | Response, limit: number): Promise<Uint8Array | null> {
+  if (Number(source.headers.get('Content-Length') ?? 0) > limit) return null;
   let size = 0;
-  const capped = request.body?.pipeThrough(
+  const capped = source.body?.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         size += chunk.byteLength;
-        if (size > limit) controller.error(new RangeError('request body too large'));
+        if (size > limit) controller.error(new RangeError('body too large'));
         else controller.enqueue(chunk);
       },
     }),
   );
-  let text: string;
   try {
-    text = capped ? await new Response(capped).text() : '';
+    return capped ? new Uint8Array(await new Response(capped).arrayBuffer()) : new Uint8Array();
   } catch (error) {
     if (error instanceof RangeError) return null;
     throw error;
   }
+}
+
+export async function readJson(request: Request, limit: number): Promise<{ body: unknown } | null> {
+  const bytes = await readBounded(request, limit);
+  if (!bytes) return null;
+  const text = new TextDecoder().decode(bytes);
   try {
     return { body: text === '' ? null : JSON.parse(text) };
   } catch {

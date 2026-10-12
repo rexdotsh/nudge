@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Unreachable, request } from '../../browser/api';
+  import { Unreachable, request, windowsInstaller } from '../../browser/api';
   import { get } from '../../browser/kv';
   import type { DeviceInfo, Health } from '../../shared/api';
   import { MINUTE_MS } from '../../shared/time';
@@ -71,13 +71,31 @@
     });
   }
 
-  function exportData() {
-    const blob = new Blob([JSON.stringify(app.reminders, null, 2)], { type: 'application/json' });
+  function saveFile(blob: Blob, name: string) {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `nudge-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = name;
     link.click();
     URL.revokeObjectURL(link.href);
+  }
+
+  function exportData() {
+    const blob = new Blob([JSON.stringify(app.reminders, null, 2)], { type: 'application/json' });
+    saveFile(blob, `nudge-${new Date().toISOString().slice(0, 10)}.json`);
+  }
+
+  let preparing = $state(false);
+
+  async function downloadInstaller() {
+    preparing = true;
+    try {
+      saveFile(await windowsInstaller(), 'Nudge for Windows.zip');
+    } catch (error) {
+      if (!(error instanceof Unreachable)) throw error;
+      toasts.show("Couldn't prepare the Windows app. Try again in a minute.");
+    } finally {
+      preparing = false;
+    }
   }
 
   $effect(() => {
@@ -142,6 +160,18 @@
       <button class="field action" onclick={pair}>Add a device</button>
     {/if}
   </div>
+
+  {#if app.platform === 'windows'}
+    <h2 class="label">Windows app</h2>
+    <div class="group">
+      <button class="field action" onclick={downloadInstaller} disabled={preparing}>
+        <span>
+          {preparing ? 'Preparing the Windows app…' : 'Download the Windows app'}
+          <small>Extract it and run “Install Nudge.cmd”. Needs Windows 11.</small>
+        </span>
+      </button>
+    </div>
+  {/if}
 
   <h2 class="label">Data</h2>
   <div class="group">

@@ -40,6 +40,10 @@ export class NudgeDO extends DurableObject<Env> {
     return this.nudge.call(route, caller, body);
   }
 
+  isEnrolled(deviceId: string) {
+    return this.nudge.canConnect(deviceId);
+  }
+
   watchdog() {
     return this.nudge.watchdog();
   }
