@@ -40,7 +40,7 @@
     <li class="field"><span>Choose <b>{add}</b></span><span class="value">2</span></li>
     <li class="field"><span>Open Nudge from {home}</span><span class="value">3</span></li>
   </ol>
-  {#if skip}<button class="link quiet skip" onclick={onContinue}>{skip}</button>{/if}
+  {#if skip}<button class="link quiet" onclick={onContinue}>{skip}</button>{/if}
 </Onboarding>
 
 <style>
@@ -59,10 +59,5 @@
 
   b {
     font-weight: 600;
-  }
-
-  .skip {
-    margin-top: 14px;
-    padding: 8px;
   }
 </style>

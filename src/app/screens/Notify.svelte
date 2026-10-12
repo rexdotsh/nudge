@@ -26,12 +26,5 @@
   <button class="btn primary block" onclick={enable} disabled={busy || app.notifications === 'denied'}>
     {busy ? '…' : 'Turn on notifications'}
   </button>
-  <button class="link quiet later" onclick={onDone}>Not now</button>
+  <button class="link quiet" onclick={onDone}>Not now</button>
 </Onboarding>
-
-<style>
-  .later {
-    margin-top: 14px;
-    padding: 8px;
-  }
-</style>

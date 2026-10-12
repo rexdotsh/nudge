@@ -41,7 +41,12 @@
     // A context menu opened from the keyboard has no pointer position, so it hangs off the row.
     const fromKeyboard = event.clientX === 0 && event.clientY === 0;
     const box = row.getBoundingClientRect();
-    ui.menu = { id, x: fromKeyboard ? box.left + 32 : event.clientX, y: fromKeyboard ? box.bottom : event.clientY };
+    ui.menu = {
+      id,
+      x: fromKeyboard ? box.left + 32 : event.clientX,
+      y: fromKeyboard ? box.bottom : event.clientY,
+      fromKeyboard,
+    };
   }
 </script>
 
@@ -118,7 +123,7 @@
     {#key editing.id}<EditSheet reminder={editing} />{/key}
   {/if}
   {#if snoozing}<SnoozeSheet reminder={snoozing} />{/if}
-  {#if menu}<RowMenu reminder={menu.reminder} x={menu.x} y={menu.y} />{/if}
+  {#if menu}<RowMenu reminder={menu.reminder} x={menu.x} y={menu.y} fromKeyboard={menu.fromKeyboard} />{/if}
   {#if ui.help}<ShortcutsSheet />{/if}
   <Toast />
 </div>

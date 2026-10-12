@@ -1,5 +1,6 @@
 import { Unreachable, request } from '../browser/api';
 import { get } from '../browser/kv';
+import type { WorkerMessage } from '../browser/messages';
 import { SNOOZE_MINUTES, isShown, showUnlessOnScreen } from '../browser/notify';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue } from '../browser/outbox';
@@ -125,20 +126,24 @@ async function act(op: Op): Promise<void> {
       console.warn('action queued for the app to send', error);
     });
   } finally {
-    for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
+    const changed: WorkerMessage = { kind: 'changed' };
+    for (const client of await self.clients.matchAll()) client.postMessage(changed, { transfer: [] });
   }
   await recount();
 }
 
+// Navigating an open window would push a history entry per notification, which Android's back gesture then walks
+// through, so the window is asked to show the link itself.
 async function focus(navigate: string): Promise<void> {
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = clients[0];
-  if (existing) {
-    await existing.focus();
-    await existing.navigate(navigate);
-  } else {
+  if (!existing) {
     await self.clients.openWindow(navigate);
+    return;
   }
+  await existing.focus();
+  const open: WorkerMessage = { kind: 'open', url: navigate };
+  existing.postMessage(open, { transfer: [] });
 }
 
 self.addEventListener('notificationclick', (event) => {

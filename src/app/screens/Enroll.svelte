@@ -3,6 +3,8 @@
   import Onboarding from '../components/Onboarding.svelte';
   import { app } from '../lib/app.svelte';
 
+  let { onEnrolled }: { onEnrolled: () => void } = $props();
+
   let code = $state('');
   let busy = $state(false);
   let error = $state('');
@@ -22,6 +24,7 @@
     error = '';
     try {
       await app.enroll(isPairCode ? 'join' : 'setup', value);
+      onEnrolled();
     } catch (failure) {
       if (failure instanceof ApiRejected) error = MESSAGES[failure.code] ?? 'Something went wrong.';
       else if (failure instanceof Unreachable) error = "Can't reach Nudge. Check your connection.";

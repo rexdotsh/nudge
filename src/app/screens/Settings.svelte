@@ -7,7 +7,8 @@
   import Toast from '../components/Toast.svelte';
   import { app } from '../lib/app.svelte';
   import { whenLabel, zoneLabel } from '../lib/format';
-  import { installer } from '../lib/install.svelte';
+  import { closeOnBack } from '../lib/close';
+  import { installer, type Prompted } from '../lib/install.svelte';
   import { UNBLOCK_STEPS, type PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
@@ -16,6 +17,15 @@
 
   let pairing = $state<{ code: string; expiresAt: number } | null>(null);
   let devicesFailed = $state(false);
+
+  const APPS: Record<Prompted, { title: string; install: string; detail: string }> = {
+    mac: { title: 'Mac app', install: 'Install the Mac app', detail: 'Nudge opens in its own window, from the Dock.' },
+    android: {
+      title: 'Android app',
+      install: 'Install the Android app',
+      detail: 'Nudge opens from its own icon on your home screen.',
+    },
+  };
 
   const PUSH_LABELS: Record<PushState, string> = {
     enabled: 'On',
@@ -103,9 +113,17 @@
   $effect(() => {
     void attempt(load);
   });
+
+  $effect(() => closeOnBack(onBack));
+
+  function escape(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || composing(event)) return;
+    event.preventDefault();
+    onBack();
+  }
 </script>
 
-<svelte:window onkeydown={(event) => event.key === 'Escape' && !composing(event) && onBack()} />
+<svelte:window onkeydown={escape} />
 
 <div class="page settings">
   <header>
@@ -193,12 +211,13 @@
     </div>
   {/if}
 
-  {#if installer.mac}
-    <h2 class="label">Mac app</h2>
+  {#if installer.target && installer.route}
+    {@const { title, install, detail } = APPS[installer.target]}
+    <h2 class="label">{title}</h2>
     <div class="group">
-      {#if installer.mac === 'prompt'}
+      {#if installer.route === 'prompt'}
         <button class="field action" onclick={() => void installer.prompt()}>
-          <span>Install the Mac app<small>Nudge opens in its own window, from the Dock.</small></span>
+          <span>{install}<small>{detail}</small></span>
         </button>
       {:else}
         <div class="field">

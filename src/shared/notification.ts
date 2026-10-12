@@ -1,5 +1,5 @@
 import type { Notice } from './fire';
-import { dueAt, local, type Reminder } from './reminder';
+import { dueAt, isSnoozed, local, type Reminder } from './reminder';
 import { MINUTE_MS, wallMs } from './time';
 
 export interface PushData {
@@ -69,6 +69,16 @@ export function fireId(reminderId: string, at: number): string {
 
 function occurrenceTag(reminderId: string, due: string): string {
   return `${reminderId}:${due}`;
+}
+
+type Occurrence = NonNullable<PushData['reminder']>;
+
+/** Whether a notification's occurrence no longer needs the user: done, skipped, snoozed or deleted. A reminder this
+ * replica doesn't know yet keeps its notification, and so do early alerts of occurrences still to come. */
+export function isSettled(shown: Occurrence, reminder: Reminder | undefined, now: number): boolean {
+  if (!reminder) return false;
+  if (reminder.deleted || reminder.due === null) return true;
+  return shown.due === reminder.due ? isSnoozed(reminder, now) : shown.due < reminder.due;
 }
 
 export function occurrenceTopic(reminderId: string, due: string): string {

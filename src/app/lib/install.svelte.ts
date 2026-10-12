@@ -3,6 +3,10 @@ import { isInstalled } from './platform';
 
 export type Guide = 'ios' | 'mac';
 
+/** Where Chrome and Edge install Nudge as an app of the system's own; Windows gets a packaged installer instead. */
+const PROMPTED = ['mac', 'android'] as const;
+export type Prompted = (typeof PROMPTED)[number];
+
 const SAFARI = /\bVersion\/\S+ Safari\//;
 
 function guideFor(): Guide | null {
@@ -14,10 +18,11 @@ function guideFor(): Guide | null {
 class Installer {
   /** Safari's Home Screen and Dock apps keep their own storage, so their guide comes before the setup code. */
   readonly guide = guideFor();
+  readonly target: Prompted | null = PROMPTED.find((platform) => platform === app.platform) ?? null;
   #offer = $state.raw<BeforeInstallPromptEvent | null>(null);
 
   constructor() {
-    if (app.platform !== 'mac') return;
+    if (!this.target) return;
     addEventListener('beforeinstallprompt', (event) => {
       event.preventDefault();
       this.#offer = event;
@@ -25,10 +30,16 @@ class Installer {
     addEventListener('appinstalled', () => (this.#offer = null));
   }
 
-  /** How to make this Mac browser's Nudge an app: Chrome and Edge prompt, Safari adds it to the Dock from its Share menu. */
-  get mac(): 'prompt' | 'dock' | null {
+  /** How to make this browser's Nudge an app: Chrome and Edge prompt, Safari adds it to the Dock from its Share menu. */
+  get route(): 'prompt' | 'dock' | null {
     if (this.#offer) return 'prompt';
     return this.guide === 'mac' ? 'dock' : null;
+  }
+
+  /** Holding back Chrome's own install banner leaves a phone tab, easy to lose among others, as the only way in, so
+   * Android is offered the app once, at the end of setting up. */
+  get welcome(): boolean {
+    return this.target === 'android' && this.#offer !== null;
   }
 
   async prompt(): Promise<void> {

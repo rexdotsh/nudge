@@ -1,7 +1,13 @@
+const TICK_MS = 10;
+
 let label: HTMLLabelElement | undefined;
 
-// iOS has no vibration API; toggling a native switch control produces the system haptic tick (iOS 18+).
 export function tick(): void {
+  if ('vibrate' in navigator) {
+    navigator.vibrate(TICK_MS);
+    return;
+  }
+  // iOS has no vibration API; toggling a native switch control produces the system haptic tick (iOS 18+).
   if (!label) {
     label = document.createElement('label');
     label.className = 'sr-only';

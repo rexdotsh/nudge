@@ -36,4 +36,9 @@
     color: var(--muted);
     font-size: 15.5px;
   }
+
+  .onboarding > :global(.link.quiet) {
+    margin-top: 14px;
+    padding: 8px;
+  }
 </style>

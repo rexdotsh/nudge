@@ -2,12 +2,13 @@
   import type { Reminder } from '../../shared/reminder';
   import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
+  import { closeOnBack } from '../lib/close';
   import { shortWhen } from '../lib/format';
   import { focusRow, keepSelection, openEditor } from '../lib/selection';
   import { DELETE, DONE, OPEN, SNOOZE, composing, hint } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
 
-  let { reminder, x, y }: { reminder: Reminder; x: number; y: number } = $props();
+  let { reminder, x, y, fromKeyboard }: { reminder: Reminder; x: number; y: number; fromKeyboard: boolean } = $props();
 
   const MARGIN_PX = 8;
   const STEPS: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 };
@@ -22,12 +23,15 @@
     const { width, height } = node.getBoundingClientRect();
     left = Math.max(MARGIN_PX, Math.min(x, innerWidth - width - MARGIN_PX));
     top = y + height > innerHeight - MARGIN_PX ? Math.max(MARGIN_PX, y - height) : y;
-    node.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    // Like the system's menus, only one opened from the keyboard starts with an item picked.
+    (fromKeyboard ? node.querySelector<HTMLElement>('[role="menuitem"]') : node)?.focus();
   }
 
   function close() {
     ui.menu = null;
   }
+
+  $effect(() => closeOnBack(close));
 
   function outside(event: Event) {
     if (!(event.target instanceof Node && menu?.contains(event.target))) close();
@@ -52,7 +56,9 @@
     event.preventDefault();
     const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')];
     const index = items.findIndex((item) => item === document.activeElement);
-    items[(index + step + items.length) % items.length]?.focus();
+    // With no item picked yet, Down picks the first and Up the last.
+    const from = index === -1 && step < 0 ? items.length : index;
+    items[(from + step + items.length) % items.length]?.focus();
   }
 </script>
 
@@ -152,6 +158,18 @@
     color: var(--muted);
     font-size: 12px;
     font-weight: 600;
+  }
+
+  /* Android opens it with a long press. */
+  @media (pointer: coarse) {
+    button {
+      height: 44px;
+      font-size: 15px;
+    }
+
+    kbd {
+      display: none;
+    }
   }
 
   @keyframes open {
