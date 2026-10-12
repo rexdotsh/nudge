@@ -13,8 +13,8 @@ export class Replica {
     for (const reminder of snapshot.reminders) this.server.set(reminder.id, reminder);
   }
 
-  receive(response: SyncResponse): void {
-    if (!response.reset && response.version < this.version) return;
+  receive(response: SyncResponse, since = this.version): void {
+    if (response.version < this.version && !(response.reset && this.version >= since)) return;
     if (response.reset) this.server.clear();
     for (const reminder of response.reminders) this.server.set(reminder.id, reminder);
     this.version = response.version;

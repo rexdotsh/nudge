@@ -15,18 +15,14 @@ interface Hint {
 }
 
 interface Binding extends Hint {
-  /** Its modifier combos and Escape also work while typing in a field. */
   inFields?: true;
   /** Enter and Space stay with the focused button unless it opens a reminder. */
   yields?: true;
-  /** Shown on the idle details pane. */
   featured?: true;
-  /** Returns whether it handled the key, so unhandled keys keep their default. */
   run: (context: Context) => boolean;
 }
 
 interface Context {
-  /** The reminder whose row has focus. */
   target: Reminder | undefined;
   key: string;
   openSettings: () => void;
@@ -178,7 +174,6 @@ function matches({ mod, key }: Combo, event: KeyboardEvent): boolean {
   return event.key === key || event.key.toLowerCase() === key;
 }
 
-/** Keys pressed while an input method is composing text belong to it (Escape cancels the candidate, not the editor). */
 export function composing(event: KeyboardEvent): boolean {
   // Safari reports the key that ends a composition as 229 with isComposing already false.
   return event.isComposing || event.keyCode === 229;
@@ -245,7 +240,6 @@ function move(step: number): boolean {
   return true;
 }
 
-/** Which bindings apply right now: an open sheet or menu owns the keyboard, and the list's keys stay out of the editor. */
 function inPlay(target: Element | null): readonly Binding[] {
   if (ui.menu || ui.help) return [];
   if (ui.snoozing) return SNOOZING;

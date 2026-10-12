@@ -42,7 +42,6 @@ class Appearance {
     this.show(await update('theme', (state = UNCHOSEN) => ({ ...state, pending: choice })));
   }
 
-  /** The server has decided on whatever choice was sent, so only a choice made since then stays pending. */
   async receive(response: SyncResponse, sent: ThemeChoice | null): Promise<void> {
     this.show(
       await update('theme', (state = UNCHOSEN) => ({

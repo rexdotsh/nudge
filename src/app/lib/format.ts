@@ -66,7 +66,6 @@ export function whenLabel(instant: number, now: number, zone: string): string {
   return days === 0 ? timeLabel(instant, zone) : `${dayLabel(instant, now, zone)}, ${timeLabel(instant, zone)}`;
 }
 
-/** "Today 8 PM", "Tomorrow 9:30 AM", "Sun 6 PM", "18 Oct 10 AM": the composer's summary of when it will remind. */
 export function summaryWhen(instant: number, now: number, zone: string): string {
   const clock = format(instant, zone, toLocal(instant, zone).minute === 0 ? 'hour' : 'time');
   const days = daysFromToday(instant, now, zone);

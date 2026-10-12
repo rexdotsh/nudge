@@ -2,18 +2,10 @@ import { isRecord } from '../shared/validate';
 
 export type WorkerMessage = { kind: 'changed' } | { kind: 'open'; url: string };
 
-interface Opened {
-  kind: 'opened';
-}
-
-export const OPENED: Opened = { kind: 'opened' };
+export const OPENED = { kind: 'opened' };
 
 export function isWorkerMessage(value: unknown): value is WorkerMessage {
   return isRecord(value) && (value.kind === 'changed' || (value.kind === 'open' && typeof value.url === 'string'));
-}
-
-function isOpened(value: unknown): value is Opened {
-  return isRecord(value) && value.kind === 'opened';
 }
 
 interface Recipient {
@@ -28,7 +20,7 @@ export async function openInPlace(client: Recipient, url: string, deadline: Prom
   const { port1, port2 } = new MessageChannel();
   const answered = new Promise<boolean>((resolve) => {
     port1.addEventListener('message', ({ data }) => {
-      if (isOpened(data)) resolve(true);
+      if (isRecord(data) && data.kind === OPENED.kind) resolve(true);
     });
     port1.start();
   });

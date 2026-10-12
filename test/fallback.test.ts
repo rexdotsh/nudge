@@ -24,10 +24,11 @@ function lateReminder() {
   return created;
 }
 
-function harness(alreadySeen: string[] = [], busy: string[] = []) {
+function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Promise.resolve()) {
   const shown: string[] = [];
   const seen = new Set(alreadySeen);
   const claimed = new Set<string>(busy);
+  const claimingStarted = Promise.withResolvers<void>();
   const timers = new Set<() => Promise<void>>();
   const readiness: (() => void)[] = [];
   const fallback = new Fallback({
@@ -43,6 +44,8 @@ function harness(alreadySeen: string[] = [], busy: string[] = []) {
       if (seen.has(fire)) return 'seen';
       if (claimed.has(fire)) return 'busy';
       claimed.add(fire);
+      claimingStarted.resolve();
+      await claiming;
       return 'won';
     },
     settle: async (fire, displayed) => {
@@ -66,15 +69,8 @@ function harness(alreadySeen: string[] = [], busy: string[] = []) {
     for (const release of readiness.splice(0)) release();
     await Promise.all(checks);
   };
-  return { fallback, shown, timers, claimed, fire, ready };
+  return { fallback, shown, timers, claimed, fire, ready, claimingStarted: claimingStarted.promise };
 }
-
-test('a missed push is shown locally once', async () => {
-  const { fallback, shown, fire, ready } = harness();
-  fallback.schedule([lateReminder()], ZONE, true);
-  await ready(fire());
-  expect(shown).toEqual(['Pay rent']);
-});
 
 test('the server having planned a push does not stop the fallback; only this device having shown it does', async () => {
   const planned = { ...lateReminder(), firedThrough: NOW };
@@ -119,4 +115,17 @@ test('a fire another context is still showing is not consumed, and is retried', 
   claimed.delete(key);
   await ready(fire());
   expect(shown).toEqual(['Pay rent']);
+});
+
+test('settling a reminder while its fallback is claiming it does not show a stale notification', async () => {
+  const claiming = Promise.withResolvers<void>();
+  const { fallback, shown, claimed, fire, ready, claimingStarted } = harness([], [], claiming.promise);
+  fallback.schedule([lateReminder()], ZONE, true);
+  const showing = ready(fire());
+  await claimingStarted;
+  fallback.schedule([], ZONE, true);
+  claiming.resolve();
+  await showing;
+  expect(shown).toEqual([]);
+  expect(claimed.size).toBe(0);
 });

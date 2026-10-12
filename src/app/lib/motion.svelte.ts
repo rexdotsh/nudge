@@ -3,7 +3,6 @@ import { cubicIn, cubicOut } from 'svelte/easing';
 
 type Token = '--fast' | '--base' | '--ease';
 
-/** A bulk change, like a catch-up sync or clearing completed, snaps into place instead. */
 const MOST_CHANGES = 8;
 
 function token(name: Token): string {
@@ -21,7 +20,6 @@ interface Offset {
   y?: number;
 }
 
-/** Svelte transition parameters: things arrive at the base pace and leave at the fast one. */
 export function arrive(offset: Offset = {}) {
   return { ...offset, duration: ms('--base'), easing: cubicOut };
 }
@@ -30,8 +28,6 @@ export function depart(offset: Offset = {}) {
   return { ...offset, duration: ms('--fast'), easing: cubicIn };
 }
 
-/** Changes the whole screen in one step, crossfading it where the browser can; a step between screens slides on touch
- *  screens. */
 export function swap(update: () => unknown, step?: 'forward' | 'back'): void {
   if (!('startViewTransition' in document)) {
     void update();
@@ -68,7 +64,6 @@ function measure(root: HTMLElement): Map<string, Placed> {
 
 const sameSpot = (a: DOMRect, b: DOMRect) => Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5;
 
-/** Leaves a lifeless copy where the node was and fades it out, behind the page, so what moves into its place covers it. */
 function fade({ node, box }: Placed): void {
   const copy = node.cloneNode(true);
   if (!(copy instanceof HTMLElement)) return;
@@ -97,7 +92,6 @@ function fade({ node, box }: Placed): void {
 }
 
 function play(root: HTMLElement, before: Map<string, Placed>): void {
-  // Moving ones are measured where they are headed; one still headed to the same spot carries on undisturbed.
   const interrupted = new Map<HTMLElement, { glide: Glide; time: CSSNumberish | null }>();
   for (const node of root.querySelectorAll<HTMLElement>('[data-glide]')) {
     const running = gliding.get(node);
@@ -132,8 +126,6 @@ function play(root: HTMLElement, before: Map<string, Placed>): void {
   if (!bulk) left.forEach(fade);
 }
 
-/** Lets what is marked `data-glide` in a container slide to where a change moves it, rise in where it appears and fade
- *  where it leaves, so a change to a list reads as one motion. Only changes after the first paint move. */
 export function glide(container: () => HTMLElement | undefined, changes: () => unknown): void {
   let before: Map<string, Placed> | null = null;
   $effect.pre(() => {

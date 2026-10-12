@@ -1,7 +1,7 @@
 import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set, update } from '../../browser/kv';
 import { Replica } from '../../browser/replica';
-import { EMPTY_LOCAL } from '../../browser/schema';
+import { EMPTY_LOCAL, type Local } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { isWorkerMessage } from '../../browser/messages';
 import { commit, currentZone, enqueue } from '../../browser/outbox';
@@ -18,8 +18,6 @@ import { appearance } from './theme.svelte';
 
 type Phase = 'loading' | 'enroll' | 'ready' | 'failed';
 
-/** What this foreground's replica is worth: until its first sync attempt settles it can miss what was pushed while away,
- * and after an unreachable one it is only what this device last knew. */
 type Freshness = 'catching-up' | 'offline' | 'synced';
 
 const KEEPALIVE_BYTES = 48 * 1024;
@@ -32,11 +30,9 @@ class App {
   now = $state(Date.now());
   zone = $state(currentZone());
   travelling = $state(false);
-  /** Whether every reminder offers to keep its time zone, not only while travelling. */
   zoneControls = $state(false);
   notifications = $state<PushState>(pushState());
   freshness = $state<Freshness>('catching-up');
-  /** The devices as last fetched, so Settings opens with them in place instead of filling in after a round trip. */
   health = $state.raw<Health | null>(null);
   deviceId = $state<string | null>(null);
   readonly platform = detectPlatform();
@@ -51,7 +47,6 @@ class App {
   private healthRequests = 0;
   private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
-  /** `connected` runs each time the live connection (re)opens, which is also how a deploy shows up. */
   async start(connected: () => void): Promise<void> {
     this.connected = connected;
     navigator.serviceWorker?.addEventListener('message', ({ data }) => {
@@ -109,7 +104,6 @@ class App {
     });
   }
 
-  /** Only the latest request may publish, so an older reply cannot bring back a device revoked since it was sent. */
   async refreshHealth(): Promise<void> {
     const asked = ++this.healthRequests;
     const health = await request('health', null);
@@ -124,8 +118,7 @@ class App {
   }
 
   async applyAll(ops: readonly Op[]): Promise<void> {
-    this.pending = [...this.pending, ...(await enqueue(ops))];
-    this.refresh();
+    this.show(await enqueue(ops));
     void this.sync();
   }
 
@@ -150,43 +143,46 @@ class App {
   }
 
   private async exchange(): Promise<void> {
-    if (!this.connection) return;
+    const connection = this.connection;
+    if (!connection) return;
     const current = this.gate.attempt();
     const settled = (outcome: Exclude<Freshness, 'catching-up'>) => {
       if (current() && this.freshness !== 'synced') this.freshness = outcome;
     };
     const sent = batch(this.pending, MAX_REQUEST_BYTES);
+    const since = this.replica.version;
     const theme = appearance.pending;
     this.zone = currentZone();
+    this.refresh();
     try {
-      const response = await this.connection.sync({
-        since: this.replica.version,
+      const response = await connection.sync({
+        since,
         zone: this.zone,
         changes: sent,
         theme,
       });
-      this.replica.receive(response);
-      const [local] = await Promise.all([
-        commit(this.replica.snapshot(), new Set(sent.map((change) => change.opId))),
+      if (this.connection !== connection) return;
+      await Promise.all([
+        commit(response, since, new Set(sent.map((change) => change.opId))).then((local) => {
+          if (local.pending.length > 0) this.again = true;
+          return this.show(local);
+        }),
         appearance.receive(response, theme),
       ]);
-      this.replica = new Replica(local.replica);
-      this.pending = local.pending;
       this.online = true;
       settled('synced');
-      if (local.pending.length > 0) this.again = true;
     } catch (error) {
+      if (this.connection !== connection) return;
       if (error instanceof Unreachable) {
         this.online = false;
         settled('offline');
       } else if (error instanceof ApiRejected && error.code === 'unauthorized') this.phase = 'enroll';
       else throw error;
-    } finally {
-      this.refresh();
     }
   }
 
   private connect(token: string): void {
+    this.connection?.close();
     this.token = token;
     this.connection = new Connection(
       token,
@@ -200,17 +196,16 @@ class App {
     );
     this.connection.open();
     void this.sync();
-    void syncSubscription();
+    void this.permissionChanged();
   }
 
   private visibilityChanged(): void {
     this.gate.changed(document.visibilityState === 'visible');
     if (document.visibilityState === 'visible') {
-      this.notifications = pushState();
       void this.noteZone();
       this.connection?.open();
       void this.reloadLocal().then(() => this.sync());
-      void syncSubscription();
+      void this.permissionChanged();
       return;
     }
     this.freshness = 'catching-up';
@@ -228,23 +223,22 @@ class App {
     }
   }
 
-  /** Allowed outside the app counts as on only once this device is subscribed. Safari subscribes only from a tap, so
-   * if that fails here, Settings keeps its Turn on button to finish it. */
   private async permissionChanged(): Promise<void> {
     const state = pushState();
-    if (state !== 'enabled' || this.notifications === 'enabled') {
+    if (state !== 'enabled' || this.phase !== 'ready') {
       this.notifications = state;
       return;
     }
+    const enabled = this.notifications === 'enabled';
     try {
       await syncSubscription();
     } catch (error) {
       console.warn('subscribing needs a tap on this browser', error);
-      this.notifications = 'prompt';
+      this.notifications = pushState() === 'enabled' ? 'prompt' : pushState();
       return;
     }
-    this.notifications = 'enabled';
-    this.refreshDevices();
+    this.notifications = pushState();
+    if (!enabled && this.notifications === 'enabled') this.refreshDevices();
   }
 
   async showZoneControls(on: boolean): Promise<void> {
@@ -268,7 +262,10 @@ class App {
   }
 
   private async reloadLocal(): Promise<void> {
-    const local = (await get('local')) ?? EMPTY_LOCAL;
+    this.show((await get('local')) ?? EMPTY_LOCAL);
+  }
+
+  private show(local: Local): void {
     this.replica = new Replica(local.replica);
     this.pending = local.pending;
     this.refresh();

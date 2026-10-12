@@ -17,7 +17,6 @@ type Preset = keyof typeof PRESETS;
 type Settled = Preset | 'custom';
 type Choice = Settled | 'type';
 
-// Typed words are read as a reminder's, after a stand-in title.
 const TITLE = 'x ';
 
 export const isPreset = (value: string): value is Preset => Object.hasOwn(PRESETS, value);
@@ -30,12 +29,10 @@ function choiceOf(repeat: Repeat | null): Settled {
   return preset !== undefined && isPreset(preset) ? preset : 'custom';
 }
 
-/** The editor's repeat: a preset, the reminder's own custom repeat, or one typed in words. */
 export class RepeatChoice {
   selected: Choice = $state('none');
   phrase = $state('');
   #custom: Repeat | null = $state(null);
-  /** What Escape goes back to while a repeat is being typed. */
   #previous: Settled = 'none';
   readonly #parsed = $derived(
     this.phrase.trim() === '' ? null : parseQuickAdd(`${TITLE}${this.phrase}`, app.now, app.zone),
@@ -50,18 +47,15 @@ export class RepeatChoice {
     return this.#custom;
   }
 
-  /** The repeat being typed, once its words are understood. */
   get typed(): Repeat | null {
     return this.selected === 'type' ? (this.#parsed?.repeat ?? null) : null;
   }
 
-  /** The time of day the typed words name, as in "every day at 9am and 9pm", which the reminder's time follows. */
   get time(): string | null {
     const start = this.#parsed?.start;
     return this.typed && this.#parsed?.timed && start ? start.slice(11, 16) : null;
   }
 
-  /** Where the typed words say what was understood. */
   get spans(): Span[] {
     if (!this.typed || !this.#parsed) return [];
     return this.#parsed.spans
@@ -73,7 +67,6 @@ export class RepeatChoice {
     return this.selected === 'type' ? (this.typed ?? this.#settled(this.#previous)) : this.#settled(this.selected);
   }
 
-  /** False while typed words aren't understood, so saving can't silently drop the repeat. */
   get understood(): boolean {
     return this.selected !== 'type' || this.phrase.trim() === '' || this.typed !== null;
   }

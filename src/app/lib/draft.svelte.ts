@@ -4,9 +4,7 @@ import { app } from './app.svelte';
 import { RepeatChoice } from './repeat-choice.svelte';
 import { toasts } from './toasts.svelte';
 
-/** The editor's unsaved changes to one reminder, kept apart from the view so a layout change never resets them. */
 export class Draft {
-  /** What the draft started from, or what it last saved. */
   original: Reminder;
   readonly repeat: RepeatChoice;
   title = $state('');
@@ -28,7 +26,6 @@ export class Draft {
     alerts: this.alerts.toSorted((a, b) => a - b),
   }));
   readonly parsed = $derived.by(() => (this.repeat.understood ? parseFields(this.fields) : null));
-  /** Holds something a save would change, or something that can't be saved yet. */
   get dirty(): boolean {
     return this.parsed === null || this.changed;
   }
@@ -61,7 +58,6 @@ export class Draft {
       : [...this.alerts, minutes];
   }
 
-  /** Settles on the typed repeat and the time of day it names. */
   applyRepeat(): void {
     this.time = this.repeat.time ?? this.time;
     this.repeat.apply();
@@ -73,7 +69,6 @@ export class Draft {
     if (saved) this.original = $state.snapshot(saved);
   }
 
-  /** Persists any change and says so; the editor stays or goes as its caller decides. */
   async save(): Promise<void> {
     const changed = this.changed;
     await this.persist();

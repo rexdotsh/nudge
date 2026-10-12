@@ -47,7 +47,7 @@ export async function saveEditor(): Promise<void> {
   const draft = ui.draft;
   if (!draft?.parsed) return;
   await draft.save();
-  closeEditor();
+  if (ui.draft === draft && !draft.dirty) closeEditor();
 }
 
 /** A docked editor stays beside the list; a sheet editor was only hidden behind the snooze sheet and goes too. */

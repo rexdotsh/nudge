@@ -22,12 +22,10 @@ function reportedFirstDay(locale: Intl.Locale): number | null {
     : null;
 }
 
-/** The first day of the week in the locale's region, numbered like weekday(): 0 is Monday. */
 export function regionWeekStart(tag: string): number {
   return (FIRST_DAYS[new Intl.Locale(tag).maximize().region ?? ''] ?? 1) - 1;
 }
 
-/** The locale's first day of the week, numbered like weekday(): 0 is Monday. */
 export function weekStart(tag: string): number {
   const reported = reportedFirstDay(new Intl.Locale(tag));
   return reported === null ? regionWeekStart(tag) : reported - 1;
@@ -44,7 +42,6 @@ export function parseDate(value: string): number | null {
   return local && epochDay(local);
 }
 
-/** A time typed the way quick-add reads one: "5:20pm", "17:20", "5.20 pm". */
 export function parseTime(text: string): Time | null {
   const match = TYPED_TIME.exec(text.trim().toLowerCase());
   return match ? clock(match[1] ?? '', match[2], match[3]) : null;

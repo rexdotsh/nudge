@@ -18,7 +18,6 @@ export interface Notices {
   claims: Record<string, number>;
 }
 
-/** The theme as of a server version, and a choice made here that no sync response has answered yet. */
 export interface ThemeState {
   theme: Theme;
   version: number;

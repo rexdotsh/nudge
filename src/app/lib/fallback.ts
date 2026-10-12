@@ -69,10 +69,18 @@ export class Fallback {
     }
   }
 
-  /** Whether the fire is done with: shown here, or already shown by anyone. */
-  private async showOnce(key: string, content: NotificationContent, display: Display): Promise<boolean> {
+  private async showOnce(
+    key: string,
+    content: NotificationContent,
+    display: Display,
+    generation: number,
+  ): Promise<boolean> {
     const claimed = await this.deps.claim(key);
     if (claimed !== 'won') return claimed === 'seen';
+    if (generation !== this.generation) {
+      await this.deps.settle(key, false);
+      return false;
+    }
     console.warn(`push for ${key} did not arrive; showing it locally`);
     const ok = await display(content).then(
       () => true,
@@ -105,7 +113,7 @@ export class Fallback {
       const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
       const shown = notices.map((notice) => {
         const key = fireId(reminder.id, notice.at);
-        return this.showOnce(key, reminderMessage(advanced, notice, view).notification, display).catch(
+        return this.showOnce(key, reminderMessage(advanced, notice, view).notification, display, generation).catch(
           (error: unknown) => {
             console.error(`could not record ${key}`, error);
             return false;
