@@ -8,7 +8,7 @@
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
   import { installer } from '../lib/install.svelte';
-  import type { PushState } from '../lib/push';
+  import { UNBLOCK_STEPS, type PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
 
@@ -20,7 +20,7 @@
   const PUSH_LABELS: Record<PushState, string> = {
     enabled: 'On',
     prompt: 'Off',
-    denied: 'Blocked in system settings',
+    denied: 'Blocked',
     unsupported: 'Not supported here',
   };
 
@@ -121,6 +121,8 @@
     </div>
     {#if app.notifications === 'prompt'}
       <button class="field action" onclick={turnOn}>Turn on notifications</button>
+    {:else if app.notifications === 'denied'}
+      <div class="field"><small>{UNBLOCK_STEPS[app.platform]}</small></div>
     {:else if app.notifications === 'enabled'}
       <button class="field action" onclick={test}>Send a test notification</button>
     {/if}

@@ -12,7 +12,7 @@ import { DAY_MS } from '../../shared/time';
 import { Connection } from './connection';
 import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
-import { enablePush, pushState, syncSubscription, type PushState } from './push';
+import { enablePush, pushState, syncSubscription, watchPermission, type PushState } from './push';
 
 type Phase = 'loading' | 'enroll' | 'ready' | 'failed';
 
@@ -49,6 +49,7 @@ class App {
   async start(): Promise<void> {
     navigator.serviceWorker?.addEventListener('message', () => void this.reloadLocal().then(() => this.sync()));
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
+    watchPermission(() => this.permissionChanged());
     let session;
     try {
       [session, this.health] = await Promise.all([
@@ -192,6 +193,12 @@ class App {
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
     }
+  }
+
+  private permissionChanged(): void {
+    const previous = this.notifications;
+    this.notifications = pushState();
+    if (this.notifications === 'enabled' && previous !== 'enabled') void syncSubscription();
   }
 
   async enableNotifications(): Promise<PushState> {
