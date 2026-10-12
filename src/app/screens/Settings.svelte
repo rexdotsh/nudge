@@ -183,11 +183,10 @@
       >{NUDGE_COMMIT.slice(0, 7)}</a
     >
   </p>
-  <Toast />
 </div>
+<Toast />
 
 <style>
-  /* A transform left in place by a forwards fill would make this page the box its fixed toast is placed in. */
   .settings {
     animation: rise 0.4s var(--ease) backwards;
   }
