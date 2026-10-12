@@ -44,7 +44,7 @@ export type DeviceRow = {
 export interface Target extends PushKeys {
   deviceId: string;
   label: string;
-  /** Has confirmed a delivery before, so a missing confirmation means something went wrong. */
+  /** Only a device that has confirmed before is resent to, since its silence is the only silence that means a loss. */
   confirms: boolean;
 }
 
