@@ -177,7 +177,7 @@ export class Scheduler {
       return;
     }
     const delivered = await this.alertOnce(
-      `unconfirmed:${row.fire}:${row.device_id}`,
+      `unconfirmed:${row.topic}:${row.device_id}`,
       `"${device.label}" has not confirmed "${row.title}" after a resend.`,
     );
     this.store.deliveries.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);

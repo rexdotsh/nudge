@@ -110,12 +110,19 @@ export class Deliveries {
     );
   }
 
+  // A later fire of an occurrence replaces the earlier ones on screen (same tag) and in the push service's queue (same
+  // topic), so its receipt also answers for them.
   confirm(fire: string, deviceId: string, now: number): void {
     this.sql.exec(
-      'UPDATE deliveries SET receipt_at = ?, next_at = NULL WHERE fire = ? AND device_id = ? AND receipt_at IS NULL',
+      `UPDATE deliveries SET receipt_at = ?, next_at = NULL
+       WHERE device_id = ? AND receipt_at IS NULL AND EXISTS (
+         SELECT 1 FROM deliveries AS shown
+         WHERE shown.fire = ? AND shown.device_id = deliveries.device_id
+           AND shown.topic = deliveries.topic AND shown.scheduled_at >= deliveries.scheduled_at
+       )`,
       now,
-      fire,
       deviceId,
+      fire,
     );
   }
 

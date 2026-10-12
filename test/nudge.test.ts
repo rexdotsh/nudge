@@ -2,10 +2,11 @@ import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { DeviceInput, PushKeys, Route, ServerMessage } from '../src/shared/api';
 import { BASE64URL } from '../src/shared/encoding';
+import { NAG_INTERVAL_MS } from '../src/shared/fire';
 import type { PushMessage } from '../src/shared/notification';
 import type { Op } from '../src/shared/ops';
 import type { ReminderFields } from '../src/shared/reminder';
-import { MINUTE_MS } from '../src/shared/time';
+import { HOUR_MS, MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 import { Nudge } from '../src/worker/nudge';
 import type { Runtime } from '../src/worker/runtime';
@@ -376,6 +377,27 @@ describe('delivery', () => {
     await h.runAlarm();
     expect(h.state.alerts).toHaveLength(1);
     expect(h.state.alarm).toBeNull();
+  });
+
+  test.each([
+    ['answers from the first nag on', 0, DUE + NAG_INTERVAL_MS],
+    ['never answers', 1, Infinity],
+  ])('an important reminder on a device that %s raises %d alert(s) in its first hour', async (_, alerts, onlineAt) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId, { important: true });
+    const play = async (): Promise<void> => {
+      if (h.state.alarm === null || h.state.alarm > DUE + HOUR_MS) return;
+      const sent = h.state.pushes.length;
+      await h.runAlarm();
+      const arrived = h.state.now < onlineAt ? [] : h.state.pushes.slice(sent);
+      await Promise.all(
+        arrived.map((push) => h.ok('receipt', { fire: push.message.notification.data.fire }, deviceId)),
+      );
+      await play();
+    };
+    await play();
+    expect(h.state.alerts).toHaveLength(alerts);
   });
 
   test('an escalation whose alert could not be delivered is retried until it is', async () => {
