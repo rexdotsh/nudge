@@ -1,8 +1,9 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
-  import { isWorkerMessage } from '../browser/messages';
-  import { dismissSettled, showUnlessOnScreen } from '../browser/notify';
+  import { OPENED, isWorkerMessage } from '../browser/messages';
+  import { showUnlessOnScreen } from '../browser/notify';
   import { claim, settle } from '../browser/seen';
+  import { dismissSettled } from '../browser/shown';
   import { lateCount } from '../shared/reminder';
   import Onboarding from './components/Onboarding.svelte';
   import TitleBar from './components/TitleBar.svelte';
@@ -33,8 +34,10 @@
   follow(link);
   if (link.size > 0) history.replaceState(null, '', '/');
 
-  navigator.serviceWorker?.addEventListener('message', ({ data }) => {
-    if (isWorkerMessage(data) && data.kind === 'open') follow(new URL(data.url).searchParams);
+  navigator.serviceWorker?.addEventListener('message', ({ data, ports }) => {
+    if (!isWorkerMessage(data) || data.kind !== 'open') return;
+    follow(new URL(data.url).searchParams);
+    ports[0]?.postMessage(OPENED);
   });
 
   function setUpDone() {
@@ -62,8 +65,9 @@
   $effect(() => {
     if (app.freshness !== 'synced') return;
     if ('setAppBadge' in navigator) void navigator.setAppBadge(late);
-    const { reminders, now } = app;
-    void navigator.serviceWorker.ready.then((registration) => dismissSettled(registration, reminders, now));
+    const { reminders } = app;
+    const current = () => (app.reminders === reminders && app.freshness === 'synced' ? reminders : null);
+    void navigator.serviceWorker.ready.then((registration) => dismissSettled(registration, current, Date.now));
   });
 
   $effect(() => {

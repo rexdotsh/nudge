@@ -56,7 +56,6 @@
     event.preventDefault();
     const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')];
     const index = items.findIndex((item) => item === document.activeElement);
-    // With no item picked yet, Down picks the first and Up the last.
     const from = index === -1 && step < 0 ? items.length : index;
     items[(from + step + items.length) % items.length]?.focus();
   }
