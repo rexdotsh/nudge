@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
-import { SPLASH_IMAGES } from './scripts/splash';
+import { SPLASH_IMAGES } from './scripts/splash.ts';
 
 // Workers Builds checks out a detached commit and names it here; local builds ask git.
 const commit =
