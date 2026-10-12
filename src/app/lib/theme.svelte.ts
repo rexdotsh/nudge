@@ -16,7 +16,12 @@ function paint(theme: Theme): void {
   const color = getComputedStyle(root).getPropertyValue('--bg').trim();
   root.style.background = color;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
-  localStorage.setItem(PAINTED_KEY, JSON.stringify({ theme, color }));
+  // Storage can be full or switched off (private browsing); the next launch then only starts in Classic until this runs.
+  try {
+    localStorage.setItem(PAINTED_KEY, JSON.stringify({ theme, color }));
+  } catch (error) {
+    console.warn('the theme cannot be remembered for the next launch', error);
+  }
 }
 
 class Appearance {

@@ -62,13 +62,11 @@ export class Store {
   }
 
   /** The latest choice wins by when it was made, so a device coming back online cannot undo a newer one. */
-  chooseTheme(theme: Theme, at: number): boolean {
-    if (at < Number(this.meta('theme_at') ?? 0)) return false;
-    const changed = theme !== this.theme();
+  chooseTheme(theme: Theme, at: number): void {
+    if (at < Number(this.meta('theme_at') ?? 0)) return;
+    if (theme !== this.theme()) this.nextVersion();
     this.setMeta('theme', theme);
     this.setMeta('theme_at', String(at));
-    if (changed) this.nextVersion();
-    return changed;
   }
 
   private decoded(query: string, ...bindings: SqlValue[]): Reminder[] {

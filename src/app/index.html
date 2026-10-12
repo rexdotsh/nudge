@@ -14,10 +14,16 @@
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#111110" />
     <script>
-      // The theme this device last showed, painted before the stylesheet loads; src/app/lib/theme.svelte.ts keeps it.
+      // The theme this device last showed, painted before the stylesheet loads. It is only a cache that
+      // src/app/lib/theme.svelte.ts repaints from IndexedDB, so anything unreadable here just launches in Classic.
       {
-        const painted = JSON.parse(localStorage.getItem('theme') ?? 'null');
-        if (painted) {
+        let painted = null;
+        try {
+          painted = JSON.parse(localStorage.getItem('theme'));
+        } catch (error) {
+          console.warn('the last theme could not be read', error);
+        }
+        if (__THEMES__.includes(painted?.theme) && CSS.supports('color', painted.color)) {
           document.documentElement.dataset.theme = painted.theme;
           document.documentElement.style.background = painted.color;
           document.querySelector('meta[name="theme-color"]').content = painted.color;

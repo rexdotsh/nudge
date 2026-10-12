@@ -58,6 +58,7 @@ function harness() {
     held: null as ((status: number) => void) | null,
     holdNext: false,
     failTransactions: 0,
+    failAlarm: false,
     failAlerts: false,
     pushes: [] as Pushed[],
     alerts: [] as string[],
@@ -76,7 +77,10 @@ function harness() {
       return db.transaction(run)();
     },
     alarm: {
-      get: async () => state.alarm,
+      get: async () => {
+        if (state.failAlarm) throw new Error('alarm unavailable');
+        return state.alarm;
+      },
       set: async (at) => {
         state.alarm = at;
       },
@@ -275,11 +279,9 @@ describe('sync', () => {
     await h.sync(phone, [], 'Europe/Paris');
     const abroad = h.state.alarm;
     expect(abroad).toBe(Date.UTC(2026, 9, 12, 7, 0));
-    const before = h.state.broadcasts.length;
     await h.sync(laptop, []);
     await h.sync(laptop, []);
     expect(h.state.alarm).toBe(abroad);
-    expect(h.state.broadcasts.length).toBe(before);
     await h.sync(phone, []);
     expect(h.state.alarm).toBe(DUE);
   });
@@ -365,7 +367,24 @@ describe('sync', () => {
     expect((await choose(laptop, { id: ulid(), theme: 'classic', at: h.state.now })).theme).toBe('classic');
     expect((await choose(phone, fromPhone)).theme).toBe('classic');
     expect((await choose(laptop, madeOffline)).theme).toBe('classic');
-    expect(h.state.broadcasts).toHaveLength(2);
+  });
+
+  test.each([
+    [
+      'change',
+      () => ({ changes: [{ opId: ulid(), op: { type: 'put', id: ulid(), fields: fields() }, at: h.state.now }] }),
+    ],
+    ['theme choice', () => ({ changes: [], theme: { id: ulid(), theme: 'rex', at: h.state.now } })],
+  ])('a %s committed just before a failure still reaches the other devices when it is retried', async (_, write) => {
+    const { phone } = await h.pair();
+    const { version } = await h.ok('sync', { since: 0, zone: ZONE, changes: [] }, phone);
+    const request = { since: version, zone: ZONE, ...write() };
+    h.state.broadcasts.length = 0;
+    h.state.failAlarm = true;
+    expect(await h.call('sync', request, phone).catch((error: unknown) => error)).toBeInstanceOf(Error);
+    h.state.failAlarm = false;
+    await h.ok('sync', request, phone);
+    expect(h.state.broadcasts.map(({ except }) => except)).toEqual([phone]);
   });
 
   test('socket messages run the same sync and echo their ref', async () => {

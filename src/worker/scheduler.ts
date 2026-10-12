@@ -53,9 +53,9 @@ export class Scheduler {
 
   // Floating reminders keep their wall time when the instance zone changes, so what has already fired must move with
   // it: otherwise flying west re-fires an occurrence and flying east silently skips one.
-  setZone(zone: string): boolean {
+  setZone(zone: string): void {
     const previous = this.store.meta('zone');
-    if (previous === zone) return false;
+    if (previous === zone) return;
     this.store.setMeta('zone', zone);
     for (const reminder of this.store.reminders()) {
       if (reminder.zone !== null) continue;
@@ -63,7 +63,6 @@ export class Scheduler {
         previous === null ? reminder.firedThrough : toInstant(toLocal(reminder.firedThrough, previous), zone);
       this.save({ ...reminder, firedThrough });
     }
-    return true;
   }
 
   save(reminder: Reminder): void {
