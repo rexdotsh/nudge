@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { request } from '../../browser/api';
+  import { Unreachable, request } from '../../browser/api';
   import { get } from '../../browser/kv';
   import type { DeviceInfo, Health } from '../../shared/api';
   import { MINUTE_MS } from '../../shared/time';
@@ -16,6 +16,7 @@
   let health = $state<Health | null>(null);
   let me = $state<string | null>(null);
   let pairing = $state<{ code: string; expiresAt: number } | null>(null);
+  let devicesFailed = $state(false);
 
   const PUSH_LABELS: Record<PushState, string> = {
     enabled: 'On',
@@ -24,30 +25,50 @@
     unsupported: 'Not supported here',
   };
 
+  async function attempt(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      if (!(error instanceof Unreachable)) throw error;
+      toasts.show("Can't reach Nudge. Check your connection.");
+    }
+  }
+
   async function load() {
-    const [session, current] = await Promise.all([get('session'), request('health', null)]);
-    me = session?.deviceId ?? null;
-    health = current;
+    try {
+      const [session, current] = await Promise.all([get('session'), request('health', null)]);
+      me = session?.deviceId ?? null;
+      health = current;
+      devicesFailed = false;
+    } catch (error) {
+      devicesFailed = error instanceof Unreachable;
+      throw error;
+    }
   }
 
-  async function turnOn() {
-    await app.enableNotifications();
-    await load();
-  }
+  const turnOn = () =>
+    attempt(async () => {
+      await app.enableNotifications();
+      await load();
+    });
 
-  async function test() {
-    await request('test', { id: ulid(), delay: 5 });
-    toasts.show('Test coming in 5 seconds. Lock your screen to see it.');
-  }
+  const test = () =>
+    attempt(async () => {
+      await request('test', { id: ulid(), delay: 5 });
+      toasts.show('Test coming in 5 seconds. Lock your screen to see it.');
+    });
 
-  async function pair() {
-    pairing = await request('pair', null);
-  }
+  const pair = () =>
+    attempt(async () => {
+      pairing = await request('pair', null);
+    });
 
-  async function revoke(device: DeviceInfo) {
+  function revoke(device: DeviceInfo) {
     if (!confirm(`Remove ${device.label}? It will stop getting reminders.`)) return;
-    await request('revoke', { id: device.id });
-    await load();
+    void attempt(async () => {
+      await request('revoke', { id: device.id });
+      await load();
+    });
   }
 
   function exportData() {
@@ -60,7 +81,7 @@
   }
 
   $effect(() => {
-    void load();
+    void attempt(load);
   });
 </script>
 
@@ -85,6 +106,12 @@
 
   <h2 class="label">Devices</h2>
   <div class="group">
+    {#if devicesFailed && health === null}
+      <div class="field">
+        <span>Can't reach Nudge right now</span>
+        <button class="link" onclick={() => attempt(load)}>Try again</button>
+      </div>
+    {/if}
     {#each health?.devices ?? [] as device (device.id)}
       <div class="field">
         <span>

@@ -54,19 +54,30 @@
     alerts = alerts.includes(minutes) ? alerts.filter((value) => value !== minutes) : [...alerts, minutes];
   }
 
+  async function persist(): Promise<void> {
+    if (parsed && JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original))) {
+      await app.apply({ type: 'put', id: original.id, fields: parsed });
+    }
+  }
+
   async function save() {
     if (!parsed) return;
-    if (JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original))) {
-      await app.apply({ type: 'put', id: original.id, fields: parsed });
-      toasts.show('Saved');
-    }
+    const changed = JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original));
+    await persist();
+    if (changed) toasts.show('Saved');
     ui.close();
   }
 
-  async function skip() {
-    if (reminder.due === null) return;
+  async function act(action: (current: Reminder) => Promise<void> | void) {
+    await persist();
+    const current = app.reminders.find((candidate) => candidate.id === original.id);
+    if (current) await action(current);
+  }
+
+  async function skip(current: Reminder) {
+    if (current.due === null) return;
     tick();
-    await app.apply({ type: 'skip', id: reminder.id, due: reminder.due });
+    await app.apply({ type: 'skip', id: current.id, due: current.due });
     toasts.show('Skipped to the next one');
     ui.close();
   }
@@ -136,9 +147,13 @@
 
   {#if reminder.due !== null}
     <div class="acts">
-      <button class="btn primary" onclick={() => void complete(reminder).then(() => ui.close())}>Done</button>
-      <button class="btn" onclick={() => ui.snooze(reminder.id)}>Snooze</button>
-      {#if reminder.repeat}<button class="btn" onclick={skip}>Skip</button>{/if}
+      <button
+        class="btn primary"
+        disabled={!parsed}
+        onclick={() => act((current) => complete(current).then(() => ui.close()))}>Done</button
+      >
+      <button class="btn" disabled={!parsed} onclick={() => act((current) => ui.snooze(current.id))}>Snooze</button>
+      {#if reminder.repeat}<button class="btn" disabled={!parsed} onclick={() => act(skip)}>Skip</button>{/if}
     </div>
   {/if}
   <button class="link delete" onclick={() => void remove(reminder).then(() => ui.close())}>Delete</button>
