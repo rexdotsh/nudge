@@ -272,7 +272,7 @@ describe('sync', () => {
     await h.ok('sync', { since: 0, zone: ZONE, changes: [change] }, deviceId);
     h.state.alarm = null;
     await h.ok('sync', { since: 0, zone: ZONE, changes: [change] }, deviceId);
-    expect(h.state.alarm).toBe(DUE);
+    expect(h.state).toMatchObject({ alarm: DUE });
   });
 
   test('flying west after a floating reminder fired does not fire it again', async () => {
