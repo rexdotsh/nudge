@@ -15,7 +15,7 @@
 
   let input: HTMLInputElement | undefined = $state();
   let mirror: HTMLDivElement | undefined = $state();
-  let keyboard = $state(0);
+  let visibleBottom = $state(window.innerHeight);
 
   const parsed = $derived(ui.composing.trim() === '' ? null : parseQuickAdd(ui.composing, app.now, app.zone));
   const segments = $derived.by(() => {
@@ -71,10 +71,16 @@
     if (mirror && input) mirror.scrollLeft = input.scrollLeft;
   }
 
+  // iOS never shrinks the layout for the keyboard; it pans the page up to reveal the focused field. The composer is
+  // placed against the bottom of what is visible instead, and the pan is undone so the list stays where it was.
   $effect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const update = () => (keyboard = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+    const update = () => {
+      if (document.activeElement === input && viewport.offsetTop > 0) window.scrollTo(0, 0);
+      visibleBottom = viewport.offsetTop + viewport.height;
+    };
+    update();
     viewport.addEventListener('resize', update);
     viewport.addEventListener('scroll', update);
     return () => {
@@ -88,7 +94,7 @@
   });
 </script>
 
-<form class="surface composer" style:--keyboard="{keyboard}px" onsubmit={submit}>
+<form class="surface composer" style:--visible-bottom="{visibleBottom}px" onsubmit={submit}>
   <div class="bar">
     <div class="entry">
       <div class="mirror" bind:this={mirror} aria-hidden="true">
@@ -147,22 +153,23 @@
 <style>
   .composer {
     position: fixed;
+    top: 0;
     left: 12px;
     right: 12px;
-    bottom: var(--rest);
     z-index: 20;
     max-width: 536px;
     margin: 0 auto;
     border-radius: 18px;
-    --rest: max(12px, env(safe-area-inset-bottom));
+    --gap: max(12px, env(safe-area-inset-bottom));
     --surface-lift: 0 -16px 32px 12px var(--bg);
+    translate: 0 calc(var(--visible-bottom) - 100% - var(--gap));
     transition: translate 0.25s var(--ease);
   }
 
   /* Above the keyboard the home indicator's inset no longer applies, so the composer rides 8px over the keys. */
   .composer:focus-within {
     --surface-edge: var(--faint);
-    translate: 0 min(0px, calc(var(--rest) - 8px - var(--keyboard)));
+    --gap: 8px;
   }
 
   .bar {
