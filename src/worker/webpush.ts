@@ -1,7 +1,7 @@
 import type { PushKeys } from '../shared/api';
 import { BASE64URL, utf8 } from '../shared/encoding';
-import { isRecord } from '../shared/validate';
 import { memoize } from '../shared/memoize';
+import { isRecord } from '../shared/validate';
 
 export interface VapidKeys {
   publicKey: string;

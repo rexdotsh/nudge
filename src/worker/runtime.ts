@@ -1,9 +1,6 @@
-import type { ServerMessage } from '../shared/api';
-import type { Sql } from './store';
-import type { PushKeys } from '../shared/api';
+import type { PushKeys, ServerMessage } from '../shared/api';
+import type { Sql } from './sql';
 import type { PushOptions, PushResult } from './webpush';
-
-export const DEVICE_HEADER = 'X-Nudge-Device';
 
 export interface Runtime {
   sql: Sql;

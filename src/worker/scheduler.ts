@@ -9,8 +9,10 @@ import {
 } from '../shared/notification';
 import { lateCount, type Reminder } from '../shared/reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../shared/time';
+import type { DeliveryRow, Outgoing } from './deliveries';
+import type { Target } from './devices';
 import type { Runtime } from './runtime';
-import type { DeliveryRow, Outgoing, Store, Target } from './store';
+import type { Store } from './store';
 import type { PushResult } from './webpush';
 
 export const DEAD_MAN_MS = MINUTE_MS;
@@ -40,7 +42,7 @@ export class Scheduler {
     private readonly runtime: Runtime,
   ) {}
 
-  zone(): string {
+  private zone(): string {
     return this.store.meta('zone') ?? 'UTC';
   }
 
@@ -78,7 +80,7 @@ export class Scheduler {
       `test${at.toString(36)}`,
       testMessage(testFire, this.presentation(0)),
     );
-    for (const target of this.store.targets()) this.store.queue(item, target.deviceId, at, now);
+    for (const target of this.store.devices.targets()) this.store.deliveries.queue(item, target.deviceId, at, now);
   }
 
   async rearm(): Promise<void> {
@@ -110,7 +112,7 @@ export class Scheduler {
     if (late > 0) await this.run();
     else if (stalled) await this.rearm();
     this.runtime.transaction(() => {
-      this.store.purgeDeliveries(now - DELIVERY_RETENTION_MS);
+      this.store.deliveries.purge(now - DELIVERY_RETENTION_MS);
       if (this.store.purgeTombstones(now - TOMBSTONE_RETENTION_MS) > 0) {
         this.store.setMeta('purged', String(this.store.version()));
       }
@@ -141,34 +143,34 @@ export class Scheduler {
     const view = this.presentation(badge);
 
     this.runtime.transaction(() => {
-      const targets = this.store.targets();
+      const targets = this.store.devices.targets();
       for (const { reminder, notice } of fired) {
         this.save(reminder, now);
         if (!notice) continue;
         const item = this.noticeFor(reminder, notice, view);
-        for (const target of targets) this.store.queue(item, target.deviceId, now, now);
+        for (const target of targets) this.store.deliveries.queue(item, target.deviceId, now, now);
       }
     });
     if (fired.length > 0) this.runtime.broadcast({ kind: 'changed', version: this.store.version() });
 
     const lease = crypto.randomUUID();
-    const claimed = this.runtime.transaction(() => this.store.claim(now, LEASE_MS, lease));
+    const claimed = this.runtime.transaction(() => this.store.deliveries.claim(now, LEASE_MS, lease));
     await Promise.all(claimed.map((row) => (row.sends >= 2 ? this.escalate(row) : this.send(row))));
   }
 
   private async escalate(row: DeliveryRow): Promise<void> {
-    const label = this.store.device(row.device_id)?.label ?? 'a device';
+    const label = this.store.devices.get(row.device_id)?.label ?? 'a device';
     const delivered = await this.alertOnce(
       `unconfirmed:${row.device_id}`,
       `"${label}" has not confirmed "${row.title}" after a resend.`,
     );
-    this.store.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);
+    this.store.deliveries.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);
   }
 
   private async send(row: DeliveryRow): Promise<void> {
-    const target = this.store.target(row.device_id);
+    const target = this.store.devices.target(row.device_id);
     if (!target) {
-      this.store.release(row, null);
+      this.store.deliveries.release(row, null);
       return;
     }
     const result = await this.pushWithRetry(target, row);
@@ -178,8 +180,8 @@ export class Scheduler {
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
     const nextAt = ok || isRetryable(result.status) ? now + followUp : null;
     const owned = this.runtime.transaction(() => {
-      if (!this.store.recordSend(row, result.status, nextAt, now)) return false;
-      if (gone) this.store.dropSubscription(target);
+      if (!this.store.deliveries.recordSend(row, result.status, nextAt, now)) return false;
+      if (gone) this.store.devices.dropSubscription(target);
       return true;
     });
     if (!owned) return;
@@ -201,7 +203,7 @@ export class Scheduler {
     const [delay, ...later] = delays;
     if (delay === undefined || !isRetryable(result.status)) return result;
     await this.runtime.sleep(delay);
-    if (this.store.target(target.deviceId)?.endpoint !== target.endpoint) return result;
+    if (this.store.devices.target(target.deviceId)?.endpoint !== target.endpoint) return result;
     return this.pushWithRetry(target, row, later);
   }
 

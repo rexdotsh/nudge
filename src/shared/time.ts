@@ -34,6 +34,25 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+export function monthIndex({ year, month }: Pick<LocalDate, 'year' | 'month'>): number {
+  return year * 12 + month - 1;
+}
+
+export function fromMonthIndex(index: number): Pick<LocalDate, 'year' | 'month'> {
+  const year = Math.floor(index / 12);
+  return { year, month: index - year * 12 + 1 };
+}
+
+/** Keeps the day of the month, so the result can be past the end of a shorter month, like February 31. */
+export function addMonths(date: LocalDate, months: number): LocalDate {
+  return { ...fromMonthIndex(monthIndex(date) + months), day: date.day };
+}
+
+export function addMonthsClamped(date: LocalDate, months: number): LocalDate {
+  const { year, month, day } = addMonths(date, months);
+  return { year, month, day: Math.min(day, daysInMonth(year, month)) };
+}
+
 export function wallMs(local: LocalDateTime): number {
   return Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute);
 }

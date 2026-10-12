@@ -1,8 +1,9 @@
 import { memoize } from './memoize';
-import { nextOccurrence, parseRule, type Frequency, type Rule } from './rrule';
+import { nextOccurrence } from './occurrences';
+import { parseRule, type Frequency, type Rule } from './rrule';
 import {
   HOUR_MS,
-  daysInMonth,
+  addMonthsClamped,
   epochDay,
   formatLocal,
   fromEpochDay,
@@ -85,18 +86,11 @@ export function firstDue(fields: ReminderFields, now: number, currentZone: strin
   return occurrenceAfter(fields, Math.max(instantOf(fields, fields.start, currentZone), now) - 1, currentZone);
 }
 
-function shiftMonths(date: LocalDate, months: number): LocalDate {
-  const index = date.year * 12 + date.month - 1 + months;
-  const year = Math.floor(index / 12);
-  const month = index - year * 12 + 1;
-  return { year, month, day: Math.min(date.day, daysInMonth(year, month)) };
-}
-
 const ADVANCE: Record<Exclude<Frequency, 'HOURLY'>, (date: LocalDate, amount: number) => LocalDate> = {
   DAILY: (date, amount) => fromEpochDay(epochDay(date) + amount),
   WEEKLY: (date, amount) => fromEpochDay(epochDay(date) + amount * 7),
-  MONTHLY: shiftMonths,
-  YEARLY: (date, amount) => shiftMonths(date, amount * 12),
+  MONTHLY: addMonthsClamped,
+  YEARLY: (date, amount) => addMonthsClamped(date, amount * 12),
 };
 
 export function dueAfterCompletion(reminder: Reminder, completedAt: number, currentZone: string): string | null {
