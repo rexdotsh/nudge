@@ -120,9 +120,9 @@ export function isSnoozed(reminder: Reminder, now: number): boolean {
 }
 
 export function shownAt(reminder: Reminder, now: number, currentZone: string): number | null {
-  return reminder.snoozedUntil !== null && isSnoozed(reminder, now)
-    ? reminder.snoozedUntil
-    : dueAt(reminder, currentZone);
+  const due = dueAt(reminder, currentZone);
+  const { snoozedUntil } = reminder;
+  return due !== null && snoozedUntil !== null && snoozedUntil > now ? Math.max(due, snoozedUntil) : due;
 }
 
 export function isLate(reminder: Reminder, now: number, currentZone: string): boolean {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { parseFields } from '../../shared/input';
+  import { LIMITS, parseFields } from '../../shared/input';
   import { parseQuickAdd } from '../../shared/quick-add';
   import { local, type Reminder, type ReminderFields, type Repeat } from '../../shared/reminder';
   import { toInstant } from '../../shared/time';
@@ -119,8 +119,8 @@
     <button class="save" onclick={save} disabled={!valid}>Save</button>
   </nav>
 
-  <input class="title" bind:value={title} aria-label="Title" placeholder="Title" />
-  <textarea bind:value={notes} aria-label="Notes" placeholder="Add a note" rows="1"></textarea>
+  <input class="title" bind:value={title} maxlength={LIMITS.title} aria-label="Title" placeholder="Title" />
+  <textarea bind:value={notes} maxlength={LIMITS.notes} aria-label="Notes" placeholder="Add a note" rows="1"></textarea>
 
   <div class="group">
     <div class="field">

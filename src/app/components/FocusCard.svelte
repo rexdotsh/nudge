@@ -8,7 +8,7 @@
   let { triage, now, zone }: { triage: Triage; now: number; zone: string } = $props();
 
   const focus = $derived(triage.focus);
-  const options = $derived(snoozeOptions(now, zone));
+  const options = $derived(focus ? snoozeOptions(focus.reminder, now, zone) : []);
   const hour = $derived(options.find((option) => option.key === 'hour'));
   const tonight = $derived(options.find((option) => option.key === 'evening' || option.key === 'morning'));
   const summary = $derived(quietSummary(triage, now, zone));

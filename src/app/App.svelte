@@ -18,7 +18,7 @@
   if (link.size > 0) history.replaceState(null, '', '/');
 
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled');
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.caughtUp);
   });
 </script>
 

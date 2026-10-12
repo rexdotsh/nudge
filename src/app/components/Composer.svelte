@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LIMITS } from '../../shared/input';
   import { parseQuickAdd, suggestedStart, type SpanKind } from '../../shared/quick-add';
   import { local } from '../../shared/reminder';
   import { toInstant } from '../../shared/time';
@@ -83,6 +84,7 @@
         onscroll={syncScroll}
         oninput={syncScroll}
         placeholder="Remind me to…"
+        maxlength={LIMITS.title}
         aria-label="New reminder"
         aria-describedby="composer-preview"
         autocomplete="off"

@@ -1,3 +1,4 @@
+import { isRepeat } from './input';
 import type { Repeat } from './reminder';
 import { RuleError, formatRule, parseRule, rule, type ByDay, type Frequency, type Rule } from './rrule';
 import {
@@ -304,28 +305,32 @@ function nextDate(today: LocalDate, month: number, day: number, year?: number): 
 
 const endOfDay = (date: LocalDate, zone: string) => toInstant({ ...date, hour: 23, minute: 59 }, zone);
 
+const UNTIL = `until\\s+${MONTH}\\s+(\\d{1,2})${SUFFIX}|until\\s+(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}`;
+const COUNT = `(?:for\\s+)?(\\d+)\\s+times`;
+const DURATION = `for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`;
+
 function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string): void {
   const current = draft.rule;
   if (!current) return;
-  scanner.take(
-    `until\\s+${MONTH}\\s+(\\d{1,2})${SUFFIX}|until\\s+(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}`,
-    'repeat',
-    (m) => {
-      const date = nextDate(today, monthIndex(m[1] ?? m[4] ?? ''), Number(m[2] ?? m[3]));
-      if (!isRealDate(date)) return false;
-      current.until = endOfDay(date, zone);
-      return true;
-    },
-  );
+  if (draft.anchor === 'completion') {
+    for (const end of [UNTIL, COUNT, DURATION]) scanner.shield(end);
+    return;
+  }
+  scanner.take(UNTIL, 'repeat', (m) => {
+    const date = nextDate(today, monthIndex(m[1] ?? m[4] ?? ''), Number(m[2] ?? m[3]));
+    if (!isRealDate(date)) return false;
+    current.until = endOfDay(date, zone);
+    return true;
+  });
   if (current.until !== null) return;
-  const counted = scanner.take(`(?:for\\s+)?(\\d+)\\s+times`, 'repeat', (m) => {
+  const counted = scanner.take(COUNT, 'repeat', (m) => {
     const times = Number(m[1]);
     if (times < 1) return false;
     current.count = times;
     return true;
   });
   if (counted) return;
-  scanner.take(`for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`, 'repeat', (m) => {
+  scanner.take(DURATION, 'repeat', (m) => {
     const unit = m[2] === 'week' || m[2] === 'month' ? m[2] : 'day';
     draft.duration = { unit, amount: /^\d+$/.test(m[1] ?? '') ? Number(m[1]) : 1 };
   });
@@ -385,7 +390,7 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
     const times = [...m[0].matchAll(new RegExp(TIME, 'g'))].map((part) => clock(part[1] ?? '', part[2], part[3]));
     const valid = times.filter((time): time is Time => time !== null);
     const encodable = valid.length === times.length && new Set(valid.map((time) => time.minute)).size === 1;
-    if (draft.rule && encodable) draft.times = valid;
+    if (draft.rule && draft.anchor === 'schedule' && encodable) draft.times = valid;
     return draft.times.length > 0;
   });
   scanner.shield(`(?:at\\s+)?${TIME}(?:\\s*(?:,|and|&)\\s*${TIME})+`);
@@ -504,11 +509,11 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
   }
   const start = startOf(draft, now, zone);
   applyDuration(draft, start, zone);
-  if (draft.rule && !isValidRule(draft.rule)) draft.rule = null;
+  const repeat = draft.rule && { rule: formatRule(draft.rule), anchor: draft.anchor };
   return {
     title: cleanTitle(scanner.rest()),
     start,
-    repeat: draft.rule ? { rule: formatRule(draft.rule), anchor: draft.anchor } : null,
+    repeat: isRepeat(repeat) ? repeat : null,
     important: draft.important,
     spans: scanner.spans.toSorted((a, b) => a.start - b.start),
   };

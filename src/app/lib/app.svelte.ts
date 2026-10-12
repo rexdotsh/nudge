@@ -36,6 +36,8 @@ class App {
   zone = currentZone();
   travelling = $state(false);
   notifications = $state<PushState>(pushState());
+  /** Until the first sync after coming to the foreground, the replica can miss what was pushed while away. */
+  caughtUp = $state(false);
   readonly platform = detectPlatform();
 
   private replica = new Replica();
@@ -119,6 +121,7 @@ class App {
       await set('replica', this.replica.snapshot());
       this.pending = remaining;
       this.online = true;
+      this.caughtUp = true;
       if (remaining.length > 0) this.again = true;
     } catch (error) {
       if (error instanceof Unreachable) this.online = false;
@@ -149,7 +152,10 @@ class App {
       this.connection?.open();
       void this.reloadPending().then(() => this.sync());
       void syncSubscription();
-    } else if (this.pending.length > 0 && this.token) {
+      return;
+    }
+    this.caughtUp = false;
+    if (this.pending.length > 0 && this.token) {
       void request(
         'sync',
         { since: this.replica.version, zone: this.zone, changes: withinKeepalive(this.pending) },
