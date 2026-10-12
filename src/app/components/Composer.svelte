@@ -2,6 +2,7 @@
   import { LIMITS } from '../../shared/input';
   import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
   import { local } from '../../shared/reminder';
+  import type { SpanKind } from '../../shared/scanner';
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
   import { NEW_REMINDER, hint } from '../lib/shortcuts';
@@ -17,10 +18,22 @@
   const SETTLE_MS = 900;
 
   let input: HTMLInputElement | undefined = $state();
+  let mirror: HTMLDivElement | undefined = $state();
   let visibleBottom = $state(window.innerHeight);
   let lift = $state(0);
 
   const parsed = $derived(ui.composing.trim() === '' ? null : parseQuickAdd(ui.composing, app.now, app.zone));
+  const segments = $derived.by(() => {
+    const parts: { text: string; kind: SpanKind | null }[] = [];
+    let cursor = 0;
+    for (const span of parsed?.spans ?? []) {
+      if (span.start > cursor) parts.push({ text: ui.composing.slice(cursor, span.start), kind: null });
+      parts.push({ text: ui.composing.slice(span.start, span.end), kind: span.kind });
+      cursor = span.end;
+    }
+    parts.push({ text: ui.composing.slice(cursor), kind: null });
+    return parts;
+  });
   const start = $derived(parsed ? (parsed.start ?? suggestedStart(app.now, app.zone)) : null);
   const when = $derived(start ? summaryWhen(toInstant(local(start), app.zone), app.now, app.zone) : '');
   const cadence = $derived(parsed?.repeat && start ? repeatLabel(parsed.repeat, start, app.zone) : null);
@@ -59,6 +72,10 @@
     input?.focus();
   }
 
+  function syncScroll() {
+    if (mirror && input) mirror.scrollLeft = input.scrollLeft;
+  }
+
   // iOS never shrinks the layout for the keyboard; it pans the page up to reveal the focused field. The composer is
   // placed against the bottom of what is visible instead, and the pan is undone so the list stays where it was.
   $effect(() => {
@@ -79,7 +96,7 @@
 
   // iOS slides the whole page up when a field the keyboard is about to cover takes focus. When a touch is about to focus
   // the composer, its input is lifted, invisibly, near the top of the screen so there is nothing to reveal, and it
-  // settles back once the keyboard is up and the composer has risen above it. A stand-in shows its text meanwhile.
+  // settles back once the keyboard is up and the composer has risen above it.
   function liftForKeyboard(event: PointerEvent) {
     if (app.platform !== 'ios' || event.pointerType !== 'touch' || !input || document.activeElement === input) return;
     lift = input.getBoundingClientRect().top - LIFTED_TOP;
@@ -117,9 +134,12 @@
       onpointercancel={settle}
       onclick={focusLifted}
     >
-      {#if lift !== 0}
-        <span class="stand-in" class:empty={ui.composing === ''} aria-hidden="true">{ui.composing || PLACEHOLDER}</span>
-      {/if}
+      <!-- The mirror keeps whitespace, so nothing may sit between its tags. -->
+      <div class="mirror" bind:this={mirror} aria-hidden="true">
+        {#if lift !== 0 && ui.composing === ''}<span class="hint">{PLACEHOLDER}</span
+          >{/if}{#each segments as segment, index (index)}<span class={segment.kind ?? undefined}>{segment.text}</span
+          >{/each}
+      </div>
       <input
         class="bare"
         id="composer"
@@ -128,6 +148,8 @@
         class:lifted={lift !== 0}
         style:translate={lift === 0 ? undefined : `0 ${-lift}px`}
         onblur={settle}
+        onscroll={syncScroll}
+        oninput={syncScroll}
         placeholder={PLACEHOLDER}
         maxlength={LIMITS.title}
         aria-label="New reminder"
@@ -209,26 +231,40 @@
   }
 
   .entry input,
-  .stand-in {
+  .mirror {
     width: 100%;
     padding: 0;
     font: 400 16px/22px var(--font);
+    letter-spacing: normal;
+    white-space: pre;
+  }
+
+  .entry input {
+    position: relative;
+    color: transparent;
+    caret-color: var(--ink);
   }
 
   .entry input.lifted {
     opacity: 0;
   }
 
-  .stand-in {
+  .mirror .hint {
+    color: var(--muted);
+  }
+
+  .mirror {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    white-space: pre;
+    color: var(--ink);
     pointer-events: none;
   }
 
-  .stand-in.empty {
-    color: var(--muted);
+  .mirror span.when,
+  .mirror span.repeat,
+  .mirror span.flag {
+    color: var(--accent);
   }
 
   .summary {
