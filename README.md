@@ -3,7 +3,7 @@
 A personal reminders app that is fast to use and hard to break. It installs as a PWA on the iPhone home screen and on Windows through Edge, and alerts on time through Web Push. All of it runs on Cloudflare's free plan: one Worker plus one SQLite Durable Object per person.
 
 <p>
-  <img src="docs/screenshots/ios-home.webp" width="260" alt="Home on iPhone: the reminder due now with Done and Snooze, then the rest of today and a quieter Later list" />
+  <img src="docs/screenshots/ios-home.webp" width="260" alt="Home on iPhone: the next reminder on top with Done and Snooze, then the rest of today and a quieter Later list" />
   <img src="docs/screenshots/ios-composer.webp" width="260" alt="Typing a reminder: the time and the repeat it understood turn coral, and the send button says when it will remind and how often" />
   <img src="docs/screenshots/ios-editor.webp" width="260" alt="Editing a reminder" />
 </p>
@@ -16,7 +16,7 @@ A personal reminders app that is fast to use and hard to break. It installs as a
 - **Repeats are real calendar rules (RFC 5545)**, plus repeats that count from when you finish. Times follow you when you travel.
 - **It always shows up.** The server wakes for each reminder on the exact second, retries, resends when the phone doesn't confirm, and tells you on Telegram if something's off.
 - **Works offline.** Everything is local first and syncs when you're back.
-- **Feels at home on a PC.** On a wide window the editor docks beside the list, rows have a right-click menu, and everything has a keyboard shortcut (press `?` to see them).
+- **Feels at home on a PC.** On a wide window the editor docks beside the list, rows have a right-click menu, and common actions have keyboard shortcuts (press `?` to see them).
 
 ## Deploy your own
 
