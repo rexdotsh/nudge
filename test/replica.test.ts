@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Replica } from '../src/app/lib/replica';
+import { Replica } from '../src/browser/replica';
 import type { Change } from '../src/shared/api';
 import { applyOp } from '../src/shared/ops';
 import type { Reminder, ReminderFields } from '../src/shared/reminder';

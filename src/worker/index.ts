@@ -1,12 +1,18 @@
-import { API_ERRORS, SOCKET_PROTOCOL, isDeviceRoute, isPublicRoute, type ApiError, type Reply } from '../shared/api';
+import {
+  API_ERRORS,
+  MAX_REQUEST_BYTES,
+  SOCKET_PROTOCOL,
+  isDeviceRoute,
+  isPublicRoute,
+  type ApiError,
+  type Reply,
+} from '../shared/api';
 import { readJson } from './body';
 import { DEVICE_HEADER } from './nudge-do';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
 
 export { NudgeDO } from './nudge-do';
-
-const MAX_BODY_BYTES = 256 * 1024;
 
 const nudge = (env: Env) => env.NUDGE.get(env.NUDGE.idFromName('nudge'));
 
@@ -39,7 +45,7 @@ export default {
     const bearer = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
     const deviceId = isPublic ? null : await verifyToken(env.AUTH_SECRET, bearer);
     if (!isPublic && deviceId === null) return failure('unauthorized');
-    const parsed = await readJson(request, MAX_BODY_BYTES);
+    const parsed = await readJson(request, MAX_REQUEST_BYTES);
     if (!parsed) return failure('bad_request');
     return reply(await nudge(env).call(route, { deviceId, origin: url.origin }, parsed.body));
   },

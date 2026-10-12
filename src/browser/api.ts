@@ -9,6 +9,8 @@ export class ApiRejected extends Error {
 
 export class Unreachable extends Error {}
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
 export interface RequestOptions {
   keepalive?: boolean;
   token?: string;
@@ -25,6 +27,7 @@ export async function request<R extends Route>(
     response = await fetch(`/api/${route}`, {
       method: 'POST',
       keepalive: options.keepalive ?? false,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
     });

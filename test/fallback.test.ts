@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test';
 import { Fallback } from '../src/app/lib/fallback';
-import type { NotificationContent } from '../src/shared/notification';
+import { fireId, type NotificationContent } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
 import { MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 
 const ZONE = 'Asia/Kolkata';
 const NOW = Date.UTC(2026, 9, 12, 4, 0);
+const DUE = Date.UTC(2026, 9, 12, 3, 50);
 
 function lateReminder() {
   const fields = {
@@ -23,8 +24,9 @@ function lateReminder() {
   return created;
 }
 
-function harness() {
+function harness(alreadySeen: string[] = []) {
   const shown: string[] = [];
+  const seen = new Set(alreadySeen);
   const timers = new Set<() => Promise<void>>();
   const readiness: (() => void)[] = [];
   const fallback = new Fallback({
@@ -36,6 +38,10 @@ function harness() {
           }),
         );
       }),
+    seen: async () => new Set(seen),
+    markSeen: async (fire) => {
+      seen.add(fire);
+    },
     wait: (run) => {
       timers.add(run);
       return () => timers.delete(run);
@@ -61,6 +67,19 @@ test('a missed push is shown locally once', async () => {
   fallback.schedule([lateReminder()], ZONE, true);
   await ready(fire());
   expect(shown).toEqual(['Pay rent']);
+});
+
+test('the server having planned a push does not stop the fallback; only this device having shown it does', async () => {
+  const planned = { ...lateReminder(), firedThrough: NOW };
+  const { fallback, shown, fire, ready } = harness();
+  fallback.schedule([planned], ZONE, true);
+  await ready(fire());
+  expect(shown).toEqual(['Pay rent']);
+
+  const again = harness([fireId(planned.id, DUE)]);
+  again.fallback.schedule([planned], ZONE, true);
+  await again.ready(again.fire());
+  expect(again.shown).toEqual([]);
 });
 
 test.each([
