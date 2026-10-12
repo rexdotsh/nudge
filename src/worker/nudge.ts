@@ -162,11 +162,11 @@ export class Nudge {
   private async enroll(device: DeviceInput, code: string, fresh: () => boolean, consume: () => void): Promise<Session> {
     const credential = await digest(code);
     const now = this.runtime.now();
-    const outcome = this.runtime.transaction((): { id: string; moved: boolean } | ApiFailure => {
+    const outcome = this.runtime.transaction((): { id: string } | ApiFailure => {
       const failures = this.recentFailures(now);
       if (failures.length >= FAILURE_LIMIT) return new ApiFailure('locked');
       const replayed = this.store.devices.enrolled(credential, device.key);
-      if (replayed) return { id: replayed.id, moved: false };
+      if (replayed) return { id: replayed.id };
       if (!fresh()) {
         this.store.setMeta('failures', JSON.stringify([...failures, now]));
         return new ApiFailure('forbidden');
@@ -175,19 +175,19 @@ export class Nudge {
       this.store.setMeta('failures', '[]');
       const existing = this.store.devices.byKey(device.key);
       const id = existing?.id ?? ulid(now);
-      let moved = false;
       if (!existing) {
         this.store.devices.add(id, device, now);
         // Enrolling means typing a code on this device, so the person is wherever it is.
-        moved = this.scheduler.setZone(device.zone);
+        this.scheduler.setZone(device.zone);
         this.store.setMeta('locale', device.locale);
       }
       this.store.devices.recordEnrollment(credential, device.key, id);
-      return { id, moved };
+      return { id };
     });
     if (outcome instanceof ApiFailure) throw outcome;
+    // Both are idempotent, so a replayed enrollment repairs whatever a failure after the commit left undone.
     await this.scheduler.rearm();
-    if (outcome.moved) this.runtime.broadcast({ kind: 'changed', version: this.store.version() }, outcome.id);
+    this.runtime.broadcast({ kind: 'changed', version: this.store.version() }, outcome.id);
     return { token: await issueToken(this.runtime.secrets.auth, outcome.id), deviceId: outcome.id };
   }
 
