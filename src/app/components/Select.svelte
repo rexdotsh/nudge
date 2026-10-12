@@ -97,8 +97,8 @@
     onkeydown={keydown}
     onblur={() => (open = false)}><span {id}>{options[selected]?.label}</span></button
   >
-  {#if open && trigger}
-    <Popover anchor={trigger} onClose={() => (open = false)}>
+  {#each open && trigger ? [trigger] : [] as anchor (anchor)}
+    <Popover {anchor} onClose={() => (open = false)}>
       <Listbox
         id={listId}
         {options}
@@ -108,7 +108,7 @@
         aria-labelledby={labelledby}
       />
     </Popover>
-  {/if}
+  {/each}
 {:else}
   <select
     aria-labelledby={labelledby}

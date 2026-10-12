@@ -21,11 +21,9 @@
 
   $effect(() => closeOnBack(close));
 
-  // Once closed, Home has no reminder left to pass down, so take it before closing.
   function run(action: (target: Reminder) => void | Promise<void>) {
-    const target = reminder;
     close();
-    void action(target);
+    void action(reminder);
   }
 
   function navigate(event: KeyboardEvent & { currentTarget: HTMLDivElement }) {

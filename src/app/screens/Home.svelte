@@ -133,11 +133,15 @@
     </section>
   {/if}
 
-  {#if editing && !snoozing && !ui.docked}
-    {#key editing.id}<EditSheet reminder={editing} />{/key}
-  {/if}
-  {#if snoozing}<SnoozeSheet reminder={snoozing} />{/if}
-  {#if menu}<RowMenu reminder={menu.reminder} x={menu.x} y={menu.y} fromKeyboard={menu.fromKeyboard} />{/if}
+  {#each editing && !snoozing && !ui.docked ? [editing] : [] as reminder (reminder.id)}
+    <EditSheet {reminder} />
+  {/each}
+  {#each snoozing ? [snoozing] : [] as reminder (reminder.id)}
+    <SnoozeSheet {reminder} />
+  {/each}
+  {#each menu ? [menu] : [] as opened (opened.id)}
+    <RowMenu reminder={opened.reminder} x={opened.x} y={opened.y} fromKeyboard={opened.fromKeyboard} />
+  {/each}
   {#if ui.help}<ShortcutsSheet />{/if}
   <Toast />
 </div>
