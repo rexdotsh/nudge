@@ -102,7 +102,7 @@ async function drain(): Promise<void> {
 }
 
 async function act(op: Op): Promise<void> {
-  await enqueue(op);
+  await enqueue([op]);
   try {
     await drain().catch((error: unknown) => {
       if (!(error instanceof Unreachable)) throw error;

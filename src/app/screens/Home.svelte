@@ -6,6 +6,7 @@
   import ReminderRow from '../components/ReminderRow.svelte';
   import SnoozeSheet from '../components/SnoozeSheet.svelte';
   import Toast from '../components/Toast.svelte';
+  import { remove } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { dayHeading, whenLabel } from '../lib/format';
   import { recentlyCompleted, triage } from '../lib/sections';
@@ -64,10 +65,19 @@
       {#if showCompleted}
         {#each completed as { reminder, at } (reminder.id)}
           <div class="done">
-            <span>{reminder.title}</span>
+            <span class="title">{reminder.title}</span>
             <span>{whenLabel(at, app.now, app.zone)}</span>
+            <button
+              class="forget"
+              onclick={() => void remove(reminder)}
+              aria-label={`Delete ${reminder.title}`}
+              title="Delete"><Icon name="close" size={14} /></button
+            >
           </div>
         {/each}
+        <button class="link clear" onclick={() => void remove(...completed.map(({ reminder }) => reminder))}
+          >Clear completed</button
+        >
       {/if}
     </section>
   {/if}
@@ -135,17 +145,55 @@
 
   .done {
     display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 9px 2px;
+    align-items: center;
+    gap: 12px;
+    min-height: 40px;
+    padding: 4px 0 4px 2px;
     border-bottom: 1px solid var(--line);
     color: var(--muted);
     font-size: 14px;
   }
 
-  .done span:first-child {
+  .done .title {
+    flex: 1;
+    min-width: 0;
     text-decoration: line-through;
     text-decoration-color: var(--faint);
+    overflow-wrap: anywhere;
+  }
+
+  .forget {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    margin-right: -6px;
+    border-radius: 8px;
+    color: var(--muted);
+  }
+
+  .clear {
+    display: block;
+    margin: 4px 0 0 auto;
+    padding: 10px 2px;
+    font-size: 13.5px;
+  }
+
+  @media (hover: hover) {
+    .forget {
+      opacity: 0;
+      transition: opacity 0.12s;
+    }
+
+    .done:is(:hover, :focus-within) .forget {
+      opacity: 1;
+    }
+
+    .forget:hover {
+      background: var(--raised);
+      color: var(--ink);
+    }
   }
 
   @media (min-width: 720px) {
