@@ -76,10 +76,14 @@ class App {
   }
 
   async apply(op: Op): Promise<Reminder | undefined> {
-    this.pending = [...this.pending, await enqueue(op)];
+    await this.applyAll([op]);
+    return this.reminders.find((reminder) => reminder.id === op.id);
+  }
+
+  async applyAll(ops: readonly Op[]): Promise<void> {
+    this.pending = [...this.pending, ...(await enqueue(ops))];
     this.refresh();
     void this.sync();
-    return this.reminders.find((reminder) => reminder.id === op.id);
   }
 
   sync(): Promise<void> {

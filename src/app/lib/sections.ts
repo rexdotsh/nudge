@@ -44,11 +44,13 @@ export function quietSummary({ today, later }: Triage, now: number, zone: string
   return { lead, rest: `Next is ${next.reminder.title} · ${shortWhen(next.at, now, zone)}` };
 }
 
+/** Only finished reminders: a repeating one is still live, and deleting it from here would end the whole series. */
 export function recentlyCompleted(reminders: readonly Reminder[], now: number): { reminder: Reminder; at: number }[] {
   return reminders
     .flatMap((reminder) => {
       const at = reminder.completedAt;
-      return !reminder.deleted && at !== null && now - at < 30 * DAY_MS ? [{ reminder, at }] : [];
+      const finished = !reminder.deleted && reminder.due === null && at !== null;
+      return finished && now - at < 30 * DAY_MS ? [{ reminder, at }] : [];
     })
     .toSorted((a, b) => b.at - a.at);
 }

@@ -50,9 +50,13 @@ export async function snooze(reminder: Reminder, until: number): Promise<void> {
   toasts.show(`Snoozed until ${whenLabel(until, Date.now(), app.zone)}`);
 }
 
-export async function remove(reminder: Reminder): Promise<void> {
-  await app.apply({ type: 'delete', id: reminder.id });
-  toasts.show('Deleted', () => void app.apply({ type: 'restore', id: reminder.id }));
+export async function remove(...reminders: Reminder[]): Promise<void> {
+  const ids = reminders.map((reminder) => reminder.id);
+  await app.applyAll(ids.map((id) => ({ type: 'delete', id })));
+  toasts.show(
+    ids.length === 1 ? 'Deleted' : `Deleted ${ids.length} reminders`,
+    () => void app.applyAll(ids.map((id) => ({ type: 'restore', id }))),
+  );
 }
 
 export interface SnoozeOption {
