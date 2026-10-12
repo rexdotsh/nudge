@@ -13,10 +13,11 @@ export function pushState(): PushState {
 /** Once blocked, browsers never ask again: the person has to allow Nudge where the platform keeps the setting. */
 export const UNBLOCK_STEPS: Record<Platform, string> = {
   ios: 'Open the Settings app, tap Notifications, then Nudge, and turn on Allow Notifications.',
-  mac: 'Allow Nudge in System Settings → Notifications. In a browser tab, also allow it in the site settings next to the address.',
+  mac: 'In Safari, open Settings → Websites → Notifications and allow Nudge; for the Dock app, use System Settings → Notifications → Nudge. In Chrome or Edge, click the icon left of the address and allow notifications.',
   windows:
-    'In Edge, click the icon left of the address (or open edge://settings/content/notifications) and set Nudge to Allow. Windows Settings → System → Notifications must be on too.',
-  android: 'Long-press the Nudge icon, open App info → Notifications and allow them.',
+    'Open Nudge in your browser, click the icon left of the address and set Notifications to Allow. Windows Settings → System → Notifications must allow your browser too.',
+  android:
+    'For the installed app, long-press its icon and open App info → Notifications. In Chrome, open ⋮ → Settings → Site settings → Notifications and allow Nudge.',
   other: "Allow notifications for this site in your browser's site settings.",
 };
 
