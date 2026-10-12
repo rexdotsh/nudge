@@ -14,6 +14,7 @@
   --accent-soft: rgb(255 138 101 / 0.14);
   --scrim: rgb(0 0 0 / 0.55);
   --shadow: 0 18px 40px -16px rgb(0 0 0 / 0.9);
+  --pane: 0px;
 
   --font: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
@@ -110,7 +111,8 @@ button:disabled {
 .page {
   max-width: 560px;
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top) + 16px) 18px calc(env(safe-area-inset-bottom) + 40px);
+  padding: calc(env(safe-area-inset-top) + env(titlebar-area-height, 0px) + 16px) 18px
+    calc(env(safe-area-inset-bottom) + 40px);
 }
 
 .heading {
@@ -317,6 +319,19 @@ button:disabled {
   transform: translateX(16px);
 }
 
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--raised);
+  box-shadow: inset 0 -1px 0 var(--edge);
+  color: var(--ink-2);
+  font: 500 11.5px/20px var(--font);
+  text-align: center;
+  white-space: nowrap;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -324,6 +339,27 @@ button:disabled {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+@media (min-width: 960px) {
+  :root {
+    --pane: 400px;
+  }
+}
+
+@media (pointer: fine) {
+  .btn {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 9px;
+    font-size: 13.5px;
+  }
+
+  .field {
+    min-height: 42px;
+    padding: 9px 14px;
+    font-size: 14.5px;
+  }
 }
 
 @keyframes rise {

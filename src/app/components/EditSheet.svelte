@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { prefersReducedMotion } from 'svelte/motion';
+  import { fly } from 'svelte/transition';
   import { LIMITS, parseFields } from '../../shared/input';
   import { fieldsOf, type Reminder, type ReminderFields } from '../../shared/reminder';
   import { parseLocal, toInstant } from '../../shared/time';
@@ -8,6 +10,8 @@
   import { dateLabel, timeLabel, zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
   import { RepeatChoice } from '../lib/repeat-choice.svelte';
+  import { closeEditor } from '../lib/selection';
+  import { tip } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
   import Icon from './Icon.svelte';
@@ -55,19 +59,38 @@
     alerts = alerts.includes(minutes) ? alerts.filter((value) => value !== minutes) : [...alerts, minutes];
   }
 
+  const changed = $derived(parsed !== null && JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original)));
+
   async function persist(): Promise<void> {
-    if (parsed && JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original))) {
-      await app.apply({ type: 'put', id: original.id, fields: parsed });
-    }
+    if (parsed && changed) await app.apply({ type: 'put', id: original.id, fields: parsed });
   }
 
   async function save() {
     if (!parsed) return;
-    const changed = JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original));
     await persist();
     if (changed) toasts.show('Saved');
-    ui.close();
+    closeEditor();
   }
+
+  function saveShortcut(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
+    if (!(event.target instanceof Element && event.target.closest('#editor'))) return;
+    event.preventDefault();
+    void save();
+  }
+
+  function keepEdits() {
+    if (!changed) return;
+    void persist();
+    toasts.show('Saved');
+  }
+
+  $effect(() => {
+    ui.keepEdits = keepEdits;
+    return () => {
+      if (ui.keepEdits === keepEdits) ui.keepEdits = null;
+    };
+  });
 
   async function act(action: (current: Reminder) => Promise<void> | void) {
     await persist();
@@ -80,14 +103,16 @@
     tick();
     await app.apply({ type: 'skip', id: current.id, due: current.due });
     toasts.show('Skipped to the next one');
-    ui.close();
+    closeEditor();
   }
 </script>
 
-<Sheet label="Edit {original.title}" onClose={() => ui.close()}>
+<svelte:window onkeydown={saveShortcut} />
+
+{#snippet form()}
   <nav>
-    <button class="link quiet" onclick={() => ui.close()}>Cancel</button>
-    <button class="link" onclick={save} disabled={parsed === null}>Save</button>
+    <button class="link quiet" onclick={closeEditor} title={tip('Cancel', 'Escape')}>Cancel</button>
+    <button class="link" onclick={save} disabled={parsed === null} title={tip('Save', 'mod+Enter')}>Save</button>
   </nav>
 
   <input class="bare heading" bind:value={title} maxlength={LIMITS.title} aria-label="Title" placeholder="Title" />
@@ -148,7 +173,7 @@
 
   <div class="acts">
     {#if reminder.due !== null}
-      <button class="btn" disabled={!parsed} onclick={() => act((current) => complete(current).then(() => ui.close()))}
+      <button class="btn" disabled={!parsed} onclick={() => act((current) => complete(current).then(closeEditor))}
         ><Icon name="check" size={16} />Done</button
       >
       <button class="btn" disabled={!parsed} onclick={() => act((current) => ui.snooze(current.id))}
@@ -158,11 +183,38 @@
         <button class="btn" disabled={!parsed} onclick={() => act(skip)}><Icon name="skip" size={16} />Skip</button>
       {/if}
     {/if}
-    <button class="link delete" onclick={() => void remove(reminder).then(() => ui.close())}>Delete</button>
+    <button class="link delete" onclick={() => void remove(reminder).then(closeEditor)}>Delete</button>
   </div>
-</Sheet>
+{/snippet}
+
+{#if ui.docked}
+  <section
+    id="editor"
+    class="docked"
+    tabindex="-1"
+    aria-label="Edit {original.title}"
+    in:fly={{ x: prefersReducedMotion.current ? 0 : 12, duration: 180 }}
+  >
+    {@render form()}
+  </section>
+{:else}
+  <Sheet label="Edit {original.title}" onClose={closeEditor}>
+    <div id="editor">{@render form()}</div>
+  </Sheet>
+{/if}
 
 <style>
+  .docked {
+    padding: 28px 24px 24px;
+    outline: none;
+  }
+
+  .docked nav {
+    min-height: 40px;
+    align-items: center;
+    padding: 0 0 8px;
+  }
+
   nav {
     display: flex;
     justify-content: space-between;

@@ -5,6 +5,7 @@
   import type { SpanKind } from '../../shared/scanner';
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
+  import { keyLabel } from '../lib/shortcuts';
   import { app } from '../lib/app.svelte';
   import { repeatLabel, summaryWhen } from '../lib/format';
   import Icon from './Icon.svelte';
@@ -85,16 +86,7 @@
   $effect(() => {
     if (autofocus) input?.focus();
   });
-
-  function focusShortcut(event: KeyboardEvent) {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-      event.preventDefault();
-      input?.focus();
-    }
-  }
 </script>
-
-<svelte:window onkeydown={focusShortcut} />
 
 <form class="surface composer" style:--keyboard="{keyboard}px" onsubmit={submit}>
   <div class="bar">
@@ -104,6 +96,7 @@
       </div>
       <input
         class="bare"
+        id="composer"
         bind:this={input}
         bind:value={text}
         onscroll={syncScroll}
@@ -145,7 +138,7 @@
         </p>
       {/if}
     {:else}
-      <kbd>{app.platform === 'mac' ? '⌘K' : 'Ctrl K'}</kbd>
+      <kbd>{keyLabel('mod+k')}</kbd>
     {/if}
   </div>
   <p class="sr-only" aria-live="polite">{parsed?.title ? summary : ''}</p>
@@ -298,11 +291,7 @@
 
   kbd {
     display: none;
-    padding: 2px 6px;
-    border-radius: 5px;
-    background: var(--raised);
     color: var(--muted);
-    font: 500 11px var(--font);
   }
 
   @keyframes pop {

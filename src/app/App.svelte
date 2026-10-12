@@ -3,6 +3,7 @@
   import { showUnlessOnScreen } from '../browser/notify';
   import { claim, settle } from '../browser/seen';
   import Onboarding from './components/Onboarding.svelte';
+  import TitleBar from './components/TitleBar.svelte';
   import { Fallback } from './lib/fallback';
   import { ui } from './lib/ui.svelte';
   import { isInstalled } from './lib/platform';
@@ -38,6 +39,8 @@
     fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.caughtUp);
   });
 </script>
+
+<TitleBar />
 
 {#if app.phase === 'failed'}
   <Onboarding

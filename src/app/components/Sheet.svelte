@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { prefersReducedMotion } from 'svelte/motion';
   import { fly } from 'svelte/transition';
 
   let { label, onClose, children }: { label: string; onClose: () => void; children: Snippet } = $props();
@@ -10,9 +11,13 @@
   let startY = $state<number | null>(null);
 
   function open(dialog: HTMLDialogElement) {
+    const opener = document.activeElement;
     dialog.showModal();
     dialog.focus();
-    return () => dialog.close();
+    return () => {
+      dialog.close();
+      if (opener instanceof HTMLElement) opener.focus();
+    };
   }
 
   function down(event: PointerEvent & { currentTarget: HTMLElement }) {
@@ -47,7 +52,7 @@
     onClose();
   }}
   onclick={(event) => event.target === event.currentTarget && onClose()}
-  transition:fly={{ y: 80, duration: 300, easing: (t) => 1 - (1 - t) ** 3 }}
+  transition:fly={{ y: prefersReducedMotion.current ? 0 : 80, duration: 300, easing: (t) => 1 - (1 - t) ** 3 }}
 >
   <div class="body">
     <div
