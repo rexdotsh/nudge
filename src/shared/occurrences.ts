@@ -20,6 +20,7 @@ interface Expansion extends Rule {
 }
 
 type ClockTime = Pick<LocalDateTime, 'hour' | 'minute'>;
+type Occurrence = { at: number; wall: LocalDateTime };
 
 /** The items at BYSETPOS positions, counted from 1 or from the end when negative, in their order. */
 export function atPositions<T>(items: T[], positions: number[]): T[] {
@@ -156,7 +157,12 @@ function nextUnit(plan: Expansion, unit: number, firstUnit: number): number {
   return firstUnit + Math.ceil(((day + 1) * 24 - firstUnit) / plan.interval) * plan.interval;
 }
 
-export function* occurrences(value: Rule, start: LocalDateTime, zone: string, after = -Infinity): Generator<number> {
+export function* occurrences(
+  value: Rule,
+  start: LocalDateTime,
+  zone: string,
+  after = -Infinity,
+): Generator<Occurrence> {
   const plan = expansion(value, start);
   const period = PERIODS[plan.freq];
   const firstUnit = period.unit(start);
@@ -173,23 +179,25 @@ export function* occurrences(value: Rule, start: LocalDateTime, zone: string, af
   for (; current - progress <= longestGap; current = nextUnit(plan, current, firstUnit)) {
     if (period.days(current).length === 0) return;
     for (const day of Map.groupBy(candidates(plan, current), epochDay).values()) {
-      const instants = sortedUnique(
-        day.filter((local) => wallMs(local) >= startWall).map((local) => toInstant(local, zone)),
-      );
-      for (const instant of instants) {
+      const ordered = day
+        .filter((local) => wallMs(local) >= startWall)
+        .map((wall) => ({ at: toInstant(wall, zone), wall }))
+        .toSorted((a, b) => a.at - b.at);
+      for (const occurrence of ordered) {
+        const instant = occurrence.at;
         if (instant <= previous) continue;
         if (value.until !== null && instant > value.until) return;
         previous = instant;
         progress = current;
         emitted++;
-        if (instant > after) yield instant;
+        if (instant > after) yield occurrence;
         if (value.count !== null && emitted >= value.count) return;
       }
     }
   }
 }
 
-export function nextOccurrence(value: Rule, start: LocalDateTime, zone: string, after: number): number | null {
+export function nextOccurrence(value: Rule, start: LocalDateTime, zone: string, after: number): Occurrence | null {
   for (const instant of occurrences(value, start, zone, after)) return instant;
   return null;
 }

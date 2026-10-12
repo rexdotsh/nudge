@@ -83,10 +83,10 @@ export function applyEnding(
   const first = nextOccurrence(repeat.rule, local, zone, now);
   if (ending.kind === 'count') {
     repeat.rule.count = ending.amount;
-    return first === null ? start : formatLocal(toLocal(first, zone));
+    return first === null ? start : formatLocal(first.wall);
   }
   if (first === null) return start;
-  const date = toLocal(first, zone);
+  const date = toLocal(first.at, zone);
   const end = ADVANCE_DATE[ending.freq](date, ending.amount);
   repeat.rule.until = endOfDay(fromEpochDay(epochDay(end) - 1), zone);
   return start;

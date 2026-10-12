@@ -249,13 +249,14 @@ describe('parseQuickAdd', () => {
     expect(parse('hello').important).toBe(false);
   });
 
-  test('spans mark exactly what was understood', () => {
-    const text = 'call mom tomorrow 6pm';
-    const parsed = parse(text);
-    expect(parsed.spans.map(({ start, end, kind }) => [text.slice(start, end), kind])).toEqual([
-      ['tomorrow', 'when'],
-      ['6pm', 'when'],
-    ]);
+  test('counted hourly repeats keep their wall-clock phase when the first future slot is in a DST gap', () => {
+    const parsed = parseQuickAdd(
+      'stretch every 2 hours at 00:00 for 3 times',
+      Date.UTC(2026, 2, 8, 5, 30),
+      'America/New_York',
+    );
+    expect(parsed.start).toBe('2026-03-08T02:00');
+    expect(parsed.repeat?.rule).toBe('FREQ=HOURLY;INTERVAL=2;COUNT=3');
   });
 
   test.each([

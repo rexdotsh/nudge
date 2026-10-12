@@ -13,7 +13,7 @@ function local(text: string): LocalDateTime {
 
 function expand(text: string, start: string, limit = 40, zone = NY, after = -Infinity): string[] {
   const out: string[] = [];
-  for (const instant of occurrences(parseRule(text), local(start), zone, after)) {
+  for (const { at: instant } of occurrences(parseRule(text), local(start), zone, after)) {
     out.push(formatLocal(toLocal(instant, zone)));
     if (out.length === limit) break;
   }
@@ -240,7 +240,7 @@ describe('reminder-shaped rules', () => {
 describe('time zones', () => {
   test('wall-clock times survive DST transitions', () => {
     const instants = [...occurrences(parseRule('FREQ=DAILY;COUNT=3'), local('2026-10-31T09:00'), NY)];
-    expect(instants.map((t) => new Date(t).toISOString())).toEqual([
+    expect(instants.map(({ at }) => new Date(at).toISOString())).toEqual([
       '2026-10-31T13:00:00.000Z',
       '2026-11-01T14:00:00.000Z',
       '2026-11-02T14:00:00.000Z',
@@ -277,8 +277,8 @@ describe('time zones', () => {
   test('the same rule fires at different instants in different zones', () => {
     const rule = parseRule('FREQ=DAILY');
     const start = local('2026-10-11T09:00');
-    expect(nextOccurrence(rule, start, 'Asia/Kolkata', 0)).toBe(Date.UTC(2026, 9, 11, 3, 30));
-    expect(nextOccurrence(rule, start, 'Europe/London', 0)).toBe(Date.UTC(2026, 9, 11, 8, 0));
+    expect(nextOccurrence(rule, start, 'Asia/Kolkata', 0)?.at).toBe(Date.UTC(2026, 9, 11, 3, 30));
+    expect(nextOccurrence(rule, start, 'Europe/London', 0)?.at).toBe(Date.UTC(2026, 9, 11, 8, 0));
   });
 });
 
@@ -286,7 +286,7 @@ describe('nextOccurrence', () => {
   test('finds the next match strictly after the given instant, far from the start', () => {
     const rule = parseRule('FREQ=MONTHLY;BYDAY=-1FR');
     const after = Date.UTC(2031, 4, 30, 23, 0);
-    expect(formatLocal(toLocal(nextOccurrence(rule, local('2026-10-11T19:00'), NY, after) ?? 0, NY))).toBe(
+    expect(formatLocal(toLocal(nextOccurrence(rule, local('2026-10-11T19:00'), NY, after)?.at ?? 0, NY))).toBe(
       '2031-06-27T19:00',
     );
   });
@@ -294,7 +294,7 @@ describe('nextOccurrence', () => {
   test('respects COUNT from the start even when asked about the far future', () => {
     const rule = parseRule('FREQ=WEEKLY;COUNT=3');
     const start = local('2026-10-12T09:00');
-    expect(nextOccurrence(rule, start, NY, toInstant(local('2026-10-19T09:00'), NY))).toBe(
+    expect(nextOccurrence(rule, start, NY, toInstant(local('2026-10-19T09:00'), NY))?.at).toBe(
       toInstant(local('2026-10-26T09:00'), NY),
     );
     expect(nextOccurrence(rule, start, NY, toInstant(local('2026-10-26T09:00'), NY))).toBeNull();
