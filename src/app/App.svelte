@@ -1,6 +1,8 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
-  import { show } from '../browser/notify';
+  import { showUnlessOnScreen } from '../browser/notify';
+  import { claim, settle } from '../browser/seen';
+  import Onboarding from './components/Onboarding.svelte';
   import { Fallback } from './lib/fallback';
   import { ui } from './lib/ui.svelte';
   import { isInstalled } from './lib/platform';
@@ -19,7 +21,10 @@
   if (link.size > 0) history.replaceState(null, '', '/');
 
   const fallback = new Fallback({
-    ready: () => navigator.serviceWorker.ready.then((registration) => (content) => show(registration, content)),
+    ready: () =>
+      navigator.serviceWorker.ready.then((registration) => (content) => showUnlessOnScreen(registration, content)),
+    claim: (fire) => claim(fire, Date.now()),
+    settle,
     wait: (run, ms) => {
       const timer = setTimeout(() => void run(), ms);
       return () => clearTimeout(timer);
@@ -34,7 +39,14 @@
   });
 </script>
 
-{#if app.phase === 'enroll'}
+{#if app.phase === 'failed'}
+  <Onboarding
+    title="Nudge can't open its storage"
+    tagline="Your browser blocked or lost Nudge's local data. Close other Nudge windows and try again."
+  >
+    <button class="btn primary block" onclick={() => location.reload()}>Try again</button>
+  </Onboarding>
+{:else if app.phase === 'enroll'}
   {#if needsInstall}<Install />{:else}<Enroll />{/if}
 {:else if app.phase === 'ready'}
   {#if askForNotifications}

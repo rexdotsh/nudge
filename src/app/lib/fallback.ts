@@ -1,21 +1,29 @@
 import { fire, nextFireAt } from '../../shared/fire';
 import { fireId, reminderMessage, type NotificationContent } from '../../shared/notification';
+import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
 
 const GRACE_MS = 45_000;
 const MAX_WAIT_MS = HOUR_MS;
+const LOOKBACK_MS = HOUR_MS;
+const READY_TIMEOUT_MS = 10_000;
+const RETRY_MS = 60_000;
 
 type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
+  claim: (fire: string) => Promise<Claim>;
+  settle: (fire: string, shown: boolean) => Promise<void>;
   wait: (run: () => Promise<void>, ms: number) => () => void;
   now: () => number;
   origin: string;
   locale: string;
 }
 
+// The server advances firedThrough when it plans a push, not when the push arrives, so this ignores it and instead
+// trusts only what this device has actually shown, through the claims the service worker shares.
 export class Fallback {
   private cancel = () => {};
   private generation = 0;
@@ -28,35 +36,94 @@ export class Fallback {
     this.arm(reminders, zone, enabled);
   }
 
-  private arm(reminders: readonly Reminder[], zone: string, enabled: boolean): void {
+  private arm(reminders: readonly Reminder[], zone: string, enabled: boolean, atLeast = 0): void {
     this.cancel();
     if (!enabled) return;
+    const now = this.deps.now();
     let next = Infinity;
-    for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder), zone) ?? Infinity);
+    for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder, now), zone) ?? Infinity);
     if (next === Infinity) return;
     const generation = this.generation;
-    const wait = Math.min(Math.max(0, next + GRACE_MS - this.deps.now()), MAX_WAIT_MS);
+    const wait = Math.min(Math.max(atLeast, next + GRACE_MS - now), MAX_WAIT_MS);
     this.cancel = this.deps.wait(() => this.check(reminders, zone, generation), wait);
   }
 
-  private locally(reminder: Reminder): Reminder {
+  private locally(reminder: Reminder, now: number): Reminder {
     const watermark = this.watermarks.get(reminder.id) ?? -Infinity;
-    return watermark > reminder.firedThrough ? { ...reminder, firedThrough: watermark } : reminder;
+    return { ...reminder, firedThrough: Math.max(watermark, reminder.createdAt, now - LOOKBACK_MS) };
+  }
+
+  private advance(id: string, firedThrough: number): void {
+    this.watermarks.set(id, Math.max(this.watermarks.get(id) ?? -Infinity, firedThrough));
+  }
+
+  private async ready(): Promise<Display> {
+    let cancel: (() => void) | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      cancel = this.deps.wait(async () => reject(new Error('the service worker is not ready')), READY_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([this.deps.ready(), timeout]);
+    } finally {
+      cancel?.();
+    }
+  }
+
+  /** Whether the fire is done with: shown here, or already shown by anyone. */
+  private async showOnce(key: string, content: NotificationContent, display: Display): Promise<boolean> {
+    const claimed = await this.deps.claim(key);
+    if (claimed !== 'won') return claimed === 'seen';
+    console.warn(`push for ${key} did not arrive; showing it locally`);
+    const ok = await display(content).then(
+      () => true,
+      (error: unknown) => {
+        console.error(`could not show ${key} locally`, error);
+        return false;
+      },
+    );
+    await this.deps.settle(key, ok);
+    return ok;
   }
 
   private async check(reminders: readonly Reminder[], zone: string, generation: number): Promise<void> {
-    const display = await this.deps.ready();
+    let display: Display;
+    try {
+      display = await this.ready();
+    } catch (error) {
+      console.error('local fallback could not reach the service worker; retrying', error);
+      if (generation === this.generation) {
+        this.cancel = this.deps.wait(() => this.check(reminders, zone, generation), RETRY_MS);
+      }
+      return;
+    }
     if (generation !== this.generation) return;
     const now = this.deps.now();
     const { origin, locale } = this.deps;
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
+    const outcomes: Promise<boolean>[] = [];
     for (const reminder of reminders) {
-      const { reminder: advanced, notice } = fire(this.locally(reminder), now - GRACE_MS, zone);
-      this.watermarks.set(reminder.id, advanced.firedThrough);
-      if (!notice) continue;
-      console.warn(`push for ${fireId(reminder.id, notice.at)} did not arrive; showing it locally`);
-      void display(reminderMessage(advanced, notice, view).notification);
+      const { reminder: advanced, notice } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
+      if (!notice) {
+        this.advance(reminder.id, advanced.firedThrough);
+        continue;
+      }
+      const key = fireId(reminder.id, notice.at);
+      const content = reminderMessage(advanced, notice, view).notification;
+      outcomes.push(
+        this.showOnce(key, content, display).then(
+          (done) => {
+            if (done) this.advance(reminder.id, advanced.firedThrough);
+            return done;
+          },
+          (error: unknown) => {
+            console.error(`could not record ${key}`, error);
+            return false;
+          },
+        ),
+      );
     }
-    this.arm(reminders, zone, true);
+    // A fire that is busy elsewhere or failed to show stays unconsumed and is retried until it leaves the lookback.
+    const retry = (await Promise.all(outcomes)).includes(false);
+    if (generation === this.generation) this.arm(reminders, zone, true, retry ? RETRY_MS : 0);
   }
 }

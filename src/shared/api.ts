@@ -34,6 +34,7 @@ export interface Health {
 }
 
 export const MAX_CHANGES = 200;
+export const MAX_REQUEST_BYTES = 256 * 1024;
 
 export interface Change {
   opId: string;

@@ -1,8 +1,11 @@
 import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set, update } from '../../browser/kv';
-import { acknowledge, currentZone, enqueue } from '../../browser/outbox';
-import { MAX_CHANGES, type Change } from '../../shared/api';
-import { BASE64URL, utf8 } from '../../shared/encoding';
+import { Replica } from '../../browser/replica';
+import { EMPTY_LOCAL } from '../../browser/schema';
+import { batch } from '../../browser/batch';
+import { commit, currentZone, enqueue } from '../../browser/outbox';
+import { MAX_REQUEST_BYTES, type Change } from '../../shared/api';
+import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
 import { DAY_MS } from '../../shared/time';
@@ -10,23 +13,11 @@ import { Connection } from './connection';
 import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
 import { enablePush, pushState, syncSubscription, type PushState } from './push';
-import { Replica } from './replica';
 
-type Phase = 'loading' | 'enroll' | 'ready';
+type Phase = 'loading' | 'enroll' | 'ready' | 'failed';
 
 const KEEPALIVE_BYTES = 48 * 1024;
 const TRAVEL_WINDOW_MS = 7 * DAY_MS;
-
-function withinKeepalive(pending: readonly Change[]): Change[] {
-  const batch: Change[] = [];
-  let bytes = 0;
-  for (const change of pending.slice(0, MAX_CHANGES)) {
-    bytes += utf8(JSON.stringify(change)).length + 1;
-    if (bytes > KEEPALIVE_BYTES) break;
-    batch.push(change);
-  }
-  return batch;
-}
 
 class App {
   phase = $state<Phase>('loading');
@@ -49,17 +40,16 @@ class App {
   private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
   async start(): Promise<void> {
-    navigator.serviceWorker?.addEventListener('message', () => void this.reloadPending().then(() => this.sync()));
+    navigator.serviceWorker?.addEventListener('message', () => void this.reloadLocal().then(() => this.sync()));
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
-    const [session, snapshot, pending] = await Promise.all([
-      get('session'),
-      get('replica'),
-      get('pending'),
-      this.noteZone(),
-    ]);
-    this.replica = new Replica(snapshot);
-    this.pending = pending ?? [];
-    this.refresh();
+    let session;
+    try {
+      [session] = await Promise.all([get('session'), this.reloadLocal(), this.noteZone()]);
+    } catch (error) {
+      console.error('local storage is unavailable', error);
+      this.phase = 'failed';
+      return;
+    }
     this.phase = session ? 'ready' : 'enroll';
     if (session) this.connect(session.token);
     setInterval(() => {
@@ -113,7 +103,7 @@ class App {
     const settled = () => {
       if (current()) this.caughtUp = true;
     };
-    const sent = this.pending.slice(0, MAX_CHANGES);
+    const sent = batch(this.pending, MAX_REQUEST_BYTES);
     this.zone = currentZone();
     try {
       const response = await this.connection.sync({
@@ -122,12 +112,12 @@ class App {
         changes: sent,
       });
       this.replica.receive(response);
-      const remaining = await acknowledge(new Set(sent.map((change) => change.opId)));
-      await set('replica', this.replica.snapshot());
-      this.pending = remaining;
+      const local = await commit(this.replica.snapshot(), new Set(sent.map((change) => change.opId)));
+      this.replica = new Replica(local.replica);
+      this.pending = local.pending;
       this.online = true;
       settled();
-      if (remaining.length > 0) this.again = true;
+      if (local.pending.length > 0) this.again = true;
     } catch (error) {
       if (error instanceof Unreachable) {
         this.online = false;
@@ -159,7 +149,7 @@ class App {
       this.notifications = pushState();
       void this.noteZone();
       this.connection?.open();
-      void this.reloadPending().then(() => this.sync());
+      void this.reloadLocal().then(() => this.sync());
       void syncSubscription();
       return;
     }
@@ -167,7 +157,7 @@ class App {
     if (this.pending.length > 0 && this.token) {
       void request(
         'sync',
-        { since: this.replica.version, zone: this.zone, changes: withinKeepalive(this.pending) },
+        { since: this.replica.version, zone: this.zone, changes: batch(this.pending, KEEPALIVE_BYTES) },
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
     }
@@ -187,8 +177,10 @@ class App {
     this.travelling = seen.since > 0 && Date.now() - seen.since < TRAVEL_WINDOW_MS;
   }
 
-  private async reloadPending(): Promise<void> {
-    this.pending = (await get('pending')) ?? [];
+  private async reloadLocal(): Promise<void> {
+    const local = (await get('local')) ?? EMPTY_LOCAL;
+    this.replica = new Replica(local.replica);
+    this.pending = local.pending;
     this.refresh();
   }
 

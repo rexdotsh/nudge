@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Replica } from '../src/app/lib/replica';
+import { Replica } from '../src/browser/replica';
 import type { Change } from '../src/shared/api';
 import { applyOp } from '../src/shared/ops';
 import type { Reminder, ReminderFields } from '../src/shared/reminder';
@@ -49,4 +49,12 @@ test('a reset drops everything the server no longer has', () => {
   replica.receive({ version: 3, reminders: [], reset: true });
   expect(replica.view([], ZONE)).toEqual([]);
   expect(replica.version).toBe(3);
+});
+
+test('a slower, older sync response never rolls the replica back', () => {
+  const replica = new Replica({ version: 1, reminders: [server()] });
+  replica.receive({ version: 3, reminders: [{ ...server(), title: 'Newer' }], reset: false });
+  replica.receive({ version: 2, reminders: [{ ...server(), title: 'Older' }], reset: false });
+  expect(replica.version).toBe(3);
+  expect(replica.view([], ZONE)[0]?.title).toBe('Newer');
 });

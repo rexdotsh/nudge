@@ -9,6 +9,8 @@ export class ApiRejected extends Error {
 
 export class Unreachable extends Error {}
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
 export interface RequestOptions {
   keepalive?: boolean;
   token?: string;
@@ -25,6 +27,7 @@ export async function request<R extends Route>(
     response = await fetch(`/api/${route}`, {
       method: 'POST',
       keepalive: options.keepalive ?? false,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
     });
@@ -34,7 +37,12 @@ export async function request<R extends Route>(
   if (!response.headers.get('Content-Type')?.includes('application/json')) {
     throw new Unreachable(`unexpected ${response.status} response`);
   }
-  const reply: Reply<Routes[R]['response']> = await response.json();
+  let reply: Reply<Routes[R]['response']>;
+  try {
+    reply = await response.json();
+  } catch (error) {
+    throw new Unreachable(error instanceof Error ? error.message : 'could not read the response');
+  }
   if (!reply.ok) throw new ApiRejected(reply.error);
   return reply.data;
 }

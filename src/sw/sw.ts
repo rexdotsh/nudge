@@ -1,9 +1,14 @@
-import { request } from '../browser/api';
+import { Unreachable, request } from '../browser/api';
 import { get } from '../browser/kv';
-import { SNOOZE_MINUTES, isShown, show } from '../browser/notify';
-import { acknowledge, currentZone, enqueue } from '../browser/outbox';
+import { SNOOZE_MINUTES, isShown, showUnlessOnScreen } from '../browser/notify';
+import { batch } from '../browser/batch';
+import { commit, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
-import type { PushMessage } from '../shared/notification';
+import { Replica } from '../browser/replica';
+import { EMPTY_LOCAL } from '../browser/schema';
+import { claim, isSeen, settle } from '../browser/seen';
+import { MAX_REQUEST_BYTES } from '../shared/api';
+import type { NotificationContent, PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { isRecord } from '../shared/validate';
@@ -18,10 +23,26 @@ function isPushMessage(value: unknown): value is PushMessage {
   );
 }
 
-async function confirm(fire: string): Promise<void> {
-  await request('receipt', { fire }).catch((error: unknown) =>
-    console.warn('receipt failed; the server will resend once', error),
-  );
+// The receipt goes out only once the notification is really on screen; a resend of a fire already shown is confirmed
+// again without alerting twice.
+async function present(notification: NotificationContent, shownByBrowser: boolean): Promise<void> {
+  const { fire } = notification.data;
+  if (shownByBrowser) {
+    await settle(fire, true);
+  } else if ((await claim(fire, Date.now())) === 'won') {
+    await showUnlessOnScreen(self.registration, notification).then(
+      () => settle(fire, true),
+      async (error: unknown) => {
+        await settle(fire, false);
+        throw error;
+      },
+    );
+  }
+  if (!(await isSeen(fire))) return;
+  await request('receipt', { fire }).catch((error: unknown) => {
+    if (!(error instanceof Unreachable)) throw error;
+    console.warn('receipt failed; the server will resend and this device will confirm then', error);
+  });
 }
 
 self.addEventListener('install', (event) => {
@@ -63,20 +84,33 @@ self.addEventListener('push', (event) => {
   const badge = Number(notification.app_badge);
   event.waitUntil(
     Promise.all([
-      handledByBrowser ? undefined : show(self.registration, notification),
+      present(notification, handledByBrowser),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
-      confirm(notification.data.fire),
     ]),
   );
 });
 
+// Sends the outbox in order, so an action never overtakes the change that created what it acts on.
+async function drain(): Promise<void> {
+  const local = (await get('local')) ?? EMPTY_LOCAL;
+  const changes = batch(local.pending, MAX_REQUEST_BYTES);
+  const response = await request('sync', { since: local.replica.version, zone: currentZone(), changes });
+  const replica = new Replica(local.replica);
+  replica.receive(response);
+  const { pending } = await commit(replica.snapshot(), new Set(changes.map((change) => change.opId)));
+  if (pending.length > 0) await drain();
+}
+
 async function act(op: Op): Promise<void> {
-  const change = await enqueue(op);
-  const replica = await get('replica');
-  await request('sync', { since: replica?.version ?? 0, zone: currentZone(), changes: [change] })
-    .then(() => acknowledge(new Set([change.opId])))
-    .catch((error: unknown) => console.warn('action queued for the app to send', error));
-  for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
+  await enqueue(op);
+  try {
+    await drain().catch((error: unknown) => {
+      if (!(error instanceof Unreachable)) throw error;
+      console.warn('action queued for the app to send', error);
+    });
+  } finally {
+    for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
+  }
 }
 
 async function focus(navigate: string): Promise<void> {
