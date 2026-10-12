@@ -92,7 +92,8 @@
   .menu {
     position: fixed;
     z-index: 50;
-    width: 248px;
+    min-width: 220px;
+    max-width: calc(100vw - 16px);
     padding: 4px;
     border: 1px solid var(--edge);
     border-radius: 10px;
@@ -118,6 +119,7 @@
     border-radius: 6px;
     font-size: 13.5px;
     text-align: left;
+    white-space: nowrap;
   }
 
   button:is(:hover, :focus) {
