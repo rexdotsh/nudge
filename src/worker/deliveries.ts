@@ -119,6 +119,19 @@ export class Deliveries {
     );
   }
 
+  cancelForReminder(reminderId: string): void {
+    this.sql.exec(
+      `UPDATE deliveries SET next_at = NULL, lease = NULL
+       WHERE next_at IS NOT NULL AND substr(fire, 1, length(?) + 1) = ? || '@'`,
+      reminderId,
+      reminderId,
+    );
+  }
+
+  cancelForDevice(deviceId: string): void {
+    this.sql.exec('UPDATE deliveries SET next_at = NULL, lease = NULL WHERE device_id = ?', deviceId);
+  }
+
   purge(before: number): void {
     this.sql.exec('DELETE FROM deliveries WHERE created_at < ? AND next_at IS NULL', before);
   }

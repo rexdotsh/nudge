@@ -8,7 +8,7 @@ import {
   type PushMessage,
 } from '../shared/notification';
 import { lateCount, type Reminder } from '../shared/reminder';
-import { DAY_MS, HOUR_MS, MINUTE_MS } from '../shared/time';
+import { DAY_MS, HOUR_MS, MINUTE_MS, toInstant, toLocal } from '../shared/time';
 import type { DeliveryRow, Outgoing } from './deliveries';
 import type { Target } from './devices';
 import type { Runtime } from './runtime';
@@ -24,7 +24,6 @@ const RETRY_DELAYS_MS = [1000, 4000];
 const ALERT_COOLDOWN_MS = HOUR_MS;
 const PUSH_TTL_SECONDS = 24 * 3600;
 const DELIVERY_RETENTION_MS = 14 * DAY_MS;
-const TOMBSTONE_RETENTION_MS = 30 * DAY_MS;
 const ALERT_RETRY_MS = 5 * MINUTE_MS;
 
 const isOk = (status: number) => status >= 200 && status < 300;
@@ -46,17 +45,23 @@ export class Scheduler {
     return this.store.meta('zone') ?? 'UTC';
   }
 
+  // Floating reminders keep their wall time when the instance zone changes, so what has already fired must move with
+  // it: otherwise flying west re-fires an occurrence and flying east silently skips one.
   setZone(zone: string): boolean {
-    if (this.store.meta('zone') === zone) return false;
+    const previous = this.store.meta('zone');
+    if (previous === zone) return false;
     this.store.setMeta('zone', zone);
     for (const reminder of this.store.reminders()) {
-      if (reminder.zone === null) this.store.setFireAt(reminder.id, nextFireAt(reminder, zone));
+      if (reminder.zone !== null) continue;
+      const firedThrough =
+        previous === null ? reminder.firedThrough : toInstant(toLocal(reminder.firedThrough, previous), zone);
+      this.save({ ...reminder, firedThrough });
     }
     return true;
   }
 
-  save(reminder: Reminder, now: number): void {
-    this.store.saveReminder(reminder, nextFireAt(reminder, this.zone()), now);
+  save(reminder: Reminder): void {
+    this.store.saveReminder(reminder, nextFireAt(reminder, this.zone()));
   }
 
   private origin(): string {
@@ -113,9 +118,7 @@ export class Scheduler {
     else if (stalled) await this.rearm();
     this.runtime.transaction(() => {
       this.store.deliveries.purge(now - DELIVERY_RETENTION_MS);
-      if (this.store.purgeTombstones(now - TOMBSTONE_RETENTION_MS) > 0) {
-        this.store.setMeta('purged', String(this.store.version()));
-      }
+      this.store.purgeAlertMarks(now - DAY_MS);
     });
     if (late > 0) await this.alertOnce('late', `${late} notification(s) were late, sent them now.`);
     if (stalled) await this.alertOnce('stalled', 'The scheduler had no alarm set while work was pending, re-armed it.');
@@ -142,16 +145,24 @@ export class Scheduler {
     );
     const view = this.presentation(badge);
 
-    this.runtime.transaction(() => {
+    const unreached = this.runtime.transaction(() => {
       const targets = this.store.devices.targets();
+      const missed: Outgoing[] = [];
       for (const { reminder, notice } of fired) {
-        this.save(reminder, now);
+        this.save(reminder);
         if (!notice) continue;
         const item = this.noticeFor(reminder, notice, view);
+        if (targets.length === 0) missed.push(item);
         for (const target of targets) this.store.deliveries.queue(item, target.deviceId, now, now);
       }
+      return missed;
     });
     if (fired.length > 0) this.runtime.broadcast({ kind: 'changed', version: this.store.version() });
+    await Promise.all(
+      unreached.map((item) =>
+        this.alertOnce(`unreached:${item.fire}`, `No device has notifications on, so "${item.title}" was not sent.`),
+      ),
+    );
 
     const lease = crypto.randomUUID();
     const claimed = this.runtime.transaction(() => this.store.deliveries.claim(now, LEASE_MS, lease));
@@ -159,10 +170,14 @@ export class Scheduler {
   }
 
   private async escalate(row: DeliveryRow): Promise<void> {
-    const label = this.store.devices.get(row.device_id)?.label ?? 'a device';
+    const device = this.store.devices.get(row.device_id);
+    if (!device) {
+      this.store.deliveries.release(row, null);
+      return;
+    }
     const delivered = await this.alertOnce(
-      `unconfirmed:${row.device_id}`,
-      `"${label}" has not confirmed "${row.title}" after a resend.`,
+      `unconfirmed:${row.fire}:${row.device_id}`,
+      `"${device.label}" has not confirmed "${row.title}" after a resend.`,
     );
     this.store.deliveries.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);
   }
@@ -178,7 +193,9 @@ export class Scheduler {
     const gone = isGone(result.status);
     const now = this.runtime.now();
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
-    const nextAt = ok || isRetryable(result.status) ? now + followUp : null;
+    const current = this.store.devices.target(row.device_id);
+    const replaced = gone && current !== undefined && current.endpoint !== target.endpoint;
+    const nextAt = ok || isRetryable(result.status) ? now + followUp : replaced ? now : null;
     const owned = this.runtime.transaction(() => {
       if (!this.store.deliveries.recordSend(row, result.status, nextAt, now)) return false;
       if (gone) this.store.devices.dropSubscription(target);

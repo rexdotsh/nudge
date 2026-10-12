@@ -8,7 +8,6 @@ const SCHEMA = [
     id TEXT PRIMARY KEY,
     version INTEGER NOT NULL,
     fire_at INTEGER,
-    deleted_at INTEGER,
     data TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS reminders_by_version ON reminders (version)`,
@@ -73,29 +72,21 @@ export class Store {
     return this.decoded('SELECT data FROM reminders WHERE fire_at <= ? ORDER BY fire_at', now);
   }
 
-  saveReminder(reminder: Reminder, fireAt: number | null, now: number): void {
+  saveReminder(reminder: Reminder, fireAt: number | null): void {
     const version = this.version() + 1;
     this.setMeta('version', String(version));
     this.sql.exec(
-      `INSERT INTO reminders (id, version, fire_at, deleted_at, data) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET version = excluded.version, fire_at = excluded.fire_at,
-         deleted_at = CASE WHEN excluded.deleted_at IS NULL THEN NULL ELSE COALESCE(reminders.deleted_at, excluded.deleted_at) END,
-         data = excluded.data`,
+      `INSERT INTO reminders (id, version, fire_at, data) VALUES (?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET version = excluded.version, fire_at = excluded.fire_at, data = excluded.data`,
       reminder.id,
       version,
       fireAt,
-      reminder.deleted ? now : null,
       JSON.stringify(reminder),
     );
   }
 
-  setFireAt(id: string, fireAt: number | null): void {
-    this.sql.exec('UPDATE reminders SET fire_at = ? WHERE id = ?', fireAt, id);
-  }
-
-  purgeTombstones(before: number): number {
-    return this.sql.exec<{ id: string }>('DELETE FROM reminders WHERE deleted_at < ? RETURNING id', before).toArray()
-      .length;
+  purgeAlertMarks(before: number): void {
+    this.sql.exec("DELETE FROM meta WHERE key LIKE 'alert:%' AND CAST(value AS INTEGER) < ?", before);
   }
 
   applied(opId: string): boolean {

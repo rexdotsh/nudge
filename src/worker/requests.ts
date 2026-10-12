@@ -73,8 +73,9 @@ function pushKeys(value: unknown): PushKeys | null {
 }
 
 function change(value: unknown): Change {
-  const { opId, op } = record(value);
-  return isUlid(opId) ? { opId, op: parseOp(op) ?? invalid() } : invalid();
+  const { opId, op, at } = record(value);
+  if (!isUlid(opId) || !isInteger(at, 0, Number.MAX_SAFE_INTEGER)) invalid();
+  return { opId, op: parseOp(op) ?? invalid(), at };
 }
 
 function syncRequest(value: unknown): SyncRequest {
