@@ -44,10 +44,11 @@ export function quietSummary({ today, later }: Triage, now: number, zone: string
   return { lead, rest: `Next is ${next.reminder.title} · ${shortWhen(next.at, now, zone)}` };
 }
 
-export function recentlyCompleted(reminders: readonly Reminder[], now: number): Reminder[] {
+export function recentlyCompleted(reminders: readonly Reminder[], now: number): { reminder: Reminder; at: number }[] {
   return reminders
-    .filter(
-      (reminder) => !reminder.deleted && reminder.completedAt !== null && now - reminder.completedAt < 30 * DAY_MS,
-    )
-    .toSorted((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
+    .flatMap((reminder) => {
+      const at = reminder.completedAt;
+      return !reminder.deleted && at !== null && now - at < 30 * DAY_MS ? [{ reminder, at }] : [];
+    })
+    .toSorted((a, b) => b.at - a.at);
 }

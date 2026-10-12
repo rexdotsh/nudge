@@ -46,6 +46,10 @@ export interface Reminder extends ReminderFields, ReminderState {
   deleted: boolean;
 }
 
+export function fieldsOf({ title, notes, start, zone, repeat, important, alerts }: ReminderFields): ReminderFields {
+  return { title, notes, start, zone, repeat, important, alerts };
+}
+
 const parsedRule = memoize(parseRule);
 
 export function local(text: string): LocalDateTime {

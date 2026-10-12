@@ -1,28 +1,20 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { LIMITS, parseFields } from '../../shared/input';
-  import { parseQuickAdd } from '../../shared/quick-add';
-  import { local, type Reminder, type ReminderFields, type Repeat } from '../../shared/reminder';
-  import { toInstant } from '../../shared/time';
+  import { fieldsOf, type Reminder, type ReminderFields } from '../../shared/reminder';
+  import { parseLocal, toInstant } from '../../shared/time';
   import { complete, remove } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { dateLabel, repeatLabel, timeLabel } from '../lib/format';
+  import { dateLabel, timeLabel, zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
+  import { RepeatChoice } from '../lib/repeat-choice.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
+  import RepeatPicker from './RepeatPicker.svelte';
   import Sheet from './Sheet.svelte';
 
   let { reminder }: { reminder: Reminder } = $props();
 
-  const PRESETS: { key: string; label: string; rule: string | null }[] = [
-    { key: 'none', label: 'Never', rule: null },
-    { key: 'daily', label: 'Every day', rule: 'FREQ=DAILY' },
-    { key: 'weekdays', label: 'Weekdays', rule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' },
-    { key: 'weekly', label: 'Every week', rule: 'FREQ=WEEKLY' },
-    { key: 'biweekly', label: 'Every 2 weeks', rule: 'FREQ=WEEKLY;INTERVAL=2' },
-    { key: 'monthly', label: 'Every month', rule: 'FREQ=MONTHLY' },
-    { key: 'yearly', label: 'Every year', rule: 'FREQ=YEARLY' },
-  ];
   const ALERTS = [
     { minutes: 5, label: '5 min' },
     { minutes: 15, label: '15 min' },
@@ -31,73 +23,40 @@
   ];
 
   const original = untrack(() => $state.snapshot(reminder));
-  const presetOf = (repeat: Repeat | null) =>
-    repeat === null
-      ? 'none'
-      : (PRESETS.find((preset) => repeat.anchor === 'schedule' && preset.rule === repeat.rule)?.key ?? 'custom');
+  const repeat = new RepeatChoice(original.repeat);
 
   let title = $state(original.title);
   let notes = $state(original.notes);
   let date = $state(original.start.slice(0, 10));
   let time = $state(original.start.slice(11, 16));
-  let choice = $state(presetOf(original.repeat));
-  let phrase = $state('');
-  let typing = $state(false);
   let important = $state(original.important);
   let alerts = $state([...original.alerts]);
   let pinned = $state(original.zone !== null);
   let showZone = $state(original.zone !== null || app.travelling);
 
-  const customRepeat = $derived(
-    phrase.trim() === '' ? original.repeat : parseQuickAdd(`x ${phrase}`, app.now, app.zone).repeat,
-  );
-  const repeat = $derived<Repeat | null>(
-    choice === 'custom'
-      ? customRepeat
-      : choice === 'none'
-        ? null
-        : { rule: PRESETS.find((preset) => preset.key === choice)?.rule ?? 'FREQ=DAILY', anchor: 'schedule' },
-  );
   const fields = $derived<ReminderFields>({
     title: title.trim(),
     notes,
     start: `${date}T${time}`,
     zone: pinned ? (original.zone ?? app.zone) : null,
-    repeat,
+    repeat: repeat.repeat,
     important,
     alerts: alerts.toSorted((a, b) => a - b),
   });
-  const valid = $derived(parseFields(fields) !== null);
-  const cadence = $derived(repeat && valid ? repeatLabel(repeat, fields.start, app.zone) : null);
-  const startAt = $derived(valid ? toInstant(local(fields.start), fields.zone ?? app.zone) : null);
-  const zoneName = $derived(
-    new Intl.DateTimeFormat(navigator.language, { timeZone: fields.zone ?? app.zone, timeZoneName: 'long' })
-      .formatToParts(app.now)
-      .find((part) => part.type === 'timeZoneName')?.value ?? app.zone,
-  );
-
-  function pickRepeat(value: string) {
-    typing = value === 'type';
-    choice = typing ? 'custom' : value;
-  }
+  const parsed = $derived(repeat.understood ? parseFields(fields) : null);
+  const zone = $derived(fields.zone ?? app.zone);
+  const startAt = $derived.by(() => {
+    const start = parseLocal(fields.start);
+    return start ? toInstant(start, zone) : null;
+  });
 
   function toggleAlert(minutes: number) {
     alerts = alerts.includes(minutes) ? alerts.filter((value) => value !== minutes) : [...alerts, minutes];
   }
 
   async function save() {
-    const parsed = parseFields(fields);
     if (!parsed) return;
-    const before: ReminderFields = {
-      title: original.title,
-      notes: original.notes,
-      start: original.start,
-      zone: original.zone,
-      repeat: original.repeat,
-      important: original.important,
-      alerts: original.alerts,
-    };
-    if (JSON.stringify(parsed) !== JSON.stringify(before)) {
+    if (JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original))) {
       await app.apply({ type: 'put', id: original.id, fields: parsed });
       toasts.show('Saved');
     }
@@ -116,7 +75,7 @@
 <Sheet label="Edit {original.title}" onClose={() => ui.close()}>
   <nav>
     <button onclick={() => ui.close()}>Cancel</button>
-    <button class="save" onclick={save} disabled={!valid}>Save</button>
+    <button class="save" onclick={save} disabled={parsed === null}>Save</button>
   </nav>
 
   <input class="title" bind:value={title} maxlength={LIMITS.title} aria-label="Title" placeholder="Title" />
@@ -127,35 +86,16 @@
       <span>When</span>
       <span class="when">
         <label class="picker">
-          <span>{startAt === null ? date : dateLabel(startAt, fields.zone ?? app.zone)}</span>
+          <span>{startAt === null ? date : dateLabel(startAt, zone)}</span>
           <input type="date" bind:value={date} aria-label="Date" required />
         </label>
         <label class="picker">
-          <span>{startAt === null ? time : timeLabel(startAt, fields.zone ?? app.zone)}</span>
+          <span>{startAt === null ? time : timeLabel(startAt, zone)}</span>
           <input type="time" bind:value={time} aria-label="Time" required />
         </label>
       </span>
     </div>
-    <label class="field">
-      <span>Repeat</span>
-      <select value={typing ? 'type' : choice} onchange={(event) => pickRepeat(event.currentTarget.value)}>
-        {#each PRESETS as preset (preset.key)}<option value={preset.key}>{preset.label}</option>{/each}
-        {#if choice === 'custom' && cadence}<option value="custom">{cadence}</option>{/if}
-        <option value="type">Type a repeat…</option>
-      </select>
-    </label>
-    {#if typing}
-      <div class="field stacked">
-        <input
-          class="phrase"
-          {@attach (node) => node.focus()}
-          bind:value={phrase}
-          placeholder="every other tue, 3 days after done…"
-          aria-label="Repeat in words"
-        />
-        {#if phrase.trim() !== '' && !customRepeat}<small>Try “every other tue” or “on the 1st and 15th”.</small>{/if}
-      </div>
-    {/if}
+    <RepeatPicker choice={repeat} start={fields.start} />
     <div class="field stacked">
       <span>Also remind me</span>
       <div class="chips">
@@ -175,7 +115,11 @@
     </label>
     {#if showZone}
       <label class="field">
-        <span>Keep this time zone<small>{pinned ? `Always ${zoneName}` : 'Follows you when you travel'}</small></span>
+        <span
+          >Keep this time zone<small
+            >{pinned ? `Always ${zoneLabel(zone, app.now)}` : 'Follows you when you travel'}</small
+          ></span
+        >
         <input class="toggle" type="checkbox" bind:checked={pinned} />
       </label>
     {/if}
@@ -249,46 +193,6 @@
     display: flex;
     gap: 6px;
     color: var(--ink-2);
-  }
-
-  select {
-    appearance: none;
-    min-width: 0;
-    max-width: 60%;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--ink-2);
-    font-size: 15px;
-    text-align: right;
-    outline: none;
-    text-overflow: ellipsis;
-    cursor: pointer;
-  }
-
-  select:focus-visible {
-    border-radius: 4px;
-    outline: 2px solid var(--faint);
-    outline-offset: 3px;
-  }
-
-  .stacked {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .phrase {
-    width: 100%;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    font-size: 15px;
-  }
-
-  .phrase::placeholder {
-    color: var(--muted);
   }
 
   .chips {

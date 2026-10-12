@@ -166,6 +166,12 @@ button {
   color: var(--accent);
 }
 
+.field.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
 .input {
   width: 100%;
   height: 46px;
