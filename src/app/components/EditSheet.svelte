@@ -10,6 +10,7 @@
   import { RepeatChoice } from '../lib/repeat-choice.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
+  import Icon from './Icon.svelte';
   import RepeatPicker from './RepeatPicker.svelte';
   import Sheet from './Sheet.svelte';
 
@@ -114,10 +115,10 @@
     </div>
     <RepeatPicker choice={repeat} start={fields.start} />
     <div class="field stacked">
-      <span>Also remind me</span>
-      <div class="chips">
+      <span id="alerts-label">Also remind me before</span>
+      <div class="alerts" role="group" aria-labelledby="alerts-label">
         {#each ALERTS as alert (alert.minutes)}
-          <button class="chip" aria-pressed={alerts.includes(alert.minutes)} onclick={() => toggleAlert(alert.minutes)}>
+          <button aria-pressed={alerts.includes(alert.minutes)} onclick={() => toggleAlert(alert.minutes)}>
             {alert.label}
           </button>
         {/each}
@@ -145,18 +146,20 @@
     <button class="link quiet zone" onclick={() => (showZone = true)}>Time zone · follows you</button>
   {/if}
 
-  {#if reminder.due !== null}
-    <div class="acts">
-      <button
-        class="btn primary"
-        disabled={!parsed}
-        onclick={() => act((current) => complete(current).then(() => ui.close()))}>Done</button
+  <div class="acts">
+    {#if reminder.due !== null}
+      <button class="btn" disabled={!parsed} onclick={() => act((current) => complete(current).then(() => ui.close()))}
+        ><Icon name="check" size={16} />Done</button
       >
-      <button class="btn" disabled={!parsed} onclick={() => act((current) => ui.snooze(current.id))}>Snooze</button>
-      {#if reminder.repeat}<button class="btn" disabled={!parsed} onclick={() => act(skip)}>Skip</button>{/if}
-    </div>
-  {/if}
-  <button class="link delete" onclick={() => void remove(reminder).then(() => ui.close())}>Delete</button>
+      <button class="btn" disabled={!parsed} onclick={() => act((current) => ui.snooze(current.id))}
+        ><Icon name="clock" size={16} />Snooze</button
+      >
+      {#if reminder.repeat}
+        <button class="btn" disabled={!parsed} onclick={() => act(skip)}><Icon name="skip" size={16} />Skip</button>
+      {/if}
+    {/if}
+    <button class="link delete" onclick={() => void remove(reminder).then(() => ui.close())}>Delete</button>
+  </div>
 </Sheet>
 
 <style>
@@ -183,10 +186,28 @@
     color: var(--ink-2);
   }
 
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+  .alerts {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    padding: 2px;
+    border-radius: 10px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--edge);
+  }
+
+  .alerts button {
+    height: 32px;
+    border-radius: 8px;
+    color: var(--ink-2);
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  .alerts button[aria-pressed='true'] {
+    background: var(--ink);
+    color: var(--bg);
+    font-weight: 600;
   }
 
   .zone {
@@ -198,19 +219,31 @@
 
   .acts {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     margin-top: 16px;
   }
 
   .acts .btn {
     flex: 1;
+    padding: 0 12px;
   }
 
   .delete {
-    display: block;
-    width: 100%;
-    margin-top: 6px;
+    flex-basis: 100%;
     padding: 12px;
     font-size: 14px;
+  }
+
+  @media (min-width: 720px) {
+    .acts .btn {
+      flex: none;
+    }
+
+    .delete {
+      flex-basis: auto;
+      margin-left: auto;
+      padding: 0 4px;
+    }
   }
 </style>
