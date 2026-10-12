@@ -64,7 +64,7 @@
       />
       <button class="link" type="submit" disabled={!choice.typed}>Apply</button>
     </div>
-    <small id="{id}-result" aria-live="polite">
+    <small id="{id}-result" aria-live="polite" hidden={choice.phrase.trim() === ''}>
       {#if result}<span class="result">{result}</span>{:else if choice.phrase.trim() !== ''}Try “every other tue” or “on
         the 1st and 15th”.{/if}
     </small>
