@@ -13,9 +13,14 @@
 
   let { autofocus = false }: { autofocus?: boolean } = $props();
 
+  const PLACEHOLDER = 'Remind me to…';
+  const LIFTED_TOP = 72;
+  const SETTLE_MS = 900;
+
   let input: HTMLInputElement | undefined = $state();
   let mirror: HTMLDivElement | undefined = $state();
   let visibleBottom = $state(window.innerHeight);
+  let lift = $state(0);
 
   const parsed = $derived(ui.composing.trim() === '' ? null : parseQuickAdd(ui.composing, app.now, app.zone));
   const segments = $derived.by(() => {
@@ -89,6 +94,32 @@
     };
   });
 
+  // iOS slides the whole page up when a field the keyboard is about to cover takes focus. When a touch is about to focus
+  // the composer, its input is lifted, invisibly, near the top of the screen so there is nothing to reveal, and it
+  // settles back once the keyboard is up and the composer has risen above it.
+  function liftForKeyboard(event: PointerEvent) {
+    if (app.platform !== 'ios' || event.pointerType !== 'touch' || !input || document.activeElement === input) return;
+    lift = input.getBoundingClientRect().top - LIFTED_TOP;
+  }
+
+  function focusLifted() {
+    if (lift !== 0) input?.focus({ preventScroll: true });
+  }
+
+  function settle() {
+    lift = 0;
+  }
+
+  $effect(() => {
+    if (lift === 0) return;
+    const timer = setTimeout(settle, SETTLE_MS);
+    window.visualViewport?.addEventListener('resize', settle, { once: true });
+    return () => {
+      clearTimeout(timer);
+      window.visualViewport?.removeEventListener('resize', settle);
+    };
+  });
+
   $effect(() => {
     if (autofocus) input?.focus();
   });
@@ -96,8 +127,15 @@
 
 <form class="surface composer" style:--visible-bottom="{visibleBottom}px" onsubmit={submit}>
   <div class="bar">
-    <div class="entry">
+    <div
+      class="entry"
+      role="presentation"
+      onpointerdown={liftForKeyboard}
+      onpointercancel={settle}
+      onclick={focusLifted}
+    >
       <div class="mirror" bind:this={mirror} aria-hidden="true">
+        {#if lift !== 0 && ui.composing === ''}<span class="hint">{PLACEHOLDER}</span>{/if}
         {#each segments as segment, index (index)}<span class={segment.kind ?? undefined}>{segment.text}</span>{/each}
       </div>
       <input
@@ -105,9 +143,12 @@
         id="composer"
         bind:this={input}
         bind:value={ui.composing}
+        class:lifted={lift !== 0}
+        style:translate={lift === 0 ? undefined : `0 ${-lift}px`}
+        onblur={settle}
         onscroll={syncScroll}
         oninput={syncScroll}
-        placeholder="Remind me to…"
+        placeholder={PLACEHOLDER}
         maxlength={LIMITS.title}
         aria-label="New reminder"
         autocomplete="off"
@@ -200,6 +241,14 @@
     position: relative;
     color: transparent;
     caret-color: var(--ink);
+  }
+
+  .entry input.lifted {
+    opacity: 0;
+  }
+
+  .mirror .hint {
+    color: var(--muted);
   }
 
   .mirror {
