@@ -180,7 +180,7 @@ export class Scheduler {
 
   private async escalate(row: DeliveryRow): Promise<void> {
     const device = this.store.devices.get(row.device_id);
-    if (!device) {
+    if (!device || device.receipt_at === null) {
       this.store.deliveries.release(row, null);
       return;
     }
