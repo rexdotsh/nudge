@@ -108,6 +108,8 @@
   });
 </script>
 
+<svelte:window onkeydown={(event) => event.key === 'Escape' && onBack()} />
+
 <div class="page settings">
   <header>
     <button class="back" onclick={onBack}><Icon name="arrowLeft" size={18} />Back</button>

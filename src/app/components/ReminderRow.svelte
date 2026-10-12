@@ -4,6 +4,7 @@
   import { complete, remove, snooze, snoozeFrom } from '../lib/actions';
   import { repeatLabel, shortWhen } from '../lib/format';
   import type { Entry } from '../lib/sections';
+  import { tip } from '../lib/shortcuts';
   import { swipe } from '../lib/swipe';
   import { ui } from '../lib/ui.svelte';
   import CheckCircle from './CheckCircle.svelte';
@@ -20,6 +21,8 @@
       .filter((part) => part !== null)
       .join(' · '),
   );
+
+  const selected = $derived(ui.docked && ui.editing === reminder.id);
 
   let offset = $state(0);
 
@@ -39,6 +42,7 @@
     class="content"
     data-reminder={reminder.id}
     class:dragging={offset !== 0}
+    class:selected
     style:transform="translateX({offset}px)"
     use:swipe={{
       onLeading: () => void complete(reminder),
@@ -52,7 +56,7 @@
       label={`Complete ${reminder.title}`}
       onToggle={() => void complete(reminder)}
     />
-    <button class="open" onclick={() => ui.edit(reminder.id)}>
+    <button class="open" onclick={() => ui.edit(reminder.id)} aria-current={selected || undefined}>
       <span class="text">
         <span class="title"
           >{reminder.title}{#if reminder.important}<span class="flag" role="img" aria-label="Important">!</span
@@ -61,17 +65,19 @@
         {#if detail && !compact}<small>{detail}</small>{/if}
       </span>
       {#if entry.late}
-        <span class="chip hot">late</span>
+        <span class="chip hot trail">late</span>
       {:else}
-        <span class="when">{shortWhen(entry.at, now, zone)}</span>
+        <span class="when trail">{shortWhen(entry.at, now, zone)}</span>
       {/if}
     </button>
     <span class="actions">
-      <button onclick={() => ui.snooze(reminder.id)} aria-label={`Snooze ${reminder.title}`} title="Snooze (S)"
-        >Snooze</button
+      <button onclick={() => ui.snooze(reminder.id)} aria-label={`Snooze ${reminder.title}`} title={tip('Snooze', 's')}
+        ><Icon name="clock" size={16} /></button
       >
-      <button onclick={() => void remove(reminder)} aria-label={`Delete ${reminder.title}`} title="Delete (Del)"
-        >Delete</button
+      <button
+        onclick={() => void remove(reminder)}
+        aria-label={`Delete ${reminder.title}`}
+        title={tip('Delete', 'Delete')}><Icon name="trash" size={16} /></button
       >
     </span>
   </div>
@@ -132,6 +138,11 @@
     transition: none;
   }
 
+  .selected::before {
+    background: var(--raised);
+    opacity: 1;
+  }
+
   .open {
     flex: 1;
     min-width: 0;
@@ -144,8 +155,13 @@
   }
 
   .open:focus-visible {
+    outline: none;
+  }
+
+  .content:has(.open:focus-visible)::before {
+    opacity: 1;
     outline: 2px solid var(--ink-2);
-    outline-offset: 4px;
+    outline-offset: -2px;
   }
 
   .dragging {
@@ -196,16 +212,16 @@
 
   .actions {
     display: flex;
-    gap: 4px;
+    gap: 2px;
   }
 
   .actions button {
-    padding: 4px 9px;
-    border-radius: 7px;
-    background: var(--raised);
-    color: var(--ink-2);
-    font-size: 12px;
-    font-weight: 500;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--muted);
   }
 
   /* Touch screens hide the row actions (swipes cover them) but keep them for screen readers and keyboards. */
@@ -220,21 +236,49 @@
   }
 
   @media (hover: hover) {
+    .row {
+      overflow: clip;
+      overflow-clip-margin: 10px;
+    }
+
     .content:hover::before {
       opacity: 1;
     }
 
     .actions {
+      position: absolute;
+      right: 0;
       opacity: 0;
       transition: opacity 0.12s;
     }
 
-    .content:is(:hover, :has(:global(:focus-visible))) .actions {
+    .trail {
+      transition: opacity 0.12s;
+    }
+
+    .content:is(:hover, :has(.actions :global(:focus-visible))) .actions {
       opacity: 1;
     }
 
+    .content:is(:hover, :has(.actions :global(:focus-visible))) .trail {
+      opacity: 0;
+    }
+
     .actions button:hover {
+      background: var(--raised);
       color: var(--ink);
+    }
+  }
+
+  @media (pointer: fine) {
+    .content {
+      min-height: 44px;
+      padding: 7px 2px;
+    }
+
+    .compact .content {
+      min-height: 38px;
+      padding: 5px 2px;
     }
   }
 </style>

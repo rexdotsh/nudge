@@ -16,7 +16,9 @@
 
   async function pick(at: number) {
     await snooze(reminder, at);
-    ui.close();
+    // A docked editor stays beside the list; a sheet editor was only hidden behind this one and goes too.
+    if (ui.docked) ui.snoozing = null;
+    else ui.close();
   }
 
   const customAt = $derived.by(() => {
@@ -28,15 +30,25 @@
   function pickCustom() {
     if (settable !== null) void pick(settable);
   }
+
+  function pickByNumber(event: KeyboardEvent) {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.target instanceof HTMLInputElement) return;
+    const option = options[Number(event.key) - 1];
+    if (!option) return;
+    event.preventDefault();
+    void pick(option.at);
+  }
 </script>
 
-<Sheet label="Snooze {reminder.title}" onClose={() => ui.close()}>
+<svelte:window onkeydown={pickByNumber} />
+
+<Sheet label="Snooze {reminder.title}" onClose={() => (ui.snoozing = null)}>
   <h2 class="heading">Snooze</h2>
   <p class="what">{reminder.title}</p>
   <div class="group">
-    {#each options as option (option.key)}
+    {#each options as option, index (option.key)}
       <button class="field" onclick={() => pick(option.at)}>
-        <span>{option.label}</span>
+        <span><kbd>{index + 1}</kbd>{option.label}</span>
         <span class="value">{whenLabel(option.at, app.now, app.zone)}</span>
       </button>
     {/each}
@@ -53,6 +65,17 @@
 <style>
   h2 {
     margin-top: 2px;
+  }
+
+  kbd {
+    display: none;
+    margin-right: 10px;
+  }
+
+  @media (pointer: fine) {
+    kbd {
+      display: inline-block;
+    }
   }
 
   .what {
