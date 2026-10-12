@@ -286,6 +286,20 @@ describe('sync', () => {
     expect(h.sentTo(1)).toBe(1);
   });
 
+  test('snoozing a notification after flying west still brings it back after the snooze', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
+    await h.runAlarm();
+    await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, deviceId);
+    await h.sync(deviceId, [], 'America/New_York');
+    const until = h.state.now + 15 * MINUTE_MS;
+    await h.sync(deviceId, [{ type: 'snooze', id, due: '2026-10-12T09:00', until }], 'America/New_York');
+    expect(h.state.alarm).toBe(until);
+    await h.runAlarm();
+    expect(h.sentTo(1)).toBe(2);
+  });
+
   test('flying east past a floating reminder that has not fired yet still fires it', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
