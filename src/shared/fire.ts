@@ -78,9 +78,11 @@ export function nextFireAt(reminder: Reminder, zone: string): number | null {
   return earliest(reminder, zone)?.at ?? null;
 }
 
-export function fire(reminder: Reminder, now: number, zone: string): { reminder: Reminder; notice: Notice | null } {
+// A late run sends at most one notice per occurrence (the latest step), not a burst, and only for occurrences that are
+// still current or upcoming; ones it rolled past are not announced.
+export function fire(reminder: Reminder, now: number, zone: string): { reminder: Reminder; notices: Notice[] } {
   const current = { ...reminder };
-  let notice: Notice | null = null;
+  const latest = new Map<string, Notice>();
   for (let step = earliest(current, zone); step && step.at <= now; step = earliest(current, zone)) {
     if ('roll' in step) {
       current.due = step.roll;
@@ -93,7 +95,9 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
     if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
     current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
-    notice = { alert: step.alert, at: step.at, due: step.due, missed: current.missed };
+    latest.set(step.due, { alert: step.alert, at: step.at, due: step.due, missed: current.missed });
   }
-  return { reminder: current, notice };
+  const live = current.due;
+  const notices = [...latest.values()].filter((notice) => live !== null && notice.due >= live);
+  return { reminder: current, notices };
 }

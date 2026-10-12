@@ -148,12 +148,13 @@ export class Scheduler {
     const unreached = this.runtime.transaction(() => {
       const targets = this.store.devices.targets();
       const missed: Outgoing[] = [];
-      for (const { reminder, notice } of fired) {
+      for (const { reminder, notices } of fired) {
         this.save(reminder);
-        if (!notice) continue;
-        const item = this.noticeFor(reminder, notice, view);
-        if (targets.length === 0) missed.push(item);
-        for (const target of targets) this.store.deliveries.queue(item, target.deviceId, now, now);
+        for (const notice of notices) {
+          const item = this.noticeFor(reminder, notice, view);
+          if (targets.length === 0) missed.push(item);
+          for (const target of targets) this.store.deliveries.queue(item, target.deviceId, now, now);
+        }
       }
       return missed;
     });
