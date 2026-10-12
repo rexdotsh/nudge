@@ -12,6 +12,8 @@
   --ink: #f2f1ee;
   --accent: #ff8a65;
   --accent-soft: rgb(255 138 101 / 0.14);
+  --scrim: rgb(0 0 0 / 0.55);
+  --shadow: 0 18px 40px -16px rgb(0 0 0 / 0.9);
 
   --font: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
@@ -64,9 +66,36 @@ button {
   padding: 0;
 }
 
+button:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+::placeholder {
+  color: var(--muted);
+}
+
 :focus-visible {
   outline: 2px solid var(--ink-2);
   outline-offset: 2px;
+}
+
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 16px) 18px calc(env(safe-area-inset-bottom) + 40px);
+}
+
+.heading {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.heading.large {
+  font-size: 26px;
 }
 
 .label {
@@ -99,11 +128,6 @@ button {
   transform: scale(0.97);
 }
 
-.btn:disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
 .btn.primary {
   background: var(--ink);
   color: var(--bg);
@@ -129,10 +153,38 @@ button {
   color: var(--accent);
 }
 
+button.chip {
+  height: 32px;
+  padding: 0 12px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--edge);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+button.chip[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: none;
+}
+
+.link {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.link.quiet {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.surface,
 .group {
   border-radius: 16px;
   background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--edge);
+  box-shadow:
+    inset 0 0 0 1px var(--surface-edge, var(--edge)),
+    var(--surface-lift, 0 0 transparent);
 }
 
 .group > * + * {
@@ -189,8 +241,12 @@ button {
   box-shadow: inset 0 0 0 1px var(--faint);
 }
 
-.input::placeholder {
-  color: var(--muted);
+.bare {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
 }
 
 .picker {
@@ -240,7 +296,7 @@ button {
 }
 
 .toggle:checked {
-  background: var(--accent);
+  background: var(--ink);
   box-shadow: none;
 }
 

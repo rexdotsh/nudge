@@ -74,12 +74,18 @@
 
 <Sheet label="Edit {original.title}" onClose={() => ui.close()}>
   <nav>
-    <button onclick={() => ui.close()}>Cancel</button>
-    <button class="save" onclick={save} disabled={parsed === null}>Save</button>
+    <button class="link quiet" onclick={() => ui.close()}>Cancel</button>
+    <button class="link" onclick={save} disabled={parsed === null}>Save</button>
   </nav>
 
-  <input class="title" bind:value={title} maxlength={LIMITS.title} aria-label="Title" placeholder="Title" />
-  <textarea bind:value={notes} maxlength={LIMITS.notes} aria-label="Notes" placeholder="Add a note" rows="1"></textarea>
+  <input class="bare heading" bind:value={title} maxlength={LIMITS.title} aria-label="Title" placeholder="Title" />
+  <textarea
+    class="bare"
+    bind:value={notes}
+    maxlength={LIMITS.notes}
+    aria-label="Notes"
+    placeholder="Add a note"
+    rows="1"></textarea>
 
   <div class="group">
     <div class="field">
@@ -100,7 +106,7 @@
       <span>Also remind me</span>
       <div class="chips">
         {#each ALERTS as alert (alert.minutes)}
-          <button aria-pressed={alerts.includes(alert.minutes)} onclick={() => toggleAlert(alert.minutes)}>
+          <button class="chip" aria-pressed={alerts.includes(alert.minutes)} onclick={() => toggleAlert(alert.minutes)}>
             {alert.label}
           </button>
         {/each}
@@ -125,7 +131,7 @@
     {/if}
   </div>
   {#if !showZone}
-    <button class="zone" onclick={() => (showZone = true)}>Time zone · follows you</button>
+    <button class="link quiet zone" onclick={() => (showZone = true)}>Time zone · follows you</button>
   {/if}
 
   {#if reminder.due !== null}
@@ -135,7 +141,7 @@
       {#if reminder.repeat}<button class="btn" onclick={skip}>Skip</button>{/if}
     </div>
   {/if}
-  <button class="delete" onclick={() => void remove(reminder).then(() => ui.close())}>Delete</button>
+  <button class="link delete" onclick={() => void remove(reminder).then(() => ui.close())}>Delete</button>
 </Sheet>
 
 <style>
@@ -143,46 +149,13 @@
     display: flex;
     justify-content: space-between;
     padding: 2px 0 10px;
-    color: var(--muted);
-    font-size: 15px;
-  }
-
-  .save {
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  .save:disabled {
-    opacity: 0.4;
-  }
-
-  .title {
-    width: 100%;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
   }
 
   textarea {
-    width: 100%;
     margin: 4px 0 16px;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
     color: var(--ink-2);
-    font-size: 15px;
     resize: none;
     field-sizing: content;
-  }
-
-  .title::placeholder,
-  textarea::placeholder {
-    color: var(--muted);
   }
 
   .group + .group {
@@ -201,27 +174,10 @@
     gap: 6px;
   }
 
-  .chips button {
-    height: 32px;
-    padding: 0 12px;
-    border-radius: 999px;
-    box-shadow: inset 0 0 0 1px var(--edge);
-    color: var(--ink-2);
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .chips button[aria-pressed='true'] {
-    background: var(--ink);
-    color: var(--bg);
-    box-shadow: none;
-  }
-
   .zone {
     display: block;
     margin: 10px auto 0;
     padding: 6px 10px;
-    color: var(--muted);
     font-size: 13px;
   }
 
@@ -240,8 +196,6 @@
     width: 100%;
     margin-top: 6px;
     padding: 12px;
-    color: var(--accent);
     font-size: 14px;
-    font-weight: 500;
   }
 </style>

@@ -64,10 +64,10 @@
   });
 </script>
 
-<div class="settings">
+<div class="page settings">
   <header>
     <button class="back" onclick={onBack}><Icon name="arrowLeft" size={18} />Back</button>
-    <h1>Settings</h1>
+    <h1 class="heading large">Settings</h1>
   </header>
 
   <h2 class="label">Notifications</h2>
@@ -95,7 +95,9 @@
           </small>
         </span>
         {#if device.id !== me}
-          <button class="remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}>Remove</button>
+          <button class="link remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}
+            >Remove</button
+          >
         {/if}
       </div>
     {/each}
@@ -124,10 +126,7 @@
 
 <style>
   .settings {
-    max-width: 560px;
     min-height: 100dvh;
-    margin: 0 auto;
-    padding: calc(env(safe-area-inset-top) + 16px) 18px calc(env(safe-area-inset-bottom) + 40px);
     animation: rise 0.4s var(--ease) both;
   }
 
@@ -141,10 +140,7 @@
   }
 
   h1 {
-    margin: 8px 0 0;
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    margin-top: 8px;
   }
 
   h2 {
@@ -156,7 +152,6 @@
   }
 
   .remove {
-    color: var(--accent);
     font-size: 14px;
   }
 

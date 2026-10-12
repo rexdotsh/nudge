@@ -55,7 +55,8 @@
     <button class="open" onclick={() => ui.edit(reminder.id)}>
       <span class="text">
         <span class="title"
-          >{reminder.title}{#if reminder.important}<span class="flag" aria-label="Important">!</span>{/if}</span
+          >{reminder.title}{#if reminder.important}<span class="flag" role="img" aria-label="Important">!</span
+            >{/if}</span
         >
         {#if detail && !compact}<small>{detail}</small>{/if}
       </span>
@@ -165,7 +166,6 @@
 
   .flag {
     margin-left: 6px;
-    color: var(--accent);
     font-weight: 700;
   }
 
@@ -195,21 +195,8 @@
   }
 
   .actions {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
     display: flex;
     gap: 4px;
-  }
-
-  .content:has(:focus-visible) .actions {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip-path: none;
   }
 
   .actions button {
@@ -221,23 +208,28 @@
     font-weight: 500;
   }
 
+  /* Touch screens hide the row actions (swipes cover them) but keep them for screen readers and keyboards. */
+  @media (hover: none) {
+    .content:not(:has(:global(:focus-visible))) .actions {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
+
   @media (hover: hover) {
     .content:hover::before {
       opacity: 1;
     }
 
     .actions {
-      position: static;
-      width: auto;
-      height: auto;
-      overflow: visible;
-      clip-path: none;
       opacity: 0;
       transition: opacity 0.12s;
     }
 
-    .content:hover .actions,
-    .content:has(:focus-visible) .actions {
+    .content:is(:hover, :has(:global(:focus-visible))) .actions {
       opacity: 1;
     }
 
