@@ -49,6 +49,11 @@
     clearTimeout(holding);
   }
 
+  function cancel() {
+    clearTimeout(holding);
+    revealed = false;
+  }
+
   function click(event: MouseEvent) {
     if (!revealed) return;
     event.preventDefault();
@@ -119,7 +124,7 @@
         aria-label={`Add, ${summary}`}
         onpointerdown={hold}
         onpointerup={release}
-        onpointercancel={release}
+        onpointercancel={cancel}
         onpointerleave={release}
         oncontextmenu={(event) => event.preventDefault()}
         onclick={click}

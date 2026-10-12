@@ -56,9 +56,10 @@ export function whenLabel(instant: number, now: number, zone: string): string {
 export function summaryWhen(instant: number, now: number, zone: string): string {
   const clock = format(instant, zone, toLocal(instant, zone).minute === 0 ? 'hour' : 'time');
   const days = daysFromToday(instant, now, zone);
-  if (days <= 0) return `Today ${clock}`;
+  if (days === 0) return `Today ${clock}`;
   if (days === 1) return `Tomorrow ${clock}`;
-  if (days < 7) return `${format(instant, zone, 'shortWeekday')} ${clock}`;
+  if (days === -1) return `Yesterday ${clock}`;
+  if (days > 1 && days < 7) return `${format(instant, zone, 'shortWeekday')} ${clock}`;
   const sameYear = toLocal(instant, zone).year === toLocal(now, zone).year;
   return `${format(instant, zone, sameYear ? 'dayMonth' : 'fullDate')}, ${clock}`;
 }
