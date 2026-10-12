@@ -1,4 +1,4 @@
-import type { Change, Health, Session } from '../shared/api';
+import type { Change, Health, Session, Theme, ThemeChoice } from '../shared/api';
 import type { Reminder } from '../shared/reminder';
 
 export interface Snapshot {
@@ -18,6 +18,13 @@ export interface Notices {
   claims: Record<string, number>;
 }
 
+/** The theme as of a server version, and a choice made here that no sync response has answered yet. */
+export interface ThemeState {
+  theme: Theme;
+  version: number;
+  pending: ThemeChoice | null;
+}
+
 export const EMPTY_LOCAL: Local = { replica: { version: 0, reminders: [] }, pending: [] };
 
 export interface Schema {
@@ -29,4 +36,5 @@ export interface Schema {
   zone: { name: string; since: number };
   zoneControls: boolean;
   health: Health;
+  theme: ThemeState;
 }

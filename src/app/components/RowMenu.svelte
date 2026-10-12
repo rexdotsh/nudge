@@ -141,6 +141,10 @@
     font-size: 12px;
   }
 
+  button:is(:hover, :focus) :is(kbd, .time) {
+    color: var(--ink-2);
+  }
+
   .danger {
     color: var(--accent);
   }

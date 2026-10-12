@@ -1,6 +1,7 @@
 import {
   MAX_CHANGES,
   PLATFORMS,
+  THEMES,
   type ApiError,
   type Change,
   type DeviceInput,
@@ -10,6 +11,7 @@ import {
   type PublicRoutes,
   type PushKeys,
   type SyncRequest,
+  type ThemeChoice,
 } from '../shared/api';
 import { BASE64URL } from '../shared/encoding';
 import { parseOp } from '../shared/input';
@@ -78,11 +80,20 @@ function change(value: unknown): Change {
   return { opId, op: parseOp(op) ?? invalid(), at };
 }
 
+function themeChoice(value: unknown): ThemeChoice | null {
+  // Service workers installed before themes existed leave it out, and their notification actions must still land.
+  if (value === undefined || value === null) return null;
+  const { id, theme, at } = record(value);
+  const known = THEMES.find((candidate) => candidate === theme);
+  if (!isUlid(id) || !known || !isInteger(at, 0, Number.MAX_SAFE_INTEGER)) invalid();
+  return { id, theme: known, at };
+}
+
 function syncRequest(value: unknown): SyncRequest {
-  const { since, zone, changes } = record(value);
+  const { since, zone, changes, theme } = record(value);
   if (!isInteger(since, 0, Number.MAX_SAFE_INTEGER) || !isText(zone, 64) || !isTimeZone(zone)) invalid();
   if (!Array.isArray(changes) || changes.length > MAX_CHANGES) invalid();
-  return { since, zone, changes: changes.map(change) };
+  return { since, zone, changes: changes.map(change), theme: themeChoice(theme) };
 }
 
 export const PUBLIC_REQUESTS: { [R in PublicRoute]: (body: unknown) => PublicRoutes[R]['request'] } = {

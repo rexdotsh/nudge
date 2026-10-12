@@ -226,31 +226,35 @@ export class Nudge {
     return { at };
   }
 
-  private async sync({ since, zone, changes }: SyncRequest, device: DeviceRow): Promise<SyncResponse> {
+  private async sync({ since, zone, changes, theme }: SyncRequest, device: DeviceRow): Promise<SyncResponse> {
     const now = this.runtime.now();
-    let applied = 0;
-    const zoneChanged = this.runtime.transaction(() => {
+    const madeAt = (at: number) => Math.min(now, Math.max(at, now - MAX_BACKDATE_MS));
+    this.runtime.transaction(() => {
       // The instance zone follows the device that last moved, so a device that never left home (a laptop left open)
       // cannot keep flipping it back against the one that travelled.
-      const changed = device.zone !== zone && this.scheduler.setZone(zone);
+      if (device.zone !== zone) this.scheduler.setZone(zone);
       this.store.devices.touch(device.id, zone, now);
       for (const { opId, op, at } of changes) {
         if (this.store.applied(opId)) continue;
         const previous = this.store.reminder(op.id);
-        const next = applyOp(previous, op, { now: Math.min(now, Math.max(at, now - MAX_BACKDATE_MS)), zone });
+        const next = applyOp(previous, op, { now: madeAt(at), zone });
         if (next) {
           this.scheduler.save(next);
           if (op.type !== 'put' || previous?.due !== next.due) this.store.deliveries.cancelForReminder(op.id);
-          applied++;
         }
         this.store.recordApplied(opId, now);
       }
-      return changed;
+      if (theme && !this.store.applied(theme.id)) {
+        this.store.chooseTheme(theme.theme, madeAt(theme.at));
+        this.store.recordApplied(theme.id, now);
+      }
     });
     const version = this.store.version();
     await this.scheduler.rearm();
-    if (zoneChanged || applied > 0) this.runtime.broadcast({ kind: 'changed', version }, device.id);
+    // Told whenever the caller was behind, not only when this attempt wrote, so a retry after a failure past the commit
+    // still reaches the other devices.
+    if (since < version) this.runtime.broadcast({ kind: 'changed', version }, device.id);
     const reset = since > version;
-    return { version, reminders: this.store.changedSince(reset ? 0 : since), reset };
+    return { version, reminders: this.store.changedSince(reset ? 0 : since), reset, theme: this.store.theme() };
   }
 }

@@ -58,6 +58,7 @@ function harness() {
     held: null as ((status: number) => void) | null,
     holdNext: false,
     failTransactions: 0,
+    failAlarm: false,
     failAlerts: false,
     pushes: [] as Pushed[],
     alerts: [] as string[],
@@ -76,7 +77,10 @@ function harness() {
       return db.transaction(run)();
     },
     alarm: {
-      get: async () => state.alarm,
+      get: async () => {
+        if (state.failAlarm) throw new Error('alarm unavailable');
+        return state.alarm;
+      },
       set: async (at) => {
         state.alarm = at;
       },
@@ -228,6 +232,7 @@ describe('enrollment', () => {
       ['sync', { since: 0, zone: ZONE, changes: [{ opId: ulid(), op: { type: 'complete' }, at: 0 }] }],
       ['sync', { since: 0, zone: ZONE, changes: [{ opId: 'not-an-id', op: { type: 'delete', id: ulid() }, at: 0 }] }],
       ['test', { id: ulid(), delay: 99_999 }],
+      ['sync', { since: 0, zone: ZONE, changes: [], theme: { id: ulid(), theme: 'neon', at: 0 } }],
     ] as const;
     const results = await Promise.all(malformed.map(([route, body]) => h.call(route, body, deviceId)));
     expect(results.every((result) => !result.ok && result.error === 'bad_request')).toBe(true);
@@ -274,11 +279,9 @@ describe('sync', () => {
     await h.sync(phone, [], 'Europe/Paris');
     const abroad = h.state.alarm;
     expect(abroad).toBe(Date.UTC(2026, 9, 12, 7, 0));
-    const before = h.state.broadcasts.length;
     await h.sync(laptop, []);
     await h.sync(laptop, []);
     expect(h.state.alarm).toBe(abroad);
-    expect(h.state.broadcasts.length).toBe(before);
     await h.sync(phone, []);
     expect(h.state.alarm).toBe(DUE);
   });
@@ -348,6 +351,40 @@ describe('sync', () => {
     expect(h.state.alarm).not.toBeNull();
     if (h.state.alarm !== null && h.state.alarm <= h.state.now) await h.nudge.alarm();
     expect(h.sentTo(1)).toBe(1);
+  });
+
+  test('a theme choice reaches the other devices; neither a replay from a fast clock nor an older offline choice undoes a newer one', async () => {
+    const { phone, laptop } = await h.pair();
+    const choose = (deviceId: string, theme: { id: string; theme: string; at: number }) =>
+      h.ok('sync', { since: 0, zone: ZONE, changes: [], theme }, deviceId);
+    const madeOffline = { id: ulid(), theme: 'rex', at: h.state.now - MINUTE_MS };
+    const fromPhone = { id: ulid(), theme: 'rex', at: h.state.now + 60 * MINUTE_MS };
+    h.state.broadcasts.length = 0;
+
+    expect((await choose(phone, fromPhone)).theme).toBe('rex');
+    expect(h.state.broadcasts.map(({ except }) => except)).toEqual([phone]);
+    h.state.now += MINUTE_MS;
+    expect((await choose(laptop, { id: ulid(), theme: 'classic', at: h.state.now })).theme).toBe('classic');
+    expect((await choose(phone, fromPhone)).theme).toBe('classic');
+    expect((await choose(laptop, madeOffline)).theme).toBe('classic');
+  });
+
+  test.each([
+    [
+      'change',
+      () => ({ changes: [{ opId: ulid(), op: { type: 'put', id: ulid(), fields: fields() }, at: h.state.now }] }),
+    ],
+    ['theme choice', () => ({ changes: [], theme: { id: ulid(), theme: 'rex', at: h.state.now } })],
+  ])('a %s committed just before a failure still reaches the other devices when it is retried', async (_, write) => {
+    const { phone } = await h.pair();
+    const { version } = await h.ok('sync', { since: 0, zone: ZONE, changes: [] }, phone);
+    const request = { since: version, zone: ZONE, ...write() };
+    h.state.broadcasts.length = 0;
+    h.state.failAlarm = true;
+    expect(await h.call('sync', request, phone).catch((error: unknown) => error)).toBeInstanceOf(Error);
+    h.state.failAlarm = false;
+    await h.ok('sync', request, phone);
+    expect(h.state.broadcasts.map(({ except }) => except)).toEqual([phone]);
   });
 
   test('socket messages run the same sync and echo their ref', async () => {

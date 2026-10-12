@@ -103,7 +103,7 @@ self.addEventListener('push', (event) => {
 async function drain(): Promise<void> {
   const local = (await get('local')) ?? EMPTY_LOCAL;
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
-  const response = await request('sync', { since: local.replica.version, zone: currentZone(), changes });
+  const response = await request('sync', { since: local.replica.version, zone: currentZone(), changes, theme: null });
   const replica = new Replica(local.replica);
   replica.receive(response);
   const { pending } = await commit(replica.snapshot(), new Set(changes.map((change) => change.opId)));

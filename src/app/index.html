@@ -13,6 +13,23 @@
     />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#111110" />
+    <script>
+      // The theme this device last showed, painted before the stylesheet loads. It is only a cache that
+      // src/app/lib/theme.svelte.ts repaints from IndexedDB, so anything unreadable here just launches in Classic.
+      {
+        let painted = null;
+        try {
+          painted = JSON.parse(localStorage.getItem('theme'));
+        } catch (error) {
+          console.warn('the last theme could not be read', error);
+        }
+        if (__THEMES__.includes(painted?.theme) && CSS.supports('color', painted.color)) {
+          document.documentElement.dataset.theme = painted.theme;
+          document.documentElement.style.background = painted.color;
+          document.querySelector('meta[name="theme-color"]').content = painted.color;
+        }
+      }
+    </script>
     <meta name="apple-mobile-web-app-title" content="Nudge" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />

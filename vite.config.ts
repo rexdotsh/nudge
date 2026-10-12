@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
 import { SPLASH_IMAGES } from './scripts/splash.ts';
+import { THEMES } from './src/shared/api.ts';
 
 // Workers Builds checks out a detached commit and names it here; local builds ask git.
 const commit =
@@ -20,6 +21,13 @@ export default defineConfig({
           attrs: { rel: 'apple-touch-startup-image', media, href },
           injectTo: 'head',
         })),
+    },
+    {
+      name: 'themes',
+      transformIndexHtml: (html) => {
+        if (!html.includes('__THEMES__')) throw new Error('index.html has no __THEMES__ for the first-paint script');
+        return html.replaceAll('__THEMES__', JSON.stringify(THEMES));
+      },
     },
   ],
   define: { NUDGE_COMMIT: JSON.stringify(commit) },

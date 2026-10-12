@@ -1,3 +1,4 @@
+import { DEFAULT_THEME, THEMES, type Theme } from '../shared/api';
 import type { Reminder } from '../shared/reminder';
 import { DELIVERY_SCHEMA, Deliveries } from './deliveries';
 import { DEVICE_SCHEMA, Devices } from './devices';
@@ -49,6 +50,25 @@ export class Store {
     return Number(this.meta('version') ?? 0);
   }
 
+  private nextVersion(): number {
+    const version = this.version() + 1;
+    this.setMeta('version', String(version));
+    return version;
+  }
+
+  theme(): Theme {
+    const stored = this.meta('theme');
+    return THEMES.find((theme) => theme === stored) ?? DEFAULT_THEME;
+  }
+
+  /** The latest choice wins by when it was made, so a device coming back online cannot undo a newer one. */
+  chooseTheme(theme: Theme, at: number): void {
+    if (at < Number(this.meta('theme_at') ?? 0)) return;
+    if (theme !== this.theme()) this.nextVersion();
+    this.setMeta('theme', theme);
+    this.setMeta('theme_at', String(at));
+  }
+
   private decoded(query: string, ...bindings: SqlValue[]): Reminder[] {
     return this.sql
       .exec<{ data: string }>(query, ...bindings)
@@ -73,8 +93,7 @@ export class Store {
   }
 
   saveReminder(reminder: Reminder, fireAt: number | null): void {
-    const version = this.version() + 1;
-    this.setMeta('version', String(version));
+    const version = this.nextVersion();
     this.sql.exec(
       `INSERT INTO reminders (id, version, fire_at, data) VALUES (?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET version = excluded.version, fire_at = excluded.fire_at, data = excluded.data`,
