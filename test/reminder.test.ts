@@ -190,7 +190,7 @@ describe('replayed writes never swallow notices', () => {
   test('replaying an identical put after the due time still lets the due notice fire', () => {
     const reminder = create();
     const replayed = apply(reminder, { type: 'put', id: ID, fields: fields() }, '2026-10-12T09:03');
-    expect(fire(replayed, at('2026-10-12T09:04'), ZONE).notice?.alert).toBe('due');
+    expect(fire(replayed, at('2026-10-12T09:04'), ZONE).notices.at(-1)?.alert).toBe('due');
   });
 
   test('adding an early alert that is already past does not fire it, but keeps the due notice', () => {
@@ -198,7 +198,7 @@ describe('replayed writes never swallow notices', () => {
     const edited = apply(reminder, { type: 'put', id: ID, fields: fields({ alerts: [60] }) }, '2026-10-12T08:30');
     expect(nextFireAt(edited, ZONE)).toBe(at('2026-10-12T09:00'));
     const late = apply(reminder, { type: 'put', id: ID, fields: fields({ alerts: [60] }) }, '2026-10-12T09:30');
-    expect(fire(late, at('2026-10-12T09:31'), ZONE).notice?.alert).toBe('due');
+    expect(fire(late, at('2026-10-12T09:31'), ZONE).notices.at(-1)?.alert).toBe('due');
   });
 
   test('replaying a snooze after it ended still lets the wake-up fire once', () => {
@@ -207,8 +207,8 @@ describe('replayed writes never swallow notices', () => {
     const snoozed = apply(fired, snooze, '2026-10-12T09:01');
     const replayed = apply(snoozed, snooze, '2026-10-12T09:20');
     const woke = fire(replayed, at('2026-10-12T09:21'), ZONE);
-    expect(woke.notice?.alert).toBe('snoozed');
-    expect(fire(apply(woke.reminder, snooze, '2026-10-12T09:22'), at('2026-10-12T09:23'), ZONE).notice).toBeNull();
+    expect(woke.notices.at(-1)?.alert).toBe('snoozed');
+    expect(fire(apply(woke.reminder, snooze, '2026-10-12T09:22'), at('2026-10-12T09:23'), ZONE).notices).toEqual([]);
   });
 });
 
@@ -218,13 +218,79 @@ describe('firing', () => {
     expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-12T08:00'));
 
     const early = fire(reminder, at('2026-10-12T08:00'), ZONE);
-    expect(early.notice).toMatchObject({ alert: 'early', due: '2026-10-12T09:00' });
+    expect(early.notices.at(-1)).toMatchObject({ alert: 'early', due: '2026-10-12T09:00' });
     reminder = early.reminder;
     expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-12T09:00'));
 
     const due = fire(reminder, at('2026-10-12T09:00'), ZONE);
-    expect(due.notice?.alert).toBe('due');
+    expect(due.notices.at(-1)?.alert).toBe('due');
     expect(nextFireAt(due.reminder, ZONE)).toBeNull();
+  });
+
+  test("an unfinished daily reminder still gets the next day's early alert", () => {
+    let reminder = create({ repeat: daily, alerts: [60] });
+    const notices: unknown[] = [];
+    for (const wall of ['2026-10-12T08:00', '2026-10-12T09:00', '2026-10-13T08:00', '2026-10-13T09:00']) {
+      const next = nextFireAt(reminder, ZONE) ?? Number.NaN;
+      expect(next - (next % MINUTE_MS)).toBe(at(wall));
+      const fired = fire(reminder, next, ZONE);
+      notices.push(...fired.notices.map(({ alert, due }) => ({ alert, due })));
+      reminder = fired.reminder;
+    }
+    expect(notices).toEqual([
+      { alert: 'early', due: '2026-10-12T09:00' },
+      { alert: 'due', due: '2026-10-12T09:00' },
+      { alert: 'early', due: '2026-10-13T09:00' },
+      { alert: 'due', due: '2026-10-13T09:00' },
+    ]);
+  });
+
+  test('an hourly reminder with a one-day early alert warns for every occurrence, a day ahead', () => {
+    let reminder = create({ repeat: { rule: 'FREQ=HOURLY', anchor: 'schedule' }, alerts: [1440] }, '2026-10-11T08:59');
+    const warned: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const next = nextFireAt(reminder, ZONE);
+      if (next === null) throw new Error('nothing planned');
+      const fired = fire(reminder, next, ZONE);
+      warned.push(...fired.notices.filter(({ alert }) => alert === 'early').map(({ due }) => due));
+      reminder = fired.reminder;
+    }
+    expect(warned).toEqual(['2026-10-12T09:00', '2026-10-12T10:00', '2026-10-12T11:00', '2026-10-12T12:00']);
+  });
+
+  test.each([
+    ['a 24-hour early alert and the due notice', { alerts: [1440] }, ['due', 'early']],
+    ['an early alert and a nag', { alerts: [1425], important: true }, ['due', 'nag', 'early']],
+  ])('%s that land in the same minute both go out', (_, overrides, expected) => {
+    let reminder = create({ repeat: daily, ...overrides }, '2026-10-12T08:59');
+    const alerts: string[] = [];
+    for (let i = 0; i < expected.length; i++) {
+      const next = nextFireAt(reminder, ZONE);
+      if (next === null) throw new Error('nothing planned');
+      const fired = fire(reminder, next, ZONE);
+      alerts.push(...fired.notices.map(({ alert }) => alert));
+      reminder = fired.reminder;
+    }
+    expect(alerts).toEqual(expected);
+  });
+
+  test("one late run that catches a due notice and the next occurrence's early alert sends both", () => {
+    const reminder = create({ repeat: daily, alerts: [1440] }, '2026-10-12T08:59');
+    const late = fire(reminder, at('2026-10-12T09:00') + MINUTE_MS, ZONE);
+    expect(late.notices.map(({ alert, due }) => [alert, due])).toEqual([
+      ['due', '2026-10-12T09:00'],
+      ['early', '2026-10-13T09:00'],
+    ]);
+  });
+
+  test('a snooze across the next occurrence also holds back its early alert', () => {
+    const fired = fire(create({ repeat: daily, alerts: [60] }), at('2026-10-12T09:00'), ZONE).reminder;
+    const snoozed = apply(
+      fired,
+      { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-13T12:00') },
+      '2026-10-12T09:05',
+    );
+    expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-13T09:00'));
   });
 
   test('alerts that were already in the past at creation never fire', () => {
@@ -237,7 +303,7 @@ describe('firing', () => {
     const nags: number[] = [];
     for (let next = nextFireAt(reminder, ZONE); next !== null; next = nextFireAt(reminder, ZONE)) {
       const fired = fire(reminder, next, ZONE);
-      expect(fired.notice?.alert).toBe('nag');
+      expect(fired.notices.at(-1)?.alert).toBe('nag');
       nags.push(next);
       reminder = fired.reminder;
     }
@@ -254,7 +320,7 @@ describe('firing', () => {
     );
     expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-12T11:00'));
     const woke = fire(snoozed, at('2026-10-12T11:00'), ZONE);
-    expect(woke.notice?.alert).toBe('snoozed');
+    expect(woke.notices.at(-1)?.alert).toBe('snoozed');
     expect(nextFireAt(woke.reminder, ZONE)).toBe(at('2026-10-12T11:00') + NAG_INTERVAL_MS);
   });
 
@@ -263,7 +329,7 @@ describe('firing', () => {
     expect(nextFireAt(series, ZONE)).toBe(at('2026-10-13T09:00'));
     const rolled = fire(series, at('2026-10-13T09:00'), ZONE);
     expect(rolled.reminder.due).toBe('2026-10-13T09:00');
-    expect(rolled.notice).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
+    expect(rolled.notices.at(-1)).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
   });
 
   test('a snooze longer than the repeat interval holds through the roll', () => {
@@ -274,10 +340,10 @@ describe('firing', () => {
       '2026-10-12T09:05',
     );
     const rolled = fire(snoozed, at('2026-10-13T09:00'), ZONE);
-    expect(rolled.notice).toBeNull();
+    expect(rolled.notices).toEqual([]);
     expect(rolled.reminder).toMatchObject({ due: '2026-10-13T09:00', missed: 1, snoozedUntil: at('2026-10-13T12:00') });
     const woke = fire(rolled.reminder, at('2026-10-13T12:00'), ZONE);
-    expect(woke.notice).toMatchObject({ alert: 'snoozed', due: '2026-10-13T09:00', missed: 1 });
+    expect(woke.notices.at(-1)).toMatchObject({ alert: 'snoozed', due: '2026-10-13T09:00', missed: 1 });
   });
 
   test('a snooze that ends before the due time never brings the reminder forward or fires it twice', () => {
@@ -288,7 +354,7 @@ describe('firing', () => {
     );
     expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-12T09:00'));
     const due = fire(snoozed, at('2026-10-12T09:00'), ZONE);
-    expect(due.notice?.alert).toBe('due');
+    expect(due.notices.at(-1)?.alert).toBe('due');
     expect(nextFireAt(due.reminder, ZONE)).toBeNull();
   });
 
@@ -301,13 +367,13 @@ describe('firing', () => {
     );
     const result = fire(snoozed, at('2026-10-13T09:00'), ZONE);
     expect(result.reminder.due).toBe('2026-10-13T09:00');
-    expect(result.notice).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
+    expect(result.notices.at(-1)).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
   });
 
   test('a late alarm sends one notice for the latest step, not a burst', () => {
     const late = fire(create({ repeat: daily, alerts: [30] }), at('2026-10-15T09:10'), ZONE);
     expect(late.reminder.due).toBe('2026-10-15T09:00');
-    expect(late.notice).toMatchObject({ alert: 'due', due: '2026-10-15T09:00', missed: 3 });
+    expect(late.notices.at(-1)).toMatchObject({ alert: 'due', due: '2026-10-15T09:00', missed: 3 });
   });
 
   test('deleted and finished reminders never fire', () => {

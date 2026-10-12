@@ -102,24 +102,22 @@ export class Fallback {
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
     const outcomes: Promise<boolean>[] = [];
     for (const reminder of reminders) {
-      const { reminder: advanced, notice } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
-      if (!notice) {
-        this.advance(reminder.id, advanced.firedThrough);
-        continue;
-      }
-      const key = fireId(reminder.id, notice.at);
-      const content = reminderMessage(advanced, notice, view).notification;
-      outcomes.push(
-        this.showOnce(key, content, display).then(
-          (done) => {
-            if (done) this.advance(reminder.id, advanced.firedThrough);
-            return done;
-          },
+      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
+      const shown = notices.map((notice) => {
+        const key = fireId(reminder.id, notice.at);
+        return this.showOnce(key, reminderMessage(advanced, notice, view).notification, display).catch(
           (error: unknown) => {
             console.error(`could not record ${key}`, error);
             return false;
           },
-        ),
+        );
+      });
+      outcomes.push(
+        Promise.all(shown).then((done) => {
+          const all = done.every(Boolean);
+          if (all) this.advance(reminder.id, advanced.firedThrough);
+          return all;
+        }),
       );
     }
     // A fire that is busy elsewhere or failed to show stays unconsumed and is retried until it leaves the lookback.
