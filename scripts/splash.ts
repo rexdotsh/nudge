@@ -1,6 +1,7 @@
 // iOS shows a Home Screen app's launch image only when its pixel size matches the screen exactly, so every iPhone
 // size gets one per orientation. Sizes are CSS pixels at the device pixel ratio.
 const SCREENS = [
+  { width: 360, height: 780, ratio: 3 },
   { width: 375, height: 667, ratio: 2 },
   { width: 375, height: 812, ratio: 3 },
   { width: 390, height: 844, ratio: 3 },

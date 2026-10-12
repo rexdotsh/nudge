@@ -40,6 +40,7 @@ class App {
   private connection: Connection | null = null;
   private inflight: Promise<void> | null = null;
   private again = false;
+  private healthRequests = 0;
   private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
   async start(): Promise<void> {
@@ -89,9 +90,13 @@ class App {
     });
   }
 
+  /** Only the latest request may publish, so an older reply cannot bring back a device revoked since it was sent. */
   async refreshHealth(): Promise<void> {
-    this.health = await request('health', null);
-    await set('health', this.health);
+    const asked = ++this.healthRequests;
+    const health = await request('health', null);
+    if (asked !== this.healthRequests) return;
+    this.health = health;
+    await set('health', health);
   }
 
   async apply(op: Op): Promise<Reminder | undefined> {
