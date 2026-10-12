@@ -29,7 +29,7 @@
   {#if ui.fine}
     <button
       type="button"
-      class="picker"
+      class="picker press"
       aria-label="Date, {dateText}"
       aria-haspopup="dialog"
       aria-expanded={open === 'date'}
@@ -38,7 +38,7 @@
     >
     <button
       type="button"
-      class="picker"
+      class="picker press"
       aria-label="Time, {timeText}"
       aria-haspopup="dialog"
       aria-expanded={open === 'time'}

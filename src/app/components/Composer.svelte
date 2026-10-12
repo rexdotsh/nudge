@@ -9,7 +9,7 @@
   import { repeatLabel, summaryWhen } from '../lib/format';
   import { ui } from '../lib/ui.svelte';
   import HighlightedInput from './HighlightedInput.svelte';
-  import Icon from './Icon.svelte';
+  import ComposerSummary from './ComposerSummary.svelte';
 
   let { autofocus = false }: { autofocus?: boolean } = $props();
 
@@ -25,33 +25,7 @@
   const when = $derived(start ? summaryWhen(toInstant(local(start), app.zone), app.now, app.zone) : '');
   const cadence = $derived(parsed?.repeat && start ? repeatLabel(parsed.repeat, start, app.zone) : null);
   const important = $derived(parsed?.important ?? false);
-  const detail = $derived(cadence ?? (important ? 'Important' : null));
   const summary = $derived([when, cadence, important ? 'important' : null].filter(Boolean).join(', '));
-
-  const HOLD_MS = 450;
-  let holding: ReturnType<typeof setTimeout> | undefined;
-  let revealed = $state(false);
-
-  // Touch has no tooltips, so pressing and holding the summary shows all of it instead of adding the reminder.
-  function hold(event: PointerEvent) {
-    if (event.pointerType === 'mouse') return;
-    holding = setTimeout(() => (revealed = true), HOLD_MS);
-  }
-
-  function release() {
-    clearTimeout(holding);
-  }
-
-  function cancel() {
-    clearTimeout(holding);
-    revealed = false;
-  }
-
-  function click(event: MouseEvent) {
-    if (!revealed) return;
-    event.preventDefault();
-    revealed = false;
-  }
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -59,8 +33,7 @@
     input?.focus();
   }
 
-  // iOS never shrinks the layout for the keyboard; it pans the page up to reveal the focused field. The composer is
-  // placed against the bottom of what is visible instead, and the pan is undone so the list stays where it was.
+  // iOS pans instead of shrinking the layout for its keyboard; anchor to the visible bottom and undo the pan.
   $effect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -68,18 +41,20 @@
       if (document.activeElement === input && viewport.offsetTop > 0) window.scrollTo(0, 0);
       visibleBottom = viewport.offsetTop + viewport.height;
     };
+    const resized = () => {
+      settle();
+      update();
+    };
     update();
-    viewport.addEventListener('resize', update);
+    viewport.addEventListener('resize', resized);
     viewport.addEventListener('scroll', update);
     return () => {
-      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('resize', resized);
       viewport.removeEventListener('scroll', update);
     };
   });
 
-  // iOS slides the whole page up when a field the keyboard is about to cover takes focus. When a touch is about to focus
-  // the composer, its input is lifted, invisibly, near the top of the screen so there is nothing to reveal, and it
-  // settles back once the keyboard is up and the composer has risen above it.
+  // Lift the iOS input before focus so Safari has no reason to pan; the mirror stays in place until the keyboard opens.
   function liftForKeyboard(event: PointerEvent) {
     if (app.platform !== 'ios' || event.pointerType !== 'touch' || !input || document.activeElement === input) return;
     lift = input.getBoundingClientRect().top - LIFTED_TOP;
@@ -96,11 +71,7 @@
   $effect(() => {
     if (lift === 0) return;
     const timer = setTimeout(settle, SETTLE_MS);
-    window.visualViewport?.addEventListener('resize', settle, { once: true });
-    return () => {
-      clearTimeout(timer);
-      window.visualViewport?.removeEventListener('resize', settle);
-    };
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
@@ -132,33 +103,7 @@
       />
     </div>
     {#if parsed?.title}
-      <button
-        class="summary press"
-        type="submit"
-        title={[when, detail].filter(Boolean).join('\n')}
-        aria-label={`Add, ${summary}`}
-        onpointerdown={hold}
-        onpointerup={release}
-        onpointercancel={cancel}
-        onpointerleave={release}
-        oncontextmenu={(event) => event.preventDefault()}
-        onclick={click}
-      >
-        <span class="what">
-          <span class="at">{when}</span>
-          {#if detail}
-            <span class="rule"
-              >{#if important}<b aria-hidden="true">!</b>{/if}{cadence ?? 'Important'}</span
-            >
-          {/if}
-        </span>
-        <span class="go"><Icon name="up" size={15} /></span>
-      </button>
-      {#if revealed}
-        <p class="full" role="status">
-          <b>{when}</b>{#if detail}<br />{important && cadence ? '! ' : ''}{detail}{/if}
-        </p>
-      {/if}
+      <ComposerSummary {when} {cadence} {important} {summary} />
     {:else}
       <kbd>{hint(NEW_REMINDER)}</kbd>
     {/if}
@@ -179,7 +124,7 @@
     --gap: max(12px, env(safe-area-inset-bottom));
     --surface-lift: 0 -16px 32px 12px var(--bg);
     translate: 0 calc(var(--visible-bottom) - 100% - var(--gap));
-    transition: translate 0.25s var(--ease);
+    transition: translate var(--base) var(--ease);
   }
 
   /* Above the keyboard the home indicator's inset no longer applies, so the composer rides 8px over the keys. */
@@ -203,96 +148,9 @@
     min-width: 0;
   }
 
-  .summary {
-    flex: none;
-    max-width: 64%;
-    height: 40px;
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    padding: 0 4px 0 14px;
-    border-radius: 999px;
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--edge);
-    color: var(--ink);
-    white-space: nowrap;
-    text-align: left;
-    -webkit-touch-callout: none;
-    user-select: none;
-    animation: pop var(--base) var(--spring);
-  }
-
-  .what {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    line-height: 1.15;
-  }
-
-  .at,
-  .rule {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .at {
-    font-size: 13.5px;
-    font-weight: 600;
-  }
-
-  .rule {
-    color: var(--muted);
-    font-size: 11.5px;
-  }
-
-  .rule b {
-    margin-right: 4px;
-    color: var(--accent);
-    font-weight: 700;
-  }
-
-  .go {
-    flex: none;
-    width: 32px;
-    height: 32px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: var(--on);
-    color: var(--on-ink);
-  }
-
-  .full {
-    position: absolute;
-    right: 8px;
-    bottom: calc(100% + 8px);
-    max-width: calc(100% - 16px);
-    margin: 0;
-    padding: 9px 12px;
-    border-radius: 12px;
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--edge);
-    color: var(--ink-2);
-    font-size: 13px;
-    animation: pop var(--fast) var(--ease);
-  }
-
-  .full b {
-    color: var(--ink);
-    font-weight: 600;
-  }
-
   kbd {
     display: none;
     color: var(--muted);
-  }
-
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: scale(0.6);
-    }
   }
 
   @media (min-width: 720px) {

@@ -12,7 +12,8 @@
     selected,
     active,
     onPick,
-    element = $bindable(),
+    reveal = active,
+    center = false,
     ...rest
   }: {
     id: string;
@@ -20,8 +21,32 @@
     selected: T;
     active: number;
     onPick: (value: T) => void;
-    element?: HTMLElement;
+    reveal?: number;
+    center?: boolean;
   } & HTMLAttributes<HTMLDivElement> = $props();
+
+  let element: HTMLDivElement | undefined = $state();
+  let first = true;
+
+  $effect(() => {
+    const list = element;
+    const index = reveal;
+    const centered = first || center;
+    if (!list) return;
+    // Its enclosing popover must finish attaching before layout can be measured.
+    const frame = requestAnimationFrame(() => {
+      const option = list.children[index];
+      if (!list.isConnected || !(option instanceof HTMLElement)) return;
+      const top = option.offsetTop;
+      const bottom = top + option.offsetHeight;
+      if (centered)
+        list.scrollTop = top - Math.floor(list.clientHeight / option.offsetHeight / 2) * option.offsetHeight;
+      else if (top < list.scrollTop) list.scrollTop = top;
+      else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+      first = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
 </script>
 
 <!-- Its options take no focus, so the field driving them keeps it while the pointer picks. -->
@@ -52,6 +77,7 @@
 <style>
   .list {
     position: relative;
+    min-height: 0;
     min-width: 176px;
     max-height: 270px;
     overflow-y: auto;

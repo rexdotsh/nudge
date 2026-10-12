@@ -40,7 +40,7 @@
     <Icon name="clock" size={20} />
   </div>
   <div
-    class="content"
+    class="content action-row"
     data-reminder={reminder.id}
     class:dragging={offset !== 0}
     class:selected
@@ -66,18 +66,20 @@
         {#if detail && !compact}<small>{detail}</small>{/if}
       </span>
       {#if entry.late}
-        <span class="chip hot trail">late</span>
+        <span class="chip hot hover-trail">late</span>
       {:else}
-        <span class="when trail">{shortWhen(entry.at, now, zone)}</span>
+        <span class="when hover-trail">{shortWhen(entry.at, now, zone)}</span>
       {/if}
     </button>
-    <span class="actions">
+    <span class="actions hover-actions">
       <button
+        class="icon-button press"
         onclick={() => ui.snooze(reminder.id)}
         aria-label={`Snooze ${reminder.title}`}
         title={tip('Snooze', SNOOZE)}><Icon name="clock" size={16} /></button
       >
       <button
+        class="icon-button press"
         onclick={() => void remove(reminder)}
         aria-label={`Delete ${reminder.title}`}
         title={tip('Delete', DELETE)}><Icon name="trash" size={16} /></button
@@ -113,7 +115,6 @@
   }
 
   .content {
-    position: relative;
     isolation: isolate;
     display: flex;
     align-items: center;
@@ -122,7 +123,7 @@
     padding: 10px 2px;
     background: var(--bg);
     touch-action: pan-y;
-    transition: transform 0.35s var(--spring);
+    transition: transform var(--base) var(--spring);
   }
 
   .content::before {
@@ -218,15 +219,6 @@
     gap: 2px;
   }
 
-  .actions button {
-    width: 30px;
-    height: 30px;
-    display: grid;
-    place-items: center;
-    border-radius: 8px;
-    color: var(--muted);
-  }
-
   /* Touch screens hide the row actions (swipes cover them) but keep them for screen readers and keyboards. */
   @media (hover: none) {
     .content:not(:has(:global(:focus-visible))) .actions {
@@ -246,30 +238,6 @@
 
     .content:hover::before {
       opacity: 1;
-    }
-
-    .actions {
-      position: absolute;
-      right: 0;
-      opacity: 0;
-      transition: opacity var(--fast);
-    }
-
-    .trail {
-      transition: opacity var(--fast);
-    }
-
-    .content:is(:hover, :has(.actions :global(:focus-visible))) .actions {
-      opacity: 1;
-    }
-
-    .content:is(:hover, :has(.actions :global(:focus-visible))) .trail {
-      opacity: 0;
-    }
-
-    .actions button:hover {
-      background: var(--raised);
-      color: var(--ink);
     }
   }
 

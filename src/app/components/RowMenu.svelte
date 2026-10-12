@@ -1,33 +1,19 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
   import type { Reminder } from '../../shared/reminder';
   import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { closeOnBack } from '../lib/close';
   import { shortWhen } from '../lib/format';
-  import { depart } from '../lib/motion.svelte';
   import { focusRow, keepSelection, openEditor } from '../lib/selection';
   import { DELETE, DONE, OPEN, SNOOZE, composing, hint } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
+  import Popover from './Popover.svelte';
 
   let { reminder, x, y, fromKeyboard }: { reminder: Reminder; x: number; y: number; fromKeyboard: boolean } = $props();
 
-  const MARGIN_PX = 8;
   const STEPS: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 };
 
   const options = $derived(snoozeOptions(reminder, app.now, app.zone));
-  let left = $state(0);
-  let top = $state(0);
-
-  let menu: HTMLElement | undefined = $state();
-
-  function show(node: HTMLElement) {
-    const { width, height } = node.getBoundingClientRect();
-    left = Math.max(MARGIN_PX, Math.min(x, innerWidth - width - MARGIN_PX));
-    top = y + height > innerHeight - MARGIN_PX ? Math.max(MARGIN_PX, y - height) : y;
-    // Like the system's menus, only one opened from the keyboard starts with an item picked.
-    (fromKeyboard ? node.querySelector<HTMLElement>('[role="menuitem"]') : node)?.focus();
-  }
 
   function close() {
     ui.menu = null;
@@ -35,22 +21,20 @@
 
   $effect(() => closeOnBack(close));
 
-  function outside(event: Event) {
-    if (!(event.target instanceof Node && menu?.contains(event.target))) close();
-  }
-
   // Once closed, Home has no reminder left to pass down, so take it before closing.
-  function run(action: (target: Reminder) => unknown) {
+  function run(action: (target: Reminder) => void | Promise<void>) {
     const target = reminder;
     close();
     void action(target);
   }
 
-  function navigate(event: KeyboardEvent & { currentTarget: HTMLElement }) {
+  function navigate(event: KeyboardEvent & { currentTarget: HTMLDivElement }) {
     if (composing(event)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      run(({ id }) => focusRow(id));
+      run(({ id }) => {
+        focusRow(id);
+      });
       return;
     }
     const step = STEPS[event.key];
@@ -63,23 +47,20 @@
   }
 </script>
 
-<svelte:window onpointerdowncapture={outside} onresize={close} onblur={close} />
-
-<div
-  class="menu popup"
+<Popover
+  anchor={{ x, y }}
+  onClose={close}
+  style="min-width: 220px; max-width: calc(100vw - 16px)"
   role="menu"
-  tabindex="-1"
+  tabindex={-1}
   aria-label={reminder.title}
-  style:left="{left}px"
-  style:top="{top}px"
-  bind:this={menu}
-  {@attach show}
-  out:fade={depart()}
   onkeydown={navigate}
-  onfocusout={(event) => event.relatedTarget instanceof Node && !menu?.contains(event.relatedTarget) && close()}
 >
-  <button class="item" role="menuitem" onclick={() => run(({ id }) => openEditor(id))}
-    >Open<kbd>{hint(OPEN)}</kbd></button
+  <button
+    class="item"
+    role="menuitem"
+    data-autofocus={fromKeyboard || undefined}
+    onclick={() => run(({ id }) => openEditor(id))}>Open<kbd>{hint(OPEN)}</kbd></button
   >
   <button class="item" role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
     >Done<kbd>{hint(DONE)}</kbd></button
@@ -104,21 +85,9 @@
     onclick={() => run((target) => keepSelection(target.id, () => remove(target)))}
     >Delete<kbd>{hint(DELETE)}</kbd></button
   >
-</div>
+</Popover>
 
 <style>
-  .menu {
-    position: fixed;
-    z-index: 50;
-    min-width: 220px;
-    max-width: calc(100vw - 16px);
-    transform-origin: top left;
-  }
-
-  .menu:focus {
-    outline: none;
-  }
-
   kbd,
   .time {
     padding: 0;
