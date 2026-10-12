@@ -18,18 +18,40 @@ function crc32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-async function inflate(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+async function inflate(data: Uint8Array, limit: number): Promise<Uint8Array> {
+  let size = 0;
+  const stream = new Blob([data])
+    .stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'))
+    .pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          size += chunk.byteLength;
+          if (size > limit) controller.error(new ZipError('entry inflates past its limit'));
+          else controller.enqueue(chunk);
+        },
+      }),
+    );
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 class ZipError extends Error {}
 
+const MAX_ENTRIES = 10_000;
+
 interface Entry {
   name: string;
   method: number;
+  crc: number;
   size: number;
+  uncompressed: number;
   local: number;
+}
+
+function within(zip: Uint8Array, at: number, length: number): void {
+  if (!Number.isSafeInteger(at) || at < 0 || length < 0 || at + length > zip.length) {
+    throw new ZipError('zip offsets point outside the archive');
+  }
 }
 
 // Windows app packages are always ZIP64, so sizes and offsets may live in the ZIP64 records instead.
@@ -41,18 +63,22 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
   let at = view.getUint32(end + 16, true);
   if (end >= 20 && view.getUint32(end - 20, true) === END64_LOCATOR) {
     const end64 = Number(view.getBigUint64(end - 12, true));
+    within(zip, end64, 56);
     if (view.getUint32(end64, true) !== END64) throw new ZipError('corrupt zip64 end record');
     count = Number(view.getBigUint64(end64 + 32, true));
     at = Number(view.getBigUint64(end64 + 48, true));
   }
+  if (count > MAX_ENTRIES) throw new ZipError('too many entries');
   const entries: Entry[] = [];
   for (let i = 0; i < count; i++) {
-    if (at + 46 > zip.length || view.getUint32(at, true) !== CENTRAL) throw new ZipError('corrupt central directory');
+    within(zip, at, 46);
+    if (view.getUint32(at, true) !== CENTRAL) throw new ZipError('corrupt central directory');
     const nameLength = view.getUint16(at + 28, true);
     const extraLength = view.getUint16(at + 30, true);
+    within(zip, at + 46, nameLength + extraLength);
     let size = view.getUint32(at + 20, true);
+    let uncompressed = view.getUint32(at + 24, true);
     let local = view.getUint32(at + 42, true);
-    const uncompressed = view.getUint32(at + 24, true);
     let extra = at + 46 + nameLength;
     const extraEnd = extra + extraLength;
     while (extra + 4 <= extraEnd) {
@@ -60,19 +86,25 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
       const length = view.getUint16(extra + 2, true);
       if (id === ZIP64_EXTRA) {
         let field = extra + 4;
-        if (uncompressed === MAX32) field += 8;
-        if (size === MAX32) {
-          size = Number(view.getBigUint64(field, true));
+        const fieldEnd = field + length;
+        const read = () => {
+          if (field + 8 > fieldEnd) throw new ZipError('short zip64 field');
+          const value = Number(view.getBigUint64(field, true));
           field += 8;
-        }
-        if (local === MAX32) local = Number(view.getBigUint64(field, true));
+          return value;
+        };
+        if (uncompressed === MAX32) uncompressed = read();
+        if (size === MAX32) size = read();
+        if (local === MAX32) local = read();
       }
       extra += 4 + length;
     }
     entries.push({
       name: new TextDecoder().decode(zip.subarray(at + 46, at + 46 + nameLength)),
       method: view.getUint16(at + 10, true),
+      crc: view.getUint32(at + 16, true),
       size,
+      uncompressed,
       local,
     });
     at = extraEnd + view.getUint16(at + 32, true);
@@ -80,18 +112,27 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
   return entries;
 }
 
-/** Reads one entry from a zip archive by a predicate on its name (stored or deflated, ZIP64 aware). */
-export async function readEntry(zip: Uint8Array, matches: (name: string) => boolean): Promise<Uint8Array> {
+/** Reads one entry by a predicate on its name (stored or deflated, ZIP64 aware), checking its size and CRC. */
+export async function readEntry(
+  zip: Uint8Array,
+  matches: (name: string) => boolean,
+  limit: number,
+): Promise<Uint8Array> {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
-  const entry = directory(view, zip).find(({ name }) => matches(name));
-  if (!entry) throw new ZipError('entry not found');
-  const { name, method, size, local } = entry;
+  const found = directory(view, zip).filter(({ name }) => matches(name));
+  const [entry] = found;
+  if (!entry || found.length > 1) throw new ZipError(found.length > 1 ? 'ambiguous entry' : 'entry not found');
+  const { name, method, crc, size, uncompressed, local } = entry;
+  if (uncompressed > limit) throw new ZipError(`${name} is larger than allowed`);
+  within(zip, local, 30);
   if (view.getUint32(local, true) !== LOCAL) throw new ZipError(`corrupt entry ${name}`);
   const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
-  const data = zip.subarray(start, start + size);
-  if (method === 0) return data;
-  if (method === 8) return inflate(data);
-  throw new ZipError(`unsupported compression in ${name}`);
+  within(zip, start, size);
+  const raw = zip.subarray(start, start + size);
+  if (method !== 0 && method !== 8) throw new ZipError(`unsupported compression in ${name}`);
+  const data = method === 0 ? raw : await inflate(raw, limit);
+  if (data.length !== uncompressed || crc32(data) !== crc) throw new ZipError(`${name} is corrupt`);
+  return data;
 }
 
 /** Writes an uncompressed zip archive. */

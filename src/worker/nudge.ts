@@ -21,7 +21,6 @@ import { deviceInfo, type DeviceRow } from './devices';
 import { ApiFailure, DEVICE_REQUESTS, PUBLIC_REQUESTS } from './requests';
 import type { Runtime } from './runtime';
 import { Scheduler } from './scheduler';
-import { INSTALLER_VERSION } from './windows';
 import { Store } from './store';
 import { digest, issueToken, sameSecret } from './tokens';
 
@@ -43,7 +42,6 @@ type Handlers<R extends { [K in keyof R]: { request: unknown; response: unknown 
 export class Nudge {
   private readonly store: Store;
   private readonly scheduler: Scheduler;
-  private readonly installers = new Map<string, Promise<Uint8Array>>();
 
   constructor(private readonly runtime: Runtime) {
     this.store = new Store(runtime.sql);
@@ -130,24 +128,6 @@ export class Nudge {
 
   alarm(): Promise<void> {
     return this.scheduler.run();
-  }
-
-  /** The Windows installer for this origin, built by the packaging service once per installer version. */
-  windowsInstaller(origin: string): Promise<Uint8Array> {
-    const cached = this.store.installer(origin, INSTALLER_VERSION);
-    if (cached) return Promise.resolve(cached);
-    let pending = this.installers.get(origin);
-    if (!pending) {
-      pending = this.runtime
-        .buildInstaller(origin)
-        .then((data) => {
-          this.store.saveInstaller(origin, INSTALLER_VERSION, data);
-          return data;
-        })
-        .finally(() => this.installers.delete(origin));
-      this.installers.set(origin, pending);
-    }
-    return pending;
   }
 
   watchdog(): Promise<{ healthy: boolean }> {

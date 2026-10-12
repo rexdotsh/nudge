@@ -29,4 +29,4 @@ bun run secrets <worker-name>
 
 Open `https://<worker-name>.<your-subdomain>.workers.dev`, install it, and enter the setup code. To add more devices, use **Settings → Add a device** on one that's already set up.
 
-On Windows 11, **Settings → Download the Windows app** gives a small zip with an app package for that instance: extract it and run `Install Nudge.cmd`. It installs like any other app (no admin rights, no certificate), runs on Edge's PWA engine so notifications work, and loads the live site, so deploys reach it without reinstalling. Edge's own "Install this site as an app" works too.
+On Windows 11, **Settings → Download the Windows app** builds a small zip with an app package for that instance (it takes a few seconds; nothing is stored): extract it and run `Install Nudge.cmd`. It installs like any other app (no admin rights, no certificate), runs on Edge's PWA engine so notifications work, and loads the live site, so deploys reach it without reinstalling. Edge's own "Install this site as an app" works too.

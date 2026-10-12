@@ -11,7 +11,7 @@ import { readJson } from './body';
 import { DEVICE_HEADER } from './nudge-do';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
-import { INSTALLER_FILENAME } from './windows';
+import { INSTALLER_FILENAME, buildInstaller } from './windows';
 
 export { NudgeDO } from './nudge-do';
 
@@ -33,14 +33,16 @@ async function openSocket(request: Request, env: Env): Promise<Response> {
   return nudge(env).fetch(new Request(request.url, { headers }));
 }
 
-async function windowsInstaller(env: Env, origin: string): Promise<Response> {
+async function windowsInstaller(request: Request, env: Env, origin: string): Promise<Response> {
+  if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
+  const bearer = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
+  if ((await verifyToken(env.AUTH_SECRET, bearer)) === null) return failure('unauthorized');
   try {
-    const data = await nudge(env).windowsInstaller(origin);
-    return new Response(data, {
+    return new Response(await buildInstaller(origin), {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${INSTALLER_FILENAME}"`,
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-store',
       },
     });
   } catch (error) {
@@ -56,7 +58,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/config') return Response.json({ vapidPublicKey: vapidKeys(env.VAPID_JWK).publicKey });
     if (url.pathname === '/api/socket') return openSocket(request, env);
-    if (url.pathname === '/api/windows') return windowsInstaller(env, url.origin);
+    if (url.pathname === '/api/windows') return windowsInstaller(request, env, url.origin);
 
     const route = url.pathname.slice('/api/'.length);
     const isPublic = isPublicRoute(route);

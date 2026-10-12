@@ -38,10 +38,11 @@ Code that runs in more than one runtime belongs in `src/shared`; code shared onl
 
 ## Architecture invariants
 
-- The Durable Object is the single source of truth. Each API request is at most one RPC into it: `NudgeDO.call` for the JSON routes, and `NudgeDO.windowsInstaller` for the Windows installer download (`/api/windows`), which the DO builds once per origin with the PWABuilder packaging service, checks, and caches.
+- The Durable Object is the single source of truth. Each API request is exactly one RPC into it, through `NudgeDO.call`.
 - The API contract lives in `src/shared/api.ts`. Client, Worker and Durable Object all derive their types from it; never restate a request or response shape anywhere else.
 - Nothing polls. Work happens when a reminder is due (the DO alarm, always set to the earliest `next_fire_at`), when a client calls in, or in the hourly watchdog cron.
 - Static assets are served without running the Worker. Only `/api/*` reaches Worker code.
+- `/api/windows` is the one route the Worker answers alone: for an enrolled device it has the PWABuilder packaging service build this instance's Windows installer, checks it and returns it. Nothing is stored.
 - No KV, D1, R2 or Queues. One Worker, one Durable Object class.
 - Every write path must be safe to retry. Pushes use `tag = <reminder id>:<due>` so a resend replaces instead of stacking.
 - The client renders from local state first and never blocks first paint on the network.
