@@ -2,67 +2,81 @@ import { expect, test } from 'bun:test';
 import { Fallback } from '../src/app/lib/fallback';
 import type { NotificationContent } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
-import { MINUTE_MS, formatLocal, toLocal } from '../src/shared/time';
+import { MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 
 const ZONE = 'Asia/Kolkata';
+const NOW = Date.UTC(2026, 9, 12, 4, 0);
 
 function lateReminder() {
-  const now = Date.now();
-  const start = formatLocal(toLocal(now - 10 * MINUTE_MS, ZONE));
-  const fields = { title: 'Pay rent', notes: '', start, zone: null, repeat: null, important: false, alerts: [] };
-  const created = applyOp(undefined, { type: 'put', id: ulid(), fields }, { now: now - 60 * MINUTE_MS, zone: ZONE });
+  const fields = {
+    title: 'Pay rent',
+    notes: '',
+    start: '2026-10-12T09:20',
+    zone: null,
+    repeat: null,
+    important: false,
+    alerts: [],
+  };
+  const created = applyOp(undefined, { type: 'put', id: ulid(), fields }, { now: NOW - 60 * MINUTE_MS, zone: ZONE });
   if (!created) throw new Error('create failed');
   return created;
 }
 
 function harness() {
   const shown: string[] = [];
-  const timers: (() => void)[] = [];
-  const releases: (() => void)[] = [];
+  const timers = new Set<() => Promise<void>>();
+  const readiness: (() => void)[] = [];
   const fallback = new Fallback({
     ready: () =>
-      new Promise((resolve) =>
-        releases.push(() =>
+      new Promise((resolve) => {
+        readiness.push(() =>
           resolve(async (content: NotificationContent) => {
             shown.push(content.title);
           }),
-        ),
-      ),
+        );
+      }),
     wait: (run) => {
-      timers.push(run);
-      return () => {};
+      timers.add(run);
+      return () => timers.delete(run);
     },
+    now: () => NOW,
     origin: 'https://nudge.example',
     locale: 'en',
   });
-  const settle = async () => {
-    for (const release of releases.splice(0)) release();
-    await Bun.sleep(0);
+  const fire = () => {
+    const runs = [...timers];
+    timers.clear();
+    return runs.map((run) => run());
   };
-  return { fallback, shown, timers, settle };
+  const ready = async (checks: Promise<void>[]) => {
+    for (const release of readiness.splice(0)) release();
+    await Promise.all(checks);
+  };
+  return { fallback, shown, timers, fire, ready };
 }
 
 test('a missed push is shown locally once', async () => {
-  const { fallback, shown, timers, settle } = harness();
-  const reminders = [lateReminder()];
-  fallback.schedule(reminders, ZONE, true);
-  timers.shift()?.();
-  await settle();
+  const { fallback, shown, fire, ready } = harness();
+  fallback.schedule([lateReminder()], ZONE, true);
+  await ready(fire());
   expect(shown).toEqual(['Pay rent']);
 });
 
-test('disabling cancels a display still waiting for the service worker, and keeps the notice for later', async () => {
-  const { fallback, shown, timers, settle } = harness();
+test.each([
+  ['disabled', false],
+  ['replaced', true],
+])('a check %s before the service worker is ready leaves the notice for the current schedule', async (_, enabled) => {
+  const { fallback, shown, timers, fire, ready } = harness();
   const reminders = [lateReminder()];
   fallback.schedule(reminders, ZONE, true);
-  timers.shift()?.();
-  fallback.schedule(reminders, ZONE, false);
-  await settle();
+  const stale = fire();
+  fallback.schedule(reminders, ZONE, enabled);
+  await ready(stale);
   expect(shown).toEqual([]);
+  expect(timers.size).toBe(enabled ? 1 : 0);
 
   fallback.schedule(reminders, ZONE, true);
-  timers.at(-1)?.();
-  await settle();
+  await ready(fire());
   expect(shown).toEqual(['Pay rent']);
 });

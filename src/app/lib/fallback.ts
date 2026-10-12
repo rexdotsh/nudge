@@ -10,7 +10,8 @@ type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
-  wait: (run: () => void, ms: number) => () => void;
+  wait: (run: () => Promise<void>, ms: number) => () => void;
+  now: () => number;
   origin: string;
   locale: string;
 }
@@ -33,8 +34,9 @@ export class Fallback {
     let next = Infinity;
     for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder), zone) ?? Infinity);
     if (next === Infinity) return;
-    const wait = Math.min(Math.max(0, next + GRACE_MS - Date.now()), MAX_WAIT_MS);
-    this.cancel = this.deps.wait(() => this.check(reminders, zone), wait);
+    const generation = this.generation;
+    const wait = Math.min(Math.max(0, next + GRACE_MS - this.deps.now()), MAX_WAIT_MS);
+    this.cancel = this.deps.wait(() => this.check(reminders, zone, generation), wait);
   }
 
   private locally(reminder: Reminder): Reminder {
@@ -42,27 +44,18 @@ export class Fallback {
     return watermark > reminder.firedThrough ? { ...reminder, firedThrough: watermark } : reminder;
   }
 
-  private check(reminders: readonly Reminder[], zone: string): void {
-    const now = Date.now();
-    const generation = this.generation;
+  private async check(reminders: readonly Reminder[], zone: string, generation: number): Promise<void> {
+    const display = await this.deps.ready();
+    if (generation !== this.generation) return;
+    const now = this.deps.now();
     const { origin, locale } = this.deps;
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
     for (const reminder of reminders) {
-      const previous = this.watermarks.get(reminder.id);
       const { reminder: advanced, notice } = fire(this.locally(reminder), now - GRACE_MS, zone);
       this.watermarks.set(reminder.id, advanced.firedThrough);
       if (!notice) continue;
-      const content = reminderMessage(advanced, notice, view).notification;
-      void this.deps.ready().then((display) => {
-        if (generation === this.generation) {
-          console.warn(`push for ${fireId(reminder.id, notice.at)} did not arrive; showing it locally`);
-          return display(content);
-        }
-        if (this.watermarks.get(reminder.id) !== advanced.firedThrough) return undefined;
-        if (previous === undefined) this.watermarks.delete(reminder.id);
-        else this.watermarks.set(reminder.id, previous);
-        return undefined;
-      });
+      console.warn(`push for ${fireId(reminder.id, notice.at)} did not arrive; showing it locally`);
+      void display(reminderMessage(advanced, notice, view).notification);
     }
     this.arm(reminders, zone, true);
   }

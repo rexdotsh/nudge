@@ -21,9 +21,10 @@
   const fallback = new Fallback({
     ready: () => navigator.serviceWorker.ready.then((registration) => (content) => show(registration, content)),
     wait: (run, ms) => {
-      const timer = setTimeout(run, ms);
+      const timer = setTimeout(() => void run(), ms);
       return () => clearTimeout(timer);
     },
+    now: () => Date.now(),
     origin: location.origin,
     locale: navigator.language,
   });
