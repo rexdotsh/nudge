@@ -10,7 +10,7 @@
   import { dateLabel, timeLabel, zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
   import { closeEditor, saveEditor } from '../lib/selection';
-  import { tip } from '../lib/shortcuts';
+  import { CLOSE, SAVE, tip } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
   import Icon from './Icon.svelte';
@@ -50,10 +50,8 @@
 
 {#snippet form()}
   <nav>
-    <button class="link quiet" onclick={closeEditor} title={tip('Cancel', 'Escape')}>Cancel</button>
-    <button class="link" onclick={saveEditor} disabled={draft.parsed === null} title={tip('Save', 'mod+Enter')}
-      >Save</button
-    >
+    <button class="link quiet" onclick={closeEditor} title={tip('Cancel', CLOSE)}>Cancel</button>
+    <button class="link" onclick={saveEditor} disabled={draft.parsed === null} title={tip('Save', SAVE)}>Save</button>
   </nav>
 
   <input

@@ -5,7 +5,7 @@
   import { repeatLabel, shortWhen } from '../lib/format';
   import type { Entry } from '../lib/sections';
   import { completeFrom } from '../lib/selection';
-  import { tip } from '../lib/shortcuts';
+  import { DELETE, SNOOZE, tip } from '../lib/shortcuts';
   import { swipe } from '../lib/swipe';
   import { ui } from '../lib/ui.svelte';
   import CheckCircle from './CheckCircle.svelte';
@@ -72,13 +72,15 @@
       {/if}
     </button>
     <span class="actions">
-      <button onclick={() => ui.snooze(reminder.id)} aria-label={`Snooze ${reminder.title}`} title={tip('Snooze', 's')}
-        ><Icon name="clock" size={16} /></button
+      <button
+        onclick={() => ui.snooze(reminder.id)}
+        aria-label={`Snooze ${reminder.title}`}
+        title={tip('Snooze', SNOOZE)}><Icon name="clock" size={16} /></button
       >
       <button
         onclick={() => void remove(reminder)}
         aria-label={`Delete ${reminder.title}`}
-        title={tip('Delete', 'Delete')}><Icon name="trash" size={16} /></button
+        title={tip('Delete', DELETE)}><Icon name="trash" size={16} /></button
       >
     </span>
   </div>

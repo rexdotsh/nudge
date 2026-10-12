@@ -2,18 +2,19 @@
   import { app } from './lib/app.svelte';
   import { showUnlessOnScreen } from '../browser/notify';
   import { claim, settle } from '../browser/seen';
+  import { lateCount } from '../shared/reminder';
   import Onboarding from './components/Onboarding.svelte';
   import TitleBar from './components/TitleBar.svelte';
   import { Fallback } from './lib/fallback';
+  import { installer } from './lib/install.svelte';
   import { ui } from './lib/ui.svelte';
-  import { isInstalled } from './lib/platform';
   import Enroll from './screens/Enroll.svelte';
   import Home from './screens/Home.svelte';
   import Install from './screens/Install.svelte';
   import Notify from './screens/Notify.svelte';
   import Settings from './screens/Settings.svelte';
 
-  const needsInstall = app.platform === 'ios' && !isInstalled();
+  let guide = $state(installer.guide);
   let askForNotifications = $state(app.notifications === 'prompt');
   const link = new URLSearchParams(location.search);
   let screen = $state<'home' | 'settings'>(link.has('settings') ? 'settings' : 'home');
@@ -35,8 +36,15 @@
     locale: navigator.language,
   });
 
+  const late = $derived(lateCount(app.reminders, app.now, app.zone));
+
+  // Pushes badge the icon as they arrive; only a replica synced in this foreground knows better than the latest push.
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.caughtUp);
+    if (app.freshness === 'synced' && 'setAppBadge' in navigator) void navigator.setAppBadge(late);
+  });
+
+  $effect(() => {
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.freshness !== 'catching-up');
   });
 </script>
 
@@ -50,7 +58,7 @@
     <button class="btn primary block" onclick={() => location.reload()}>Try again</button>
   </Onboarding>
 {:else if app.phase === 'enroll'}
-  {#if needsInstall}<Install />{:else}<Enroll />{/if}
+  {#if guide}<Install {guide} onContinue={() => (guide = null)} />{:else}<Enroll />{/if}
 {:else if app.phase === 'ready'}
   {#if askForNotifications}
     <Notify onDone={() => (askForNotifications = false)} />

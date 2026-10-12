@@ -1,6 +1,6 @@
 # Nudge
 
-Personal reminders that show up on time. An installable PWA for iPhone and Windows, running on one Cloudflare Worker and one SQLite Durable Object per person.
+Personal reminders that show up on time. An installable PWA for iPhone, Mac and Windows, running on one Cloudflare Worker and one SQLite Durable Object per person.
 
 <p>
   <img src="docs/screenshots/ios-home.webp" width="260" alt="Home on iPhone: the next reminder on top with Done and Snooze, then the rest of today and a quieter Later list" />

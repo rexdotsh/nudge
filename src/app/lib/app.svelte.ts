@@ -16,6 +16,10 @@ import { enablePush, pushState, syncSubscription, type PushState } from './push'
 
 type Phase = 'loading' | 'enroll' | 'ready' | 'failed';
 
+/** What this foreground's replica is worth: until its first sync attempt settles it can miss what was pushed while away,
+ * and after an unreachable one it is only what this device last knew. */
+type Freshness = 'catching-up' | 'offline' | 'synced';
+
 const KEEPALIVE_BYTES = 48 * 1024;
 const TRAVEL_WINDOW_MS = 7 * DAY_MS;
 
@@ -27,8 +31,7 @@ class App {
   zone = $state(currentZone());
   travelling = $state(false);
   notifications = $state<PushState>(pushState());
-  /** Until the first sync attempt of this foreground settles, the replica can miss what was pushed while away. */
-  caughtUp = $state(false);
+  freshness = $state<Freshness>('catching-up');
   /** The devices as last fetched, so Settings opens with them in place instead of filling in after a round trip. */
   health = $state.raw<Health | null>(null);
   deviceId = $state<string | null>(null);
@@ -128,8 +131,8 @@ class App {
   private async exchange(): Promise<void> {
     if (!this.connection) return;
     const current = this.gate.attempt();
-    const settled = () => {
-      if (current()) this.caughtUp = true;
+    const settled = (outcome: Exclude<Freshness, 'catching-up'>) => {
+      if (current() && this.freshness !== 'synced') this.freshness = outcome;
     };
     const sent = batch(this.pending, MAX_REQUEST_BYTES);
     this.zone = currentZone();
@@ -144,12 +147,12 @@ class App {
       this.replica = new Replica(local.replica);
       this.pending = local.pending;
       this.online = true;
-      settled();
+      settled('synced');
       if (local.pending.length > 0) this.again = true;
     } catch (error) {
       if (error instanceof Unreachable) {
         this.online = false;
-        settled();
+        settled('offline');
       } else if (error instanceof ApiRejected && error.code === 'unauthorized') this.phase = 'enroll';
       else throw error;
     } finally {
@@ -181,7 +184,7 @@ class App {
       void syncSubscription();
       return;
     }
-    this.caughtUp = false;
+    this.freshness = 'catching-up';
     if (this.pending.length > 0 && this.token) {
       void request(
         'sync',
