@@ -2,15 +2,14 @@
   import { untrack } from 'svelte';
   import { prefersReducedMotion } from 'svelte/motion';
   import { fly } from 'svelte/transition';
-  import { LIMITS, parseFields } from '../../shared/input';
-  import { fieldsOf, type Reminder, type ReminderFields } from '../../shared/reminder';
+  import { LIMITS } from '../../shared/input';
+  import type { Reminder } from '../../shared/reminder';
   import { parseLocal, toInstant } from '../../shared/time';
   import { complete, remove } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { dateLabel, timeLabel, zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
-  import { RepeatChoice } from '../lib/repeat-choice.svelte';
-  import { closeEditor } from '../lib/selection';
+  import { closeEditor, saveEditor } from '../lib/selection';
   import { tip } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
@@ -27,74 +26,16 @@
     { minutes: 1440, label: '1 day' },
   ];
 
-  const original = untrack(() => $state.snapshot(reminder));
-  const repeat = new RepeatChoice(original.repeat);
-
-  let title = $state(original.title);
-  let notes = $state(original.notes);
-  let date = $state(original.start.slice(0, 10));
-  let time = $state(original.start.slice(11, 16));
-  let important = $state(original.important);
-  let alerts = $state([...original.alerts]);
-  let pinned = $state(original.zone !== null);
-  let showZone = $state(original.zone !== null || app.travelling);
-
-  const fields = $derived<ReminderFields>({
-    title: title.trim(),
-    notes,
-    start: `${date}T${time}`,
-    zone: pinned ? (original.zone ?? app.zone) : null,
-    repeat: repeat.repeat,
-    important,
-    alerts: alerts.toSorted((a, b) => a - b),
-  });
-  const parsed = $derived(repeat.understood ? parseFields(fields) : null);
-  const zone = $derived(fields.zone ?? app.zone);
+  const draft = untrack(() => ui.draftFor(reminder));
+  const zone = $derived(draft.fields.zone ?? app.zone);
   const startAt = $derived.by(() => {
-    const start = parseLocal(fields.start);
+    const start = parseLocal(draft.fields.start);
     return start ? toInstant(start, zone) : null;
   });
 
-  function toggleAlert(minutes: number) {
-    alerts = alerts.includes(minutes) ? alerts.filter((value) => value !== minutes) : [...alerts, minutes];
-  }
-
-  const changed = $derived(parsed !== null && JSON.stringify(parsed) !== JSON.stringify(fieldsOf(original)));
-
-  async function persist(): Promise<void> {
-    if (parsed && changed) await app.apply({ type: 'put', id: original.id, fields: parsed });
-  }
-
-  async function save() {
-    if (!parsed) return;
-    await persist();
-    if (changed) toasts.show('Saved');
-    closeEditor();
-  }
-
-  function saveShortcut(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
-    if (!(event.target instanceof Element && event.target.closest('#editor'))) return;
-    event.preventDefault();
-    void save();
-  }
-
-  function keepEdits() {
-    if (!changed) return;
-    void persist();
-    toasts.show('Saved');
-  }
-
-  $effect(() => {
-    ui.keepEdits = keepEdits;
-    return () => {
-      if (ui.keepEdits === keepEdits) ui.keepEdits = null;
-    };
-  });
-
   async function act(action: (current: Reminder) => Promise<void> | void) {
-    await persist();
-    const current = app.reminders.find((candidate) => candidate.id === original.id);
+    await draft.persist();
+    const current = app.reminders.find((candidate) => candidate.id === draft.id);
     if (current) await action(current);
   }
 
@@ -107,18 +48,24 @@
   }
 </script>
 
-<svelte:window onkeydown={saveShortcut} />
-
 {#snippet form()}
   <nav>
     <button class="link quiet" onclick={closeEditor} title={tip('Cancel', 'Escape')}>Cancel</button>
-    <button class="link" onclick={save} disabled={parsed === null} title={tip('Save', 'mod+Enter')}>Save</button>
+    <button class="link" onclick={saveEditor} disabled={draft.parsed === null} title={tip('Save', 'mod+Enter')}
+      >Save</button
+    >
   </nav>
 
-  <input class="bare heading" bind:value={title} maxlength={LIMITS.title} aria-label="Title" placeholder="Title" />
+  <input
+    class="bare heading"
+    bind:value={draft.title}
+    maxlength={LIMITS.title}
+    aria-label="Title"
+    placeholder="Title"
+  />
   <textarea
     class="bare"
-    bind:value={notes}
+    bind:value={draft.notes}
     maxlength={LIMITS.notes}
     aria-label="Notes"
     placeholder="Add a note"
@@ -129,21 +76,21 @@
       <span>When</span>
       <span class="when">
         <label class="picker">
-          <span>{startAt === null ? date : dateLabel(startAt, zone)}</span>
-          <input type="date" bind:value={date} aria-label="Date" required />
+          <span>{startAt === null ? draft.date : dateLabel(startAt, zone)}</span>
+          <input type="date" bind:value={draft.date} aria-label="Date" required />
         </label>
         <label class="picker">
-          <span>{startAt === null ? time : timeLabel(startAt, zone)}</span>
-          <input type="time" bind:value={time} aria-label="Time" required />
+          <span>{startAt === null ? draft.time : timeLabel(startAt, zone)}</span>
+          <input type="time" bind:value={draft.time} aria-label="Time" required />
         </label>
       </span>
     </div>
-    <RepeatPicker choice={repeat} start={fields.start} />
+    <RepeatPicker choice={draft.repeat} start={draft.fields.start} />
     <div class="field stacked">
       <span id="alerts-label">Also remind me before</span>
       <div class="alerts" role="group" aria-labelledby="alerts-label">
         {#each ALERTS as alert (alert.minutes)}
-          <button aria-pressed={alerts.includes(alert.minutes)} onclick={() => toggleAlert(alert.minutes)}>
+          <button aria-pressed={draft.alerts.includes(alert.minutes)} onclick={() => draft.toggleAlert(alert.minutes)}>
             {alert.label}
           </button>
         {/each}
@@ -154,33 +101,35 @@
   <div class="group">
     <label class="field">
       <span>Important</span>
-      <input class="toggle" type="checkbox" bind:checked={important} />
+      <input class="toggle" type="checkbox" bind:checked={draft.important} />
     </label>
-    {#if showZone}
+    {#if draft.showZone}
       <label class="field">
         <span
           >Keep this time zone<small
-            >{pinned ? `Always ${zoneLabel(zone, app.now)}` : 'Follows you when you travel'}</small
+            >{draft.pinned ? `Always ${zoneLabel(zone, app.now)}` : 'Follows you when you travel'}</small
           ></span
         >
-        <input class="toggle" type="checkbox" bind:checked={pinned} />
+        <input class="toggle" type="checkbox" bind:checked={draft.pinned} />
       </label>
     {/if}
   </div>
-  {#if !showZone}
-    <button class="link quiet zone" onclick={() => (showZone = true)}>Time zone · follows you</button>
+  {#if !draft.showZone}
+    <button class="link quiet zone" onclick={() => (draft.showZone = true)}>Time zone · follows you</button>
   {/if}
 
   <div class="acts">
     {#if reminder.due !== null}
-      <button class="btn" disabled={!parsed} onclick={() => act((current) => complete(current).then(closeEditor))}
+      <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => complete(current).then(closeEditor))}
         ><Icon name="check" size={16} />Done</button
       >
-      <button class="btn" disabled={!parsed} onclick={() => act((current) => ui.snooze(current.id))}
+      <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => ui.snooze(current.id))}
         ><Icon name="clock" size={16} />Snooze</button
       >
       {#if reminder.repeat}
-        <button class="btn" disabled={!parsed} onclick={() => act(skip)}><Icon name="skip" size={16} />Skip</button>
+        <button class="btn" disabled={!draft.parsed} onclick={() => act(skip)}
+          ><Icon name="skip" size={16} />Skip</button
+        >
       {/if}
     {/if}
     <button class="link delete" onclick={() => void remove(reminder).then(closeEditor)}>Delete</button>
@@ -192,13 +141,13 @@
     id="editor"
     class="docked"
     tabindex="-1"
-    aria-label="Edit {original.title}"
+    aria-label="Edit {draft.original.title}"
     in:fly={{ x: prefersReducedMotion.current ? 0 : 12, duration: 180 }}
   >
     {@render form()}
   </section>
 {:else}
-  <Sheet label="Edit {original.title}" onClose={closeEditor}>
+  <Sheet label="Edit {draft.original.title}" onClose={closeEditor}>
     <div id="editor">{@render form()}</div>
   </Sheet>
 {/if}

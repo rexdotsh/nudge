@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { complete, snooze, snoozeOptions } from '../lib/actions';
+  import { snooze, snoozeOptions } from '../lib/actions';
   import { timeLabel, untilLabel, whenLabel } from '../lib/format';
   import { quietSummary, type Triage } from '../lib/sections';
+  import { completeFrom } from '../lib/selection';
   import { ui } from '../lib/ui.svelte';
   import CheckCircle from './CheckCircle.svelte';
 
@@ -22,7 +23,7 @@
     </p>
     <button class="heading title open" onclick={() => ui.edit(focus.reminder.id)}>{focus.reminder.title}</button>
     <div class="acts">
-      <button class="btn primary" onclick={() => void complete(focus.reminder)}>Done</button>
+      <button class="btn primary" onclick={(event) => void completeFrom(event, focus.reminder)}>Done</button>
       {#if hour}<button class="btn" onclick={() => void snooze(focus.reminder, hour.at)}>+1 hour</button>{/if}
       {#if tonight}
         <button class="btn" onclick={() => void snooze(focus.reminder, tonight.at)}>
@@ -38,7 +39,7 @@
           late
           small
           label={`Complete ${entry.reminder.title}`}
-          onToggle={() => void complete(entry.reminder)}
+          onToggle={(event) => void completeFrom(event, entry.reminder)}
         />
         <button class="name open" onclick={() => ui.edit(entry.reminder.id)}>{entry.reminder.title}</button>
         <span class="chip hot">late</span>

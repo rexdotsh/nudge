@@ -8,6 +8,7 @@
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
   import type { PushState } from '../lib/push';
+  import { composing } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
 
   let { onBack }: { onBack: () => void } = $props();
@@ -103,7 +104,7 @@
   });
 </script>
 
-<svelte:window onkeydown={(event) => event.key === 'Escape' && onBack()} />
+<svelte:window onkeydown={(event) => event.key === 'Escape' && !composing(event) && onBack()} />
 
 <div class="page settings">
   <header>

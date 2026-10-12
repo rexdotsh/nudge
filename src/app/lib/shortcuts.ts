@@ -1,7 +1,7 @@
 import type { Reminder } from '../../shared/reminder';
-import { complete, remove } from './actions';
+import { complete, remove, snoozeOptions } from './actions';
 import { app } from './app.svelte';
-import { closeEditor, keepSelection, openEditor, rowOf, rows } from './selection';
+import { closeEditor, keepSelection, openEditor, rowOf, rows, saveEditor, snoozeTo } from './selection';
 import { toasts } from './toasts.svelte';
 import { ui } from './ui.svelte';
 
@@ -18,7 +18,14 @@ interface Binding extends Hint {
   /** Shown on the idle details pane. */
   featured?: true;
   /** Returns whether it handled the key, so unhandled keys keep their default. */
-  run: (target: Reminder | undefined, openSettings: () => void) => boolean;
+  run: (context: Context) => boolean;
+}
+
+interface Context {
+  /** The reminder whose row has focus. */
+  target: Reminder | undefined;
+  key: string;
+  openSettings: () => void;
 }
 
 const GENERAL: readonly Binding[] = [
@@ -28,7 +35,7 @@ const GENERAL: readonly Binding[] = [
     label: 'Settings',
     keys: ['mod+,'],
     inFields: true,
-    run: (_, openSettings) => {
+    run: ({ openSettings }) => {
       openSettings();
       return true;
     },
@@ -45,21 +52,37 @@ const REMINDERS: readonly Binding[] = [
     keys: ['Enter', 'e'],
     yields: true,
     featured: true,
-    run: (target) => act(target, ({ id }) => openEditor(id)),
+    run: ({ target }) => act(target, ({ id }) => openEditor(id)),
   },
   {
     label: 'Done',
     keys: ['x', ' '],
     yields: true,
     featured: true,
-    run: (target) => act(target, (reminder) => keepSelection(reminder.id, () => complete(reminder))),
+    run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => complete(reminder))),
   },
-  { label: 'Snooze', keys: ['s'], featured: true, run: (target) => act(target, ({ id }) => ui.snooze(id)) },
+  { label: 'Snooze', keys: ['s'], featured: true, run: ({ target }) => act(target, ({ id }) => ui.snooze(id)) },
   {
     label: 'Delete',
     keys: ['Delete', 'Backspace'],
-    run: (target) => act(target, (reminder) => keepSelection(reminder.id, () => remove(reminder))),
+    run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => remove(reminder))),
   },
+];
+
+const EDITING: readonly Binding[] = [
+  {
+    label: 'Save',
+    keys: ['mod+Enter'],
+    inFields: true,
+    run: () => {
+      void saveEditor();
+      return true;
+    },
+  },
+];
+
+const SNOOZING: readonly Binding[] = [
+  { label: 'Pick a snooze time', keys: ['1', '2', '3', '4', '5'], run: ({ key }) => pickSnooze(Number(key)) },
 ];
 
 export const FEATURED = [...GENERAL, ...REMINDERS].filter((binding) => binding.featured);
@@ -67,13 +90,7 @@ export const FEATURED = [...GENERAL, ...REMINDERS].filter((binding) => binding.f
 export const GROUPS: readonly { title: string; items: readonly Hint[] }[] = [
   { title: 'General', items: GENERAL },
   { title: 'Reminders', items: REMINDERS },
-  {
-    title: 'Editing',
-    items: [
-      { label: 'Save', keys: ['mod+Enter'] },
-      { label: 'Pick a snooze time', keys: ['1–5'] },
-    ],
-  },
+  { title: 'Editing', items: [...EDITING, ...SNOOZING] },
 ];
 
 const NAMES: Record<string, string> = {
@@ -108,6 +125,12 @@ export function tip(label: string, key: string): string {
 function matches({ mod, key }: Combo, event: KeyboardEvent): boolean {
   if (event.altKey || mod !== (event.ctrlKey || event.metaKey) || (mod && event.shiftKey)) return false;
   return event.key === key || event.key.toLowerCase() === key;
+}
+
+/** Keys pressed while an input method is composing text belong to it (Escape cancels the candidate, not the editor). */
+export function composing(event: KeyboardEvent): boolean {
+  // Safari reports the key that ends a composition as 229 with isComposing already false.
+  return event.isComposing || event.keyCode === 229;
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -150,6 +173,14 @@ function escape(): boolean {
   return true;
 }
 
+function pickSnooze(position: number): boolean {
+  const reminder = app.reminders.find((candidate) => candidate.id === ui.snoozing);
+  const option = reminder && snoozeOptions(reminder, app.now, app.zone)[position - 1];
+  if (!reminder || !option) return false;
+  void snoozeTo(reminder, option.at);
+  return true;
+}
+
 function move(step: number): boolean {
   const list = rows();
   if (list.length === 0) return false;
@@ -163,24 +194,26 @@ function move(step: number): boolean {
   return true;
 }
 
+/** Which bindings apply right now: an open sheet or menu owns the keyboard, and the list's keys stay out of the editor. */
+function inPlay(target: Element | null): readonly Binding[] {
+  if (ui.menu || ui.help) return [];
+  if (ui.snoozing) return SNOOZING;
+  if (ui.editing && !ui.docked) return EDITING;
+  return target?.closest('#editor') ? [...GENERAL, ...EDITING] : [...GENERAL, ...REMINDERS];
+}
+
 export function shortcut(event: KeyboardEvent, openSettings: () => void): void {
-  if (event.defaultPrevented || ui.menu || document.querySelector('dialog:modal')) return;
+  if (event.defaultPrevented || composing(event)) return;
   const target = event.target instanceof Element ? event.target : null;
   const typing = isTyping(target);
-  const pool = target?.closest('#editor') ? GENERAL : [...GENERAL, ...REMINDERS];
-  for (const binding of pool) {
+  for (const binding of inPlay(target)) {
     const hit = binding.keys.map(combo).find((candidate) => matches(candidate, event));
     if (!hit) continue;
     if (typing && !(binding.inFields && (hit.mod || hit.key === 'Escape'))) return;
     if (binding.yields && target?.closest('button, a') && !target.classList.contains('open')) return;
     const focused = rowOf(document.activeElement)?.dataset.reminder;
-    if (
-      binding.run(
-        app.reminders.find((reminder) => reminder.id === focused),
-        openSettings,
-      )
-    )
-      event.preventDefault();
+    const reminder = app.reminders.find((candidate) => candidate.id === focused);
+    if (binding.run({ target: reminder, key: hit.key, openSettings })) event.preventDefault();
     return;
   }
 }

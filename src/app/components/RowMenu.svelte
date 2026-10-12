@@ -4,7 +4,7 @@
   import { app } from '../lib/app.svelte';
   import { shortWhen } from '../lib/format';
   import { focusRow, keepSelection, openEditor } from '../lib/selection';
-  import { keyLabel } from '../lib/shortcuts';
+  import { composing, keyLabel } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
 
   let { reminder, x, y }: { reminder: Reminder; x: number; y: number } = $props();
@@ -41,6 +41,7 @@
   }
 
   function navigate(event: KeyboardEvent & { currentTarget: HTMLElement }) {
+    if (composing(event)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       run(({ id }) => focusRow(id));

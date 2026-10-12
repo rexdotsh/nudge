@@ -1,4 +1,6 @@
 import { tick } from 'svelte';
+import type { Reminder } from '../../shared/reminder';
+import { complete, snooze } from './actions';
 import { ui } from './ui.svelte';
 
 export function rowOf(element: Element | null): HTMLElement | null {
@@ -38,4 +40,24 @@ export async function keepSelection(id: string, action: () => Promise<void>): Pr
   if (rowOf(document.activeElement)) return;
   const stayed = rows()[index]?.dataset.reminder === id;
   if (stayed || !(neighbour && focusRow(neighbour))) focusRow(id);
+}
+
+export async function saveEditor(): Promise<void> {
+  const draft = ui.draft;
+  if (!draft?.parsed) return;
+  await draft.save();
+  closeEditor();
+}
+
+/** A docked editor stays beside the list; a sheet editor was only hidden behind the snooze sheet and goes too. */
+export async function snoozeTo(reminder: Reminder, at: number): Promise<void> {
+  await snooze(reminder, at);
+  if (ui.docked) ui.snoozing = null;
+  else ui.close();
+}
+
+/** Completes from a Done control; activated from the keyboard, focus moves on to a neighbour instead of the page. */
+export function completeFrom(event: MouseEvent, reminder: Reminder): Promise<void> {
+  // Keyboard activation of a button dispatches a click with no pointer presses counted.
+  return event.detail === 0 ? keepSelection(reminder.id, () => complete(reminder)) : complete(reminder);
 }

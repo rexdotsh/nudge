@@ -4,14 +4,14 @@
     small = false,
     label,
     onToggle,
-  }: { late?: boolean; small?: boolean; label: string; onToggle: () => void } = $props();
+  }: { late?: boolean; small?: boolean; label: string; onToggle: (event: MouseEvent) => void } = $props();
 
   let popping = $state(false);
 
   function toggle(event: MouseEvent) {
     event.stopPropagation();
     popping = true;
-    onToggle();
+    onToggle(event);
     setTimeout(() => (popping = false), 700);
   }
 </script>

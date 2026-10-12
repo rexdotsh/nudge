@@ -2,9 +2,10 @@
   import { untrack } from 'svelte';
   import { HOUR_MS, formatLocal, parseLocal, toInstant, toLocal } from '../../shared/time';
   import type { Reminder } from '../../shared/reminder';
-  import { snooze, snoozeFrom, snoozeOptions } from '../lib/actions';
+  import { snoozeFrom, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
+  import { snoozeTo } from '../lib/selection';
   import { ui } from '../lib/ui.svelte';
   import Sheet from './Sheet.svelte';
 
@@ -14,13 +15,6 @@
   const options = $derived(snoozeOptions(reminder, app.now, app.zone));
   let custom = $state(formatLocal(toLocal(untrack(() => from) + HOUR_MS, app.zone)));
 
-  async function pick(at: number) {
-    await snooze(reminder, at);
-    // A docked editor stays beside the list; a sheet editor was only hidden behind this one and goes too.
-    if (ui.docked) ui.snoozing = null;
-    else ui.close();
-  }
-
   const customAt = $derived.by(() => {
     const local = parseLocal(custom.slice(0, 16));
     return local ? toInstant(local, app.zone) : null;
@@ -28,26 +22,16 @@
   const settable = $derived(customAt !== null && customAt > from ? customAt : null);
 
   function pickCustom() {
-    if (settable !== null) void pick(settable);
-  }
-
-  function pickByNumber(event: KeyboardEvent) {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.target instanceof HTMLInputElement) return;
-    const option = options[Number(event.key) - 1];
-    if (!option) return;
-    event.preventDefault();
-    void pick(option.at);
+    if (settable !== null) void snoozeTo(reminder, settable);
   }
 </script>
-
-<svelte:window onkeydown={pickByNumber} />
 
 <Sheet label="Snooze {reminder.title}" onClose={() => (ui.snoozing = null)}>
   <h2 class="heading">Snooze</h2>
   <p class="what">{reminder.title}</p>
   <div class="group">
     {#each options as option, index (option.key)}
-      <button class="field" onclick={() => pick(option.at)}>
+      <button class="field" onclick={() => snoozeTo(reminder, option.at)}>
         <span><kbd>{index + 1}</kbd>{option.label}</span>
         <span class="value">{whenLabel(option.at, app.now, app.zone)}</span>
       </button>

@@ -4,6 +4,7 @@
   import { complete, remove, snooze, snoozeFrom } from '../lib/actions';
   import { repeatLabel, shortWhen } from '../lib/format';
   import type { Entry } from '../lib/sections';
+  import { completeFrom } from '../lib/selection';
   import { tip } from '../lib/shortcuts';
   import { swipe } from '../lib/swipe';
   import { ui } from '../lib/ui.svelte';
@@ -54,7 +55,7 @@
       late={entry.late}
       small={compact}
       label={`Complete ${reminder.title}`}
-      onToggle={() => void complete(reminder)}
+      onToggle={(event) => void completeFrom(event, reminder)}
     />
     <button class="open" onclick={() => ui.edit(reminder.id)} aria-current={selected || undefined}>
       <span class="text">
