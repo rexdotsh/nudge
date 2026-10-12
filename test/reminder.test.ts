@@ -244,6 +244,29 @@ describe('firing', () => {
     ]);
   });
 
+  test('an hourly reminder with a one-day early alert warns for every occurrence, a day ahead', () => {
+    let reminder = create({ repeat: { rule: 'FREQ=HOURLY', anchor: 'schedule' }, alerts: [1440] }, '2026-10-11T08:59');
+    const warned: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const next = nextFireAt(reminder, ZONE);
+      if (next === null) throw new Error('nothing planned');
+      const fired = fire(reminder, next, ZONE);
+      if (fired.notice?.alert === 'early') warned.push(fired.notice.due);
+      reminder = fired.reminder;
+    }
+    expect(warned).toEqual(['2026-10-12T09:00', '2026-10-12T10:00', '2026-10-12T11:00', '2026-10-12T12:00']);
+  });
+
+  test('a snooze across the next occurrence also holds back its early alert', () => {
+    const fired = fire(create({ repeat: daily, alerts: [60] }), at('2026-10-12T09:00'), ZONE).reminder;
+    const snoozed = apply(
+      fired,
+      { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-13T12:00') },
+      '2026-10-12T09:05',
+    );
+    expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-13T09:00'));
+  });
+
   test('alerts that were already in the past at creation never fire', () => {
     const reminder = create({ start: '2026-10-11T20:30', alerts: [60] }, '2026-10-11T20:00');
     expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-11T20:30'));

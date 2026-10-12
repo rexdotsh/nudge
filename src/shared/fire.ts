@@ -42,18 +42,26 @@ function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
   return eligible;
 }
 
-// An unfinished occurrence only rolls over when the next one is due, so the next one's early alerts have to be
-// planned from here or they would be swallowed by the roll.
+// An unfinished occurrence only rolls over when the next one is due, so early alerts of later occurrences have to be
+// planned from here or they would be swallowed by the roll. For each lead, that is the first occurrence whose early
+// alert is still ahead of what already fired; leads longer than the repeat interval reach several occurrences ahead.
+function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Step[] {
+  const quietUntil = reminder.snoozedUntil ?? -Infinity;
+  return reminder.alerts.flatMap((minutes) => {
+    const lead = minutes * MINUTE_MS;
+    const wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + lead), zone);
+    if (wall === null) return [];
+    const at = instantOf(reminder, wall, zone) - lead;
+    return at >= quietUntil ? [{ at, alert: 'early' as const, due: wall }] : [];
+  });
+}
+
 function earliest(reminder: Reminder, zone: string): Step | null {
   const due = dueAt(reminder, zone);
   if (reminder.deleted || reminder.due === null || due === null) return null;
   const next = occurrenceAfter(reminder, due, zone);
-  const steps = alertSteps(reminder, due, reminder.due);
-  if (next !== null) {
-    const nextAt = instantOf(reminder, next, zone);
-    steps.push({ at: nextAt, roll: next });
-    steps.push(...earlySteps(reminder, nextAt, next).filter((step) => step.at > reminder.firedThrough));
-  }
+  const steps = [...alertSteps(reminder, due, reminder.due), ...upcomingEarlySteps(reminder, due, zone)];
+  if (next !== null) steps.push({ at: instantOf(reminder, next, zone), roll: next });
   let first: Step | null = null;
   for (const step of steps) {
     if (!first || step.at < first.at || (step.at === first.at && 'roll' in step)) first = step;
