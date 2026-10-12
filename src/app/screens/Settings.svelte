@@ -71,6 +71,11 @@
     });
   }
 
+  function delivery({ push }: DeviceInfo): string {
+    const state = push.enabled ? 'Notifications on' : 'Notifications off';
+    return push.receiptAt ? `${state} · last delivered ${whenLabel(push.receiptAt, app.now, app.zone)}` : state;
+  }
+
   function saveFile(blob: Blob, name: string) {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -133,11 +138,8 @@
     {#each health?.devices ?? [] as device (device.id)}
       <div class="field">
         <span>
-          {device.label}{#if device.id === me}<span class="me"> · this device</span>{/if}
-          <small>
-            {device.push.enabled ? 'Notifications on' : 'Notifications off'}{#if device.push.receiptAt}
-              · last delivered {whenLabel(device.push.receiptAt, app.now, app.zone)}{/if}
-          </small>
+          {device.label}{#if device.id === me}<span class="me">{' · this device'}</span>{/if}
+          <small>{delivery(device)}</small>
         </span>
         {#if device.id !== me}
           <button class="link remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}

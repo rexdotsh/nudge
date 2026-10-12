@@ -71,11 +71,12 @@
     max-height: calc(100dvh - 48px - env(safe-area-inset-top));
     margin: auto auto 0;
     padding: 0;
-    border: 0;
+    /* A real border, not an inset shadow: content (the sticky grabber) paints over inset shadows but never over borders. */
+    border: 1px solid var(--edge);
+    border-bottom: 0;
     border-radius: 26px 26px 0 0;
     background: var(--bg);
     color: var(--ink);
-    box-shadow: inset 0 1px 0 var(--edge);
     overflow-y: auto;
     overscroll-behavior: contain;
     transition: translate 0.35s var(--spring);
@@ -120,8 +121,8 @@
     dialog {
       max-height: calc(100dvh - 80px);
       margin: auto;
+      border-bottom: 1px solid var(--edge);
       border-radius: 20px;
-      box-shadow: inset 0 0 0 1px var(--edge);
     }
 
     .body {
