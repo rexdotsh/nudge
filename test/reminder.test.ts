@@ -227,6 +227,23 @@ describe('firing', () => {
     expect(nextFireAt(due.reminder, ZONE)).toBeNull();
   });
 
+  test("an unfinished daily reminder still gets the next day's early alert", () => {
+    let reminder = create({ repeat: daily, alerts: [60] });
+    const notices: unknown[] = [];
+    for (const wall of ['2026-10-12T08:00', '2026-10-12T09:00', '2026-10-13T08:00', '2026-10-13T09:00']) {
+      expect(nextFireAt(reminder, ZONE)).toBe(at(wall));
+      const fired = fire(reminder, at(wall), ZONE);
+      notices.push(fired.notice && { alert: fired.notice.alert, due: fired.notice.due });
+      reminder = fired.reminder;
+    }
+    expect(notices).toEqual([
+      { alert: 'early', due: '2026-10-12T09:00' },
+      { alert: 'due', due: '2026-10-12T09:00' },
+      { alert: 'early', due: '2026-10-13T09:00' },
+      { alert: 'due', due: '2026-10-13T09:00' },
+    ]);
+  });
+
   test('alerts that were already in the past at creation never fire', () => {
     const reminder = create({ start: '2026-10-11T20:30', alerts: [60] }, '2026-10-11T20:00');
     expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-11T20:30'));
