@@ -231,8 +231,9 @@ describe('firing', () => {
     let reminder = create({ repeat: daily, alerts: [60] });
     const notices: unknown[] = [];
     for (const wall of ['2026-10-12T08:00', '2026-10-12T09:00', '2026-10-13T08:00', '2026-10-13T09:00']) {
-      expect(nextFireAt(reminder, ZONE)).toBe(at(wall));
-      const fired = fire(reminder, at(wall), ZONE);
+      const next = nextFireAt(reminder, ZONE) ?? Number.NaN;
+      expect(next - (next % MINUTE_MS)).toBe(at(wall));
+      const fired = fire(reminder, next, ZONE);
       notices.push(fired.notice && { alert: fired.notice.alert, due: fired.notice.due });
       reminder = fired.reminder;
     }
@@ -255,6 +256,22 @@ describe('firing', () => {
       reminder = fired.reminder;
     }
     expect(warned).toEqual(['2026-10-12T09:00', '2026-10-12T10:00', '2026-10-12T11:00', '2026-10-12T12:00']);
+  });
+
+  test.each([
+    ['a 24-hour early alert and the due notice', { alerts: [1440] }, ['due', 'early']],
+    ['an early alert and a nag', { alerts: [1425], important: true }, ['due', 'nag', 'early']],
+  ])('%s that land in the same minute both go out', (_, overrides, expected) => {
+    let reminder = create({ repeat: daily, ...overrides }, '2026-10-12T08:59');
+    const alerts: string[] = [];
+    for (let i = 0; i < expected.length; i++) {
+      const next = nextFireAt(reminder, ZONE);
+      if (next === null) throw new Error('nothing planned');
+      const fired = fire(reminder, next, ZONE);
+      if (fired.notice) alerts.push(fired.notice.alert);
+      reminder = fired.reminder;
+    }
+    expect(alerts).toEqual(expected);
   });
 
   test('a snooze across the next occurrence also holds back its early alert', () => {

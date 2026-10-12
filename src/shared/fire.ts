@@ -37,7 +37,7 @@ function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
   // still come back, even though it ends before the occurrence's new due time.
   const { snoozedUntil } = reminder;
   if (snoozedUntil !== null && snoozedUntil < due && reminder.firedThrough >= due) {
-    eligible.push({ at: snoozedUntil, alert: 'snoozed' });
+    eligible.push({ at: snoozedUntil, alert: 'snoozed', due: wall });
   }
   return eligible;
 }
@@ -45,10 +45,15 @@ function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
 // An unfinished occurrence only rolls over when the next one is due, so early alerts of later occurrences have to be
 // planned from here or they would be swallowed by the roll. For each lead, that is the first occurrence whose early
 // alert is still ahead of what already fired; leads longer than the repeat interval reach several occurrences ahead.
+// They go out one millisecond after their minute: firedThrough is a single instant, so an alert of a later occurrence
+// sharing a minute with one of the current occurrence's steps (a 24-hour alert and today's due) would otherwise be
+// swallowed by it.
+const UPCOMING_OFFSET_MS = 1;
+
 function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Step[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   return reminder.alerts.flatMap((minutes) => {
-    const lead = minutes * MINUTE_MS;
+    const lead = minutes * MINUTE_MS - UPCOMING_OFFSET_MS;
     const wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + lead), zone);
     if (wall === null) return [];
     const at = instantOf(reminder, wall, zone) - lead;
