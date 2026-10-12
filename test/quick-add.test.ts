@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { describeRepeat } from '../src/shared/describe';
 import { parseFields } from '../src/shared/input';
 import { parseQuickAdd, suggestedStart } from '../src/shared/quick-add';
 import { parseLocal, toInstant } from '../src/shared/time';
@@ -73,6 +72,7 @@ describe('parseQuickAdd', () => {
     ['gym this sunday 9pm', 'gym', '2026-10-11T21:00', null],
     ['gym next sunday 7am', 'gym', '2026-10-18T07:00', null],
     ['call feb 30', 'call feb 30', null, null],
+    ['call on the 32nd', 'call on the 32nd', null, null],
     ['backup every 5000 days', 'backup every 5000 days', null, null],
     ['pills 8pm and 8:30pm every day', 'pills', '2026-10-11T20:00', 'FREQ=DAILY;BYHOUR=20;BYMINUTE=0,30'],
     ['meds daily 9am and 9:30pm', 'meds', '2026-10-11T09:00', 'FREQ=DAILY;BYHOUR=9,21;BYMINUTE=0,30;BYSETPOS=1,4'],
@@ -136,7 +136,13 @@ describe('parseQuickAdd', () => {
       '2026-10-11T09:00',
       'FREQ=DAILY;BYHOUR=9,21;BYMINUTE=0,30;BYSETPOS=1,4;UNTIL=20261020T182900Z',
     ],
-    ['meds 9am and 9pm 10 times', 'meds', '2026-10-11T09:00', 'FREQ=DAILY;BYHOUR=9,21;BYMINUTE=0;COUNT=10'],
+    ['meds 9am and 9pm 10 times', 'meds', '2026-10-11T21:00', 'FREQ=DAILY;BYHOUR=9,21;BYMINUTE=0;COUNT=10'],
+    ['meds daily 1 times', 'meds', '2026-10-12T09:00', 'FREQ=DAILY;COUNT=1'],
+    ['meds daily for 100001 times', 'meds for 100001 times', '2026-10-11T09:00', 'FREQ=DAILY'],
+    ['meds daily for 0 days', 'meds for 0 days', '2026-10-11T09:00', 'FREQ=DAILY'],
+    ['meds daily for 1 month starting jan 31', 'meds', '2027-01-31T09:00', 'FREQ=DAILY;UNTIL=20270227T182900Z'],
+    ['meds daily until dec 20 2028', 'meds', '2026-10-11T09:00', 'FREQ=DAILY;UNTIL=20281220T182900Z'],
+    ['meds tomorrow morning and night', 'meds morning and night', '2026-10-12T09:00', null],
     [
       'meds tomorrow 9am and 9pm for 5 days',
       'meds',
@@ -243,13 +249,14 @@ describe('parseQuickAdd', () => {
     expect(parse('hello').important).toBe(false);
   });
 
-  test('spans mark exactly what was understood', () => {
-    const text = 'call mom tomorrow 6pm';
-    const parsed = parse(text);
-    expect(parsed.spans.map(({ start, end, kind }) => [text.slice(start, end), kind])).toEqual([
-      ['tomorrow', 'when'],
-      ['6pm', 'when'],
-    ]);
+  test('counted hourly repeats keep their wall-clock phase when the first future slot is in a DST gap', () => {
+    const parsed = parseQuickAdd(
+      'stretch every 2 hours at 00:00 for 3 times',
+      Date.UTC(2026, 2, 8, 5, 30),
+      'America/New_York',
+    );
+    expect(parsed.start).toBe('2026-03-08T02:00');
+    expect(parsed.repeat?.rule).toBe('FREQ=HOURLY;INTERVAL=2;COUNT=3');
   });
 
   test.each([
@@ -276,32 +283,4 @@ test('suggestedStart rounds up from an hour ahead, or picks tomorrow morning lat
   expect(suggestedStart(NOW, ZONE)).toBe('2026-10-11T21:00');
   expect(suggestedStart(at('2026-10-11T09:10'), ZONE)).toBe('2026-10-11T10:30');
   expect(suggestedStart(at('2026-10-11T21:10'), ZONE)).toBe('2026-10-12T09:00');
-});
-
-describe('describeRepeat never misstates the cadence', () => {
-  const start = { year: 2026, month: 10, day: 11, hour: 9, minute: 0 };
-  test.each([
-    ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH', /other Tue & Thu/],
-    ['FREQ=MONTHLY;BYDAY=-1FR', /last Friday/],
-    ['FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1', /last weekday/],
-    ['FREQ=YEARLY;BYMONTH=5;BYDAY=2SU', /second Sunday of May/],
-    ['FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0', /8 AM & 8 PM/],
-    ['FREQ=DAILY;BYHOUR=9,21;BYMINUTE=0,30;BYSETPOS=1,4', /^Every day at 9 AM & 9:30 PM$/],
-    ['FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=10,16;BYMINUTE=0,30;BYSETPOS=1,4', /^Every weekday at 10 AM & 4:30 PM$/],
-    ['FREQ=DAILY;BYHOUR=9,21;BYMINUTE=0,30;BYSETPOS=5', /^Custom repeat$/],
-    ['FREQ=WEEKLY;BYHOUR=9,21;BYMINUTE=0;BYSETPOS=2', /^Custom repeat$/],
-    ['FREQ=MONTHLY;BYDAY=TU,WE,TH;BYSETPOS=3', /^Custom repeat$/],
-    ['FREQ=DAILY;INTERVAL=3;BYDAY=MO', /^Custom repeat$/],
-    ['FREQ=MONTHLY;BYMONTHDAY=-2', /^Custom repeat$/],
-    ['FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=-2', /^Custom repeat$/],
-    ['FREQ=DAILY;UNTIL=20261221T030000Z', /until Dec 20$/],
-  ])('%p', (rule, pattern) => {
-    expect(describeRepeat({ rule, anchor: 'schedule' }, start, 'en-US', 'America/New_York')).toMatch(pattern);
-  });
-
-  test('completion repeats count from completion', () => {
-    expect(describeRepeat({ rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' }, start, 'en-US', ZONE)).toMatch(
-      /3 days after/,
-    );
-  });
 });

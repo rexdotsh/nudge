@@ -138,8 +138,7 @@ export class Devices {
     );
   }
 
-  /** A push endpoint belongs to one device: a reinstalled app that inherits it takes it from its old enrollment, which
-   * would otherwise be sent every notification a second time. */
+  // A reinstall can inherit an endpoint; sending to both enrollments would duplicate notifications.
   subscribe(id: string, keys: PushKeys | null): void {
     if (keys) {
       this.sql.exec(

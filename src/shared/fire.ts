@@ -15,14 +15,11 @@ export interface Notice {
 
 type Step = { at: number; alert: Alert; due: string } | { at: number; roll: string };
 
-const earlySteps = (reminder: Reminder, due: number, wall: string): Step[] =>
-  reminder.alerts.map((minutes) => ({ at: due - minutes * MINUTE_MS, alert: 'early', due: wall }));
-
 function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   const comesUp = Math.max(due, quietUntil);
   const steps: Step[] = [
-    ...earlySteps(reminder, due, wall),
+    ...reminder.alerts.map((minutes): Step => ({ at: due - minutes * MINUTE_MS, alert: 'early', due: wall })),
     { at: comesUp, alert: comesUp > due ? 'snoozed' : 'due', due: wall },
     ...(reminder.important
       ? Array.from({ length: NAG_LIMIT }, (_, i) => ({
@@ -42,12 +39,8 @@ function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
   return eligible;
 }
 
-// An unfinished occurrence only rolls over when the next one is due, so early alerts of later occurrences have to be
-// planned from here or they would be swallowed by the roll. For each lead, that is the first occurrence whose early
-// alert is still ahead of what already fired; leads longer than the repeat interval reach several occurrences ahead.
-// They go out one millisecond after their minute: firedThrough is a single instant, so an alert of a later occurrence
-// sharing a minute with one of the current occurrence's steps (a 24-hour alert and today's due) would otherwise be
-// swallowed by it.
+// Later occurrences need their early alerts before the current one rolls over. The millisecond offset keeps a shared
+// minute (today's due and tomorrow's 24-hour alert) from being swallowed by the single firedThrough watermark.
 const UPCOMING_OFFSET_MS = 1;
 
 function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Step[] {

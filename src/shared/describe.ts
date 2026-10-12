@@ -126,7 +126,6 @@ function ending(rule: Rule, names: Names, zone: string): string {
   return `, until ${names.month(until.month, 'short')} ${until.day}`;
 }
 
-/** Names its times of day when it has several, or always `withTime`. */
 export function describeRepeat(
   repeat: Repeat,
   start: LocalDateTime,

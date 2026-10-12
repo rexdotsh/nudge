@@ -1,6 +1,19 @@
 import { WEEKDAY_CODES } from './time';
 
 const FREQUENCIES = ['HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'] as const;
+const PARTS = new Set([
+  'FREQ',
+  'WKST',
+  'INTERVAL',
+  'COUNT',
+  'UNTIL',
+  'BYMONTH',
+  'BYMONTHDAY',
+  'BYDAY',
+  'BYHOUR',
+  'BYMINUTE',
+  'BYSETPOS',
+]);
 export type Frequency = (typeof FREQUENCIES)[number];
 
 export interface ByDay {
@@ -39,7 +52,8 @@ export function rule(freq: Frequency, parts: Partial<Omit<Rule, 'freq'>> = {}): 
   };
 }
 
-function integers(value: string, min: number, max: number, allowZero = true): number[] {
+function integers(value: string | undefined, min: number, max: number, allowZero = true): number[] {
+  if (value === undefined) return [];
   return value.split(',').map((part) => {
     const n = Number(part);
     if (!/^[+-]?\d+$/.test(part) || n < min || n > max || (!allowZero && n === 0)) {
@@ -49,7 +63,14 @@ function integers(value: string, min: number, max: number, allowZero = true): nu
   });
 }
 
-function parseByDay(value: string): ByDay[] {
+function integer(value: string, min: number, max: number): number {
+  const [n] = integers(value, min, max);
+  if (n === undefined || value.includes(',')) throw new RuleError(`invalid value ${value}`);
+  return n;
+}
+
+function parseByDay(value: string | undefined): ByDay[] {
+  if (value === undefined) return [];
   return value.split(',').map((part) => {
     const match = /^([+-]?\d{1,2})?([A-Z]{2})$/.exec(part);
     const nth = Number(match?.[1] ?? 0);
@@ -67,17 +88,7 @@ function formatUntil(instant: number): string {
 }
 
 function parseUntil(value: string): number {
-  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value);
-  const instant = match
-    ? Date.UTC(
-        Number(match[1]),
-        Number(match[2]) - 1,
-        Number(match[3]),
-        Number(match[4]),
-        Number(match[5]),
-        Number(match[6]),
-      )
-    : Number.NaN;
+  const instant = Date.parse(value.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'));
   if (Number.isNaN(instant) || formatUntil(instant) !== value) {
     throw new RuleError(`UNTIL must be a valid UTC date-time, got ${value}`);
   }
@@ -89,49 +100,26 @@ export function parseRule(text: string): Rule {
   for (const part of text.replace(/^RRULE:/, '').split(';')) {
     const [key, value, ...rest] = part.split('=');
     if (!key || !value || rest.length > 0 || fields.has(key)) throw new RuleError(`invalid rule part ${part}`);
+    if (!PARTS.has(key)) throw new RuleError(`unsupported rule part ${key}`);
     fields.set(key, value);
   }
   const freq = FREQUENCIES.find((candidate) => candidate === fields.get('FREQ'));
   if (!freq) throw new RuleError('FREQ is missing or unsupported');
   if ((fields.get('WKST') ?? 'MO') !== 'MO') throw new RuleError('only WKST=MO is supported');
 
-  const parsed = rule(freq);
-  for (const [key, value] of fields) {
-    switch (key) {
-      case 'FREQ':
-      case 'WKST':
-        break;
-      case 'INTERVAL':
-        [parsed.interval = 1] = integers(value, 1, 1000);
-        break;
-      case 'COUNT':
-        [parsed.count = null] = integers(value, 1, 100_000);
-        break;
-      case 'UNTIL':
-        parsed.until = parseUntil(value);
-        break;
-      case 'BYMONTH':
-        parsed.byMonth = integers(value, 1, 12);
-        break;
-      case 'BYMONTHDAY':
-        parsed.byMonthDay = integers(value, -31, 31, false);
-        break;
-      case 'BYDAY':
-        parsed.byDay = parseByDay(value);
-        break;
-      case 'BYHOUR':
-        parsed.byHour = integers(value, 0, 23);
-        break;
-      case 'BYMINUTE':
-        parsed.byMinute = integers(value, 0, 59);
-        break;
-      case 'BYSETPOS':
-        parsed.bySetPos = integers(value, -366, 366, false);
-        break;
-      default:
-        throw new RuleError(`unsupported rule part ${key}`);
-    }
-  }
+  const count = fields.get('COUNT');
+  const until = fields.get('UNTIL');
+  const parsed = rule(freq, {
+    interval: integer(fields.get('INTERVAL') ?? '1', 1, 1000),
+    count: count === undefined ? null : integer(count, 1, 100_000),
+    until: until === undefined ? null : parseUntil(until),
+    byMonth: integers(fields.get('BYMONTH'), 1, 12),
+    byMonthDay: integers(fields.get('BYMONTHDAY'), -31, 31, false),
+    byDay: parseByDay(fields.get('BYDAY')),
+    byHour: integers(fields.get('BYHOUR'), 0, 23),
+    byMinute: integers(fields.get('BYMINUTE'), 0, 59),
+    bySetPos: integers(fields.get('BYSETPOS'), -366, 366, false),
+  });
   if (parsed.count !== null && parsed.until !== null) throw new RuleError('COUNT and UNTIL are mutually exclusive');
   if (freq === 'HOURLY' && parsed.byHour.length + parsed.byMinute.length + parsed.bySetPos.length > 0) {
     throw new RuleError('HOURLY rules may only be limited by month and day');

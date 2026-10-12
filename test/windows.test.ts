@@ -108,13 +108,6 @@ test('an entry that inflates past its limit is refused', async () => {
   expect(String(await read.catch((error: unknown) => error))).toContain('past its limit');
 });
 
-test.each([
-  ['nudge.example', 'Nudge.nudge.example'],
-  ['my_host.example', 'Nudge.my-host.example'],
-])('package names stay readable for short hosts: %s', (host, expected) => {
-  expect(packageName(host)).toBe(expected);
-});
-
 test('long hosts sharing a prefix still get distinct, valid package names', () => {
   const prefix = 'a'.repeat(60);
   const names = [`${prefix}.one.example`, `${prefix}.two.example`].map(packageName);

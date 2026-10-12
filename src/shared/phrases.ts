@@ -1,6 +1,7 @@
 import type { Repeat } from './reminder';
+import { sortedUnique } from './numbers';
 import { rule, type ByDay, type Frequency, type Rule } from './rrule';
-import { WEEKDAY_CODES } from './time';
+import { WEEKDAY_CODES, epochDay, type LocalDate } from './time';
 
 export type Time = { hour: number; minute: number };
 
@@ -10,14 +11,16 @@ export const LIST = '\\s*(?:,|and|&)\\s*';
 const AND = `(?:${LIST}|\\s+)`;
 const DAYS = `(${DAY}(?:${AND}${DAY})*)`;
 const PLURAL_DAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)days';
-export const MONTH =
+const MONTH =
   '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const ORDINAL = '(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)';
-export const SUFFIX = '(?:st|nd|rd|th)?';
+const SUFFIX = '(?:st|nd|rd|th)?';
+export const DATE = `${MONTH}\\s+(\\d{1,2})${SUFFIX}(?:,?\\s+(\\d{4}))?|(?:the\\s+)?(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}(?:\\s+(\\d{4}))?`;
 const OF_MONTH = '(?:\\s+of)?\\s+(?:the\\s+|every\\s+|each\\s+)?month';
 const MERIDIEM = '(am|pm|a\\.m\\.|p\\.m\\.)';
-export const TIME = `(\\d{1,2})(?:[:.](\\d{2}))?\\s*${MERIDIEM}?`;
-export const MERIDIEM_TIME = `(\\d{1,2})(?:[:.](\\d{2}))?\\s*${MERIDIEM}`;
+const CLOCK = `(\\d{1,2})(?:[:.](\\d{2}))?\\s*`;
+export const TIME = `${CLOCK}${MERIDIEM}?`;
+export const MERIDIEM_TIME = `${CLOCK}${MERIDIEM}`;
 
 const NTH: Record<string, number> = {
   first: 1,
@@ -64,7 +67,6 @@ const TIMES_A_DAY: Record<string, number> = {
   five: 5,
   six: 6,
 };
-/** The hours "n times a day" spreads across the waking day. */
 const SPREAD: Record<number, number[]> = {
   1: [],
   2: [9, 21],
@@ -77,7 +79,16 @@ const WEEKDAYS: ByDay[] = [0, 1, 2, 3, 4].map((day) => ({ weekday: day, nth: 0 }
 const WEEKEND: ByDay[] = [5, 6].map((day) => ({ weekday: day, nth: 0 }));
 
 export const dayIndex = (word: string) => WEEKDAY_CODES.findIndex((code) => code === word.slice(0, 2).toUpperCase());
-export const monthNumber = (word: string) => MONTHS.indexOf(word.slice(0, 3).toLowerCase()) + 1;
+const monthNumber = (word: string) => MONTHS.indexOf(word.slice(0, 3).toLowerCase()) + 1;
+export function dateInPhrase(match: RegExpExecArray, today: LocalDate): LocalDate {
+  const year = match[3] ?? match[6];
+  const date = {
+    year: year === undefined ? today.year : Number(year),
+    month: monthNumber(match[1] ?? match[5] ?? ''),
+    day: Number(match[2] ?? match[4]),
+  };
+  return year === undefined && epochDay(date) < epochDay(today) ? { ...date, year: today.year + 1 } : date;
+}
 const count = (word: string | undefined) => (word === undefined ? 1 : word === 'other' ? 2 : Number(word));
 const byDays = (list: string) =>
   [...new Set((list.match(new RegExp(DAY, 'g')) ?? []).map(dayIndex))]
@@ -89,22 +100,18 @@ const MONTH_DAYS = `(?:the\\s+)?(\\d{1,2})${SUFFIX}((?:${LIST}(?:the\\s+)?\\d{1,
 export const partsOfDay = (text: string) =>
   (text.match(new RegExp(PART_OF_DAY, 'g')) ?? []).flatMap((part) => PARTS_OF_DAY[part] ?? []);
 
-/** The times of day in order, each once. */
 export function distinctTimes(times: Time[]): Time[] {
   return times
     .filter((time, i) => times.findIndex((other) => other.hour === time.hour && other.minute === time.minute) === i)
     .toSorted((a, b) => a.hour - b.hour || a.minute - b.minute);
 }
 
-const ascending = (items: number[]) => [...new Set(items)].toSorted((a, b) => a - b);
-
-/** The rule firing at each of several times of day, or null when its period cannot be limited to them. */
 export function atTimes(base: Rule, times: Time[]): Rule | null {
   const wanted = distinctTimes(times);
   if (wanted.length < 2) return base;
   if (base.bySetPos.length > 0) return null;
-  const byHour = ascending(wanted.map((time) => time.hour));
-  const byMinute = ascending(wanted.map((time) => time.minute));
+  const byHour = sortedUnique(wanted.map((time) => time.hour));
+  const byMinute = sortedUnique(wanted.map((time) => time.minute));
   if (byHour.length * byMinute.length === wanted.length) return { ...base, byHour, byMinute };
   // BYHOUR and BYMINUTE fire at every pairing of the two, so BYSETPOS picks the wanted pairs within each day.
   const weekly = base.freq === 'WEEKLY' && base.interval === 1 && base.byDay.length > 0;
@@ -145,9 +152,7 @@ const scheduledAt = (base: Rule, times: Time[]) => scheduled(atTimes(base, times
 const weekly = (m: RegExpExecArray) => scheduled(rule('WEEKLY', { byDay: byDays(m[1] ?? '') }));
 const monthly = (list: string) => {
   const days = numbers(list).filter((day) => day >= 1 && day <= 31);
-  return days.length === 0
-    ? null
-    : scheduled(rule('MONTHLY', { byMonthDay: [...new Set(days)].toSorted((a, b) => a - b) }));
+  return days.length === 0 ? null : scheduled(rule('MONTHLY', { byMonthDay: sortedUnique(days) }));
 };
 
 const AFTER = `(hour|day|week|month|year)s?\\s+after\\s+`;
@@ -215,9 +220,9 @@ export const REPEATS: [pattern: string, build: (match: RegExpExecArray) => Repea
       let end = to.hour;
       if (!m[7] && end <= from.hour && end + 12 > from.hour) end += 12;
       if (end <= from.hour) end += 24;
-      const hours = new Set<number>();
-      for (let hour = from.hour; hour <= end; hour += step) hours.add(hour % 24);
-      return scheduled(rule('DAILY', { byHour: [...hours].toSorted((a, b) => a - b), byMinute: [from.minute] }), from);
+      const hours: number[] = [];
+      for (let hour = from.hour; hour <= end; hour += step) hours.push(hour % 24);
+      return scheduled(rule('DAILY', { byHour: sortedUnique(hours), byMinute: [from.minute] }), from);
     },
   ],
   [`every\\s+(other|\\d+)\\s+(hour|day|week|month|year)s?`, (m) => scheduled(everyUnits(m[2], count(m[1])))],

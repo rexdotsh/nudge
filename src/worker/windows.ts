@@ -24,7 +24,6 @@ export interface InstallerDeps {
   build: (origin: string) => Promise<Uint8Array>;
 }
 
-/** Only an enrolled device can make this instance call the packaging service. */
 export async function serveInstaller(
   { method, origin, token }: InstallerRequest,
   deps: InstallerDeps,
@@ -93,8 +92,7 @@ function decodeXml(value: string): string {
 
 type Element = { tag: string; attributes: Map<string, string> };
 
-// An app manifest is plain XML: no DOCTYPE or custom entities, so comments, processing instructions and CDATA are the
-// only places markup can hide; they are removed before reading elements.
+// Comments, processing instructions and CDATA can hide markup that is not an element.
 function elements(xml: string): Element[] {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml))
     throw new InstallerError('the packaging service returned an unexpected manifest');
@@ -112,8 +110,6 @@ function elements(xml: string): Element[] {
 
 const fallbacks = (value: string) => [...value.matchAll(/--app-fallback-url=(\S+)/g)].map(([, url]) => url);
 
-// The package is only served if it is unmistakably this instance's: one identity with our name and the unsigned
-// publisher, the launched application falling back to this origin, and no launch parameter anywhere pointing elsewhere.
 function checkManifest(xml: string, name: string, url: string): void {
   const all = elements(xml);
   const identities = all.filter(({ tag }) => tag === 'Identity');

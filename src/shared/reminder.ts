@@ -1,6 +1,6 @@
 import { memoize } from './memoize';
 import { nextOccurrence } from './occurrences';
-import { parseRule, type Frequency, type Rule } from './rrule';
+import { parseRule, type Frequency } from './rrule';
 import {
   HOUR_MS,
   addMonthsClamped,
@@ -70,27 +70,19 @@ export function dueAt(reminder: Reminder, currentZone: string): number | null {
   return reminder.due === null ? null : instantOf(reminder, reminder.due, currentZone);
 }
 
-function wallOf(fields: ReminderFields, instant: number, currentZone: string): string {
-  return formatLocal(toLocal(instant, zoneFor(fields, currentZone)));
-}
-
-function scheduleRule(fields: ReminderFields): Rule | null {
-  return fields.repeat?.anchor === 'schedule' ? parsedRule(fields.repeat.rule) : null;
-}
-
 export function occurrenceAfter(fields: ReminderFields, after: number, currentZone: string): string | null {
-  const schedule = scheduleRule(fields);
-  if (!schedule) return null;
+  if (fields.repeat?.anchor !== 'schedule') return null;
+  const schedule = parsedRule(fields.repeat.rule);
   const next = nextOccurrence(schedule, local(fields.start), zoneFor(fields, currentZone), after);
-  return next === null ? null : wallOf(fields, next, currentZone);
+  return next === null ? null : formatLocal(toLocal(next.at, zoneFor(fields, currentZone)));
 }
 
 export function firstDue(fields: ReminderFields, now: number, currentZone: string): string | null {
-  if (!scheduleRule(fields)) return fields.start;
+  if (fields.repeat?.anchor !== 'schedule') return fields.start;
   return occurrenceAfter(fields, Math.max(instantOf(fields, fields.start, currentZone), now) - 1, currentZone);
 }
 
-const ADVANCE: Record<Exclude<Frequency, 'HOURLY'>, (date: LocalDate, amount: number) => LocalDate> = {
+export const ADVANCE_DATE: Record<Exclude<Frequency, 'HOURLY'>, (date: LocalDate, amount: number) => LocalDate> = {
   DAILY: (date, amount) => fromEpochDay(epochDay(date) + amount),
   WEEKLY: (date, amount) => fromEpochDay(epochDay(date) + amount * 7),
   MONTHLY: addMonthsClamped,
@@ -109,7 +101,7 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
     return formatLocal(wallAtOrAfter(completedAt + interval * HOUR_MS, zoneFor(reminder, currentZone)));
   }
   const { hour, minute } = local(reminder.start);
-  const date = ADVANCE[freq](toLocal(completedAt, zoneFor(reminder, currentZone)), interval);
+  const date = ADVANCE_DATE[freq](toLocal(completedAt, zoneFor(reminder, currentZone)), interval);
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour, minute });
 }
 
