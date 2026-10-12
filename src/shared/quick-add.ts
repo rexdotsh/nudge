@@ -1,4 +1,5 @@
 import { isRepeat } from './input';
+import { nextOccurrence } from './occurrences';
 import {
   DAY,
   LIST,
@@ -58,6 +59,8 @@ interface Draft {
   offset: number | null;
   offsetDays: number | null;
   duration: { unit: 'day' | 'week' | 'month'; amount: number } | null;
+  /** The repeat is a daily one implied only by a list of times, so it holds only if the list has no date. */
+  tentative: boolean;
 }
 
 const DEFAULT_TIME: Time = { hour: 9, minute: 0 };
@@ -97,12 +100,12 @@ const DURATION = `for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`;
 const TIME_LIST = `(?:at\\s+)?${TIME}(?:${LIST}${TIME})+`;
 const PARTS_LIST = `(?:in\\s+the\\s+)?${PART_OF_DAY}(?:${LIST}(?:in\\s+the\\s+|at\\s+)?${PART_OF_DAY})+`;
 
-function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string): void {
-  if (!draft.repeat) return;
+function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string): boolean {
+  if (!draft.repeat) return false;
   const current = draft.repeat.rule;
   if (draft.repeat.anchor === 'completion') {
     for (const end of [UNTIL, COUNT, DURATION]) scanner.shield(end);
-    return;
+    return false;
   }
   scanner.take(UNTIL, 'repeat', (m) => {
     const date = nextDate(today, monthNumber(m[1] ?? m[4] ?? ''), Number(m[2] ?? m[3]));
@@ -110,15 +113,15 @@ function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string
     current.until = endOfDay(date, zone);
     return true;
   });
-  if (current.until !== null) return;
+  if (current.until !== null) return true;
   const counted = scanner.take(COUNT, 'repeat', (m) => {
     const times = Number(m[1]);
     if (times < 1) return false;
     current.count = times;
     return true;
   });
-  if (counted) return;
-  scanner.take(DURATION, 'repeat', (m) => {
+  if (counted) return true;
+  return scanner.take(DURATION, 'repeat', (m) => {
     const unit = m[2] === 'week' || m[2] === 'month' ? m[2] : 'day';
     draft.duration = { unit, amount: /^\d+$/.test(m[1] ?? '') ? Number(m[1]) : 1 };
   });
@@ -175,11 +178,8 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   );
 
   scanner.take(TIME_LIST, 'when', (m) => {
-    const parts = [...m[0].matchAll(new RegExp(TIME, 'g'))];
-    const times = parts.map((part) => clock(part[1] ?? '', part[2], part[3]));
-    const valid = times.filter((time): time is Time => time !== null);
-    const unmistakable = parts.every((part) => part[3] !== undefined || part[0].includes(':'));
-    return valid.length === times.length && listTimes(draft, valid, unmistakable);
+    const list = readTimeList(m[0]);
+    return list !== null && listTimes(draft, list.times, list.unmistakable);
   });
   scanner.shield(TIME_LIST);
   scanner.take(PARTS_LIST, 'when', (m) => listTimes(draft, partsOfDay(m[0]), true));
@@ -208,15 +208,30 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   });
 }
 
-/** Several times of day make the repeat fire at each, and with no date or repeat they mean every day. */
+function readTimeList(text: string): { times: Time[]; unmistakable: boolean } | null {
+  const parts = [...text.matchAll(new RegExp(TIME, 'g'))];
+  const times = parts.map((part) => clock(part[1] ?? '', part[2], part[3]));
+  const valid = times.filter((time): time is Time => time !== null);
+  const unmistakable = parts.every((part) => part[3] !== undefined || part[0].includes(':'));
+  return valid.length === times.length ? { times: valid, unmistakable } : null;
+}
+
+/** Several times of day, unmistakably written, mean every day, since one reminder cannot fire at each just once. */
+function impliesDaily(scanner: Scanner): boolean {
+  const list = scanner.peek(TIME_LIST);
+  const read = list && readTimeList(list[0]);
+  const times = read?.unmistakable ? read.times : partsOfDay(scanner.peek(PARTS_LIST)?.[0] ?? '');
+  return distinctTimes(times).length > 1;
+}
+
 function listTimes(draft: Draft, times: Time[], unmistakable: boolean): boolean {
-  const [first, second] = distinctTimes(times);
-  if (!first) return false;
-  const undated = draft.date === null && draft.offset === null && draft.offsetDays === null;
-  const repeat = draft.repeat ?? (unmistakable && undated && second ? scheduled(rule('DAILY')) : null);
-  const timed = repeat?.anchor === 'schedule' ? atTimes(repeat.rule, times) : null;
-  if (!repeat || !timed || !isValidRule(timed)) return false;
-  draft.repeat = { ...repeat, rule: timed };
+  const [first] = distinctTimes(times);
+  const repeat = draft.repeat;
+  const dated = draft.date !== null || draft.offset !== null || draft.offsetDays !== null;
+  if (!first || repeat?.anchor !== 'schedule' || (draft.tentative && (dated || !unmistakable))) return false;
+  const timed = atTimes(repeat.rule, times);
+  if (!timed || !isValidRule(timed)) return false;
+  repeat.rule = timed;
   draft.listedTime = first;
   return true;
 }
@@ -251,9 +266,13 @@ function startOf(draft: Draft, now: number, zone: string): string | null {
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour: at.hour, minute: at.minute });
 }
 
-function applyDuration(draft: Draft, start: string | null, zone: string): void {
-  const startDate = start === null ? null : parseLocal(start);
-  if (!draft.repeat || !draft.duration || !startDate) return;
+/** The duration counts from the first day the repeat still fires, so days that have already passed are not lost. */
+function applyDuration(draft: Draft, start: string | null, now: number, zone: string): void {
+  const local = start === null ? null : parseLocal(start);
+  if (!draft.repeat || !draft.duration || !local) return;
+  const first = nextOccurrence(draft.repeat.rule, local, zone, now - 1);
+  if (first === null) return;
+  const startDate = toLocal(first, zone);
   const { unit, amount } = draft.duration;
   const last =
     unit === 'month'
@@ -284,6 +303,7 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
     offset: null,
     offsetDays: null,
     duration: null,
+    tentative: false,
   };
   const important = scanner.take(`!+`, 'flag', () => true, { wholeWords: false });
   for (const [pattern, build] of REPEATS) {
@@ -296,10 +316,14 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
     });
     if (taken) break;
   }
-  scanEnds(scanner, draft, today, zone);
+  const implied = draft.repeat === null && impliesDaily(scanner);
+  if (implied) draft.repeat = scheduled(rule('DAILY'));
+  const ended = scanEnds(scanner, draft, today, zone);
+  draft.tentative = implied && !ended;
   scanWhen(scanner, draft, today);
+  if (draft.tentative && draft.listedTime === null) draft.repeat = null;
   const start = startOf(draft, now, zone);
-  applyDuration(draft, start, zone);
+  applyDuration(draft, start, now, zone);
   const repeat = draft.repeat && { rule: formatRule(draft.repeat.rule), anchor: draft.repeat.anchor };
   return {
     title: cleanTitle(scanner.rest()),

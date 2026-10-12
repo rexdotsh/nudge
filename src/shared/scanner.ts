@@ -37,6 +37,11 @@ export class Scanner {
     return true;
   }
 
+  /** Finds a phrase without taking it. */
+  peek(pattern: string): RegExpExecArray | null {
+    return this.find(wholeWord(pattern));
+  }
+
   /** Hides a phrase that was recognised but not taken, so no later pattern reads part of it. */
   shield(pattern: string): void {
     const match = this.find(wholeWord(pattern));
