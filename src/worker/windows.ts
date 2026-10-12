@@ -8,9 +8,43 @@ const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const UNSIGNED_PUBLISHER = 'CN=Nudge, OID.2.25.311729368913984317654407730594956997722=1';
 const MAX_NAME = 50;
 
-export const INSTALLER_FILENAME = 'Nudge for Windows.zip';
+const INSTALLER_FILENAME = 'Nudge for Windows.zip';
 
 export class InstallerError extends Error {}
+
+export interface InstallerRequest {
+  method: string;
+  origin: string;
+  token: string;
+}
+
+export interface InstallerDeps {
+  verify: (token: string) => Promise<string | null>;
+  enrolled: (deviceId: string) => Promise<boolean>;
+  build: (origin: string) => Promise<Uint8Array>;
+}
+
+/** Only an enrolled device can make this instance call the packaging service. */
+export async function serveInstaller(
+  { method, origin, token }: InstallerRequest,
+  deps: InstallerDeps,
+): Promise<Response> {
+  if (method !== 'POST') return new Response('method not allowed', { status: 405 });
+  const deviceId = await deps.verify(token);
+  if (deviceId === null || !(await deps.enrolled(deviceId))) return new Response(null, { status: 401 });
+  try {
+    return new Response(await deps.build(origin), {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${INSTALLER_FILENAME}"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (error) {
+    console.error('could not build the Windows installer', error);
+    return new Response('The Windows installer could not be built right now. Try again in a minute.', { status: 503 });
+  }
+}
 
 function fnv1a(text: string): string {
   let hash = 0x811c9dc5;
@@ -31,8 +65,9 @@ function installScript(name: string): string {
     '@echo off',
     'title Installing Nudge',
     'echo Installing Nudge...',
+    'set "NUDGE_PACKAGE=%~dp0Nudge.msix"',
     "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ErrorActionPreference = 'Stop'; " +
-      "Add-AppxPackage -Path '%~dp0Nudge.msix' -AllowUnsigned; " +
+      'Add-AppxPackage -Path $env:NUDGE_PACKAGE -AllowUnsigned; ' +
       `$package = Get-AppxPackage -Name '${name}'; ` +
       "Start-Process ('shell:AppsFolder\\' + $package.PackageFamilyName + '!App')\"",
     'if errorlevel 1 (',
@@ -45,21 +80,44 @@ function installScript(name: string): string {
   ].join('\r\n');
 }
 
-function attributes(element: string): Map<string, string> {
-  return new Map([...element.matchAll(/([\w:]+)="([^"]*)"/g)].map(([, key = '', value = '']) => [key, value]));
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+function decodeXml(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (whole, entity: string) => {
+    if (entity.startsWith('#x') || entity.startsWith('#X'))
+      return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+    if (entity.startsWith('#')) return String.fromCodePoint(Number(entity.slice(1)));
+    return ENTITIES[entity] ?? whole;
+  });
 }
 
-// The package is only served if it is unmistakably this instance's: one identity with our name and the unsigned
-// publisher, and every Edge launch parameter falling back to this origin.
-function checkManifest(xml: string, name: string, url: string): void {
+type Element = { tag: string; attributes: Map<string, string> };
+
+function elements(xml: string): Element[] {
   const body = xml.replace(/<!--[\s\S]*?-->/g, '');
-  const identities = [...body.matchAll(/<Identity\b[^>]*>/g)];
-  const identity = attributes(identities[0]?.[0] ?? '');
-  if (identities.length !== 1 || identity.get('Name') !== name || identity.get('Publisher') !== UNSIGNED_PUBLISHER) {
+  return [...body.matchAll(/<([\w:]+)\b([^>]*)>/g)].map(([, tag = '', rest = '']) => ({
+    tag,
+    attributes: new Map(
+      [...rest.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map(([, key = '', value = '']) => [key, decodeXml(value)]),
+    ),
+  }));
+}
+
+const fallbacks = (value: string) => [...value.matchAll(/--app-fallback-url=(\S+)/g)].map(([, url]) => url);
+
+// The package is only served if it is unmistakably this instance's: one identity with our name and the unsigned
+// publisher, the launched application falling back to this origin, and no launch parameter anywhere pointing elsewhere.
+function checkManifest(xml: string, name: string, url: string): void {
+  const all = elements(xml);
+  const identities = all.filter(({ tag }) => tag === 'Identity');
+  const identity = identities[0]?.attributes;
+  if (identities.length !== 1 || identity?.get('Name') !== name || identity.get('Publisher') !== UNSIGNED_PUBLISHER) {
     throw new InstallerError('the packaging service returned a package with the wrong identity');
   }
-  const fallbacks = [...body.matchAll(/--app-fallback-url=(\S+)/g)].map(([, value]) => value);
-  if (fallbacks.length === 0 || fallbacks.some((value) => value !== url)) {
+  const apps = all.filter(({ tag, attributes }) => tag === 'Application' && attributes.get('Id') === 'App');
+  const launched = fallbacks(apps[0]?.attributes.get('uap10:Parameters') ?? '');
+  const everywhere = all.flatMap(({ attributes }) => [...attributes.values()].flatMap(fallbacks));
+  if (apps.length !== 1 || launched.length !== 1 || everywhere.some((value) => value !== url)) {
     throw new InstallerError('the packaging service returned a package for another address');
   }
 }

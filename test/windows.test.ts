@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { InstallerError, buildInstaller, packageName } from '../src/worker/windows';
+import { InstallerError, buildInstaller, packageName, serveInstaller } from '../src/worker/windows';
 import { readEntry, writeZip } from '../src/worker/zip';
 
 const ORIGIN = 'https://nudge.example';
@@ -18,8 +18,8 @@ function serviceZip(manifest: string): Uint8Array {
 }
 
 const identity = (name: string, publisher: string) => `<Identity Name="${name}" Publisher="${publisher}"/>`;
-const application = (url: string) =>
-  `<Application uap10:Parameters="--app-fallback-url=${url} --display-mode=standalone"/>`;
+const application = (url: string, params = `--app-fallback-url=${url} --display-mode=standalone`) =>
+  `<Application Id="App" uap10:Parameters="${params}"/>`;
 const good = identity(NAME, UNSIGNED) + application(`${ORIGIN}/`);
 const serve =
   (body: Uint8Array | string, status = 200) =>
@@ -33,6 +33,8 @@ test("the installer wraps this origin's package with a script that opens exactly
   const script = decode(await readEntry(installer, (name) => name.endsWith('Install Nudge.cmd'), MB));
   expect(script).toContain('-AllowUnsigned');
   expect(script).toContain(`Get-AppxPackage -Name '${NAME}'`);
+  expect(script).toContain('set "NUDGE_PACKAGE=%~dp0Nudge.msix"');
+  expect(script).toContain('-Path $env:NUDGE_PACKAGE');
 });
 
 test.each([
@@ -45,6 +47,13 @@ test.each([
     `<!--${identity(NAME, UNSIGNED)}-->${identity('Nudge.other', UNSIGNED)}${application(`${ORIGIN}/`)}`,
   ],
   ['with two identities', good + identity(NAME, UNSIGNED)],
+  [
+    'whose launched app escapes its parameters to point elsewhere, behind a decoy',
+    identity(NAME, UNSIGNED) +
+      `<Extension Description="--app-fallback-url=${ORIGIN}/"/>` +
+      application('', '&#45;&#45;app-fallback-url=https://other.example/'),
+  ],
+  ['without an application to launch', identity(NAME, UNSIGNED)],
 ])('a package %s is refused', async (_, manifest) => {
   const built = buildInstaller(ORIGIN, serve(serviceZip(manifest)));
   expect(await built.catch((error: unknown) => error)).toBeInstanceOf(InstallerError);
@@ -98,4 +107,49 @@ test('long hosts sharing a prefix still get distinct, valid package names', () =
   const names = [`${prefix}.one.example`, `${prefix}.two.example`].map(packageName);
   expect(new Set(names).size).toBe(2);
   for (const name of names) expect(name).toMatch(/^[A-Za-z0-9.-]{3,50}$/);
+});
+
+test('only an enrolled device can make the instance build an installer', async () => {
+  const built: string[] = [];
+  const deps = {
+    verify: async (token: string) => (token === 'good' || token === 'revoked' ? token : null),
+    enrolled: async (deviceId: string) => deviceId === 'good',
+    build: async (origin: string) => {
+      built.push(origin);
+      return new Uint8Array([1]);
+    },
+  };
+  const statuses = await Promise.all(
+    [
+      { method: 'POST', token: 'forged' },
+      { method: 'POST', token: 'revoked' },
+      { method: 'GET', token: 'good' },
+      { method: 'POST', token: 'good' },
+    ].map(async (request) => (await serveInstaller({ ...request, origin: ORIGIN }, deps)).status),
+  );
+  expect(statuses).toEqual([401, 401, 405, 200]);
+  expect(built).toEqual([ORIGIN]);
+});
+
+test.each([
+  [
+    'an end record whose comment length does not reach the end',
+    (zip: Uint8Array) => {
+      const copy = zip.slice();
+      new DataView(copy.buffer).setUint16(copy.length - 2, 7, true);
+      return copy;
+    },
+  ],
+  [
+    'a central directory that claims to run past the archive',
+    (zip: Uint8Array) => {
+      const copy = zip.slice();
+      new DataView(copy.buffer).setUint32(copy.length - 10, 0xfffff, true);
+      return copy;
+    },
+  ],
+])('%s is refused', async (_, damage) => {
+  const zip = damage(writeZip([{ name: 'a', data: encode('hello') }]));
+  const read = readEntry(zip, (name) => name === 'a', MB);
+  expect(await read.catch((error: unknown) => error)).toBeInstanceOf(Error);
 });

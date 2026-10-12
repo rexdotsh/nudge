@@ -56,18 +56,31 @@ function within(zip: Uint8Array, at: number, length: number): void {
 
 // Windows app packages are always ZIP64, so sizes and offsets may live in the ZIP64 records instead.
 function directory(view: DataView, zip: Uint8Array): Entry[] {
+  // The end record is the last 22 bytes plus a comment of at most 64 KiB, and its comment must run to the end.
+  const floor = Math.max(0, zip.length - 22 - 0xffff);
   let end = zip.length - 22;
-  while (end >= 0 && view.getUint32(end, true) !== END) end--;
-  if (end < 0) throw new ZipError('not a zip archive');
+  while (
+    end >= floor &&
+    !(view.getUint32(end, true) === END && end + 22 + view.getUint16(end + 20, true) === zip.length)
+  ) {
+    end--;
+  }
+  if (end < floor) throw new ZipError('not a zip archive');
   let count = view.getUint16(end + 10, true);
+  let directorySize = view.getUint32(end + 12, true);
   let at = view.getUint32(end + 16, true);
+  let directoryEnd = end;
   if (end >= 20 && view.getUint32(end - 20, true) === END64_LOCATOR) {
     const end64 = Number(view.getBigUint64(end - 12, true));
     within(zip, end64, 56);
     if (view.getUint32(end64, true) !== END64) throw new ZipError('corrupt zip64 end record');
     count = Number(view.getBigUint64(end64 + 32, true));
+    directorySize = Number(view.getBigUint64(end64 + 40, true));
     at = Number(view.getBigUint64(end64 + 48, true));
+    directoryEnd = end64;
   }
+  within(zip, at, directorySize);
+  if (at + directorySize > directoryEnd) throw new ZipError('the central directory overlaps the end records');
   if (count > MAX_ENTRIES) throw new ZipError('too many entries');
   const entries: Entry[] = [];
   for (let i = 0; i < count; i++) {
@@ -84,6 +97,7 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
     while (extra + 4 <= extraEnd) {
       const id = view.getUint16(extra, true);
       const length = view.getUint16(extra + 2, true);
+      if (extra + 4 + length > extraEnd) throw new ZipError('an extra field runs past its entry');
       if (id === ZIP64_EXTRA) {
         let field = extra + 4;
         const fieldEnd = field + length;
@@ -99,6 +113,7 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
       }
       extra += 4 + length;
     }
+    if (extraEnd + view.getUint16(at + 32, true) > directoryEnd) throw new ZipError('an entry runs past the directory');
     entries.push({
       name: new TextDecoder().decode(zip.subarray(at + 46, at + 46 + nameLength)),
       method: view.getUint16(at + 10, true),

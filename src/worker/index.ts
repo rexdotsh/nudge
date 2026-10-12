@@ -11,7 +11,7 @@ import { readJson } from './body';
 import { DEVICE_HEADER } from './nudge-do';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
-import { INSTALLER_FILENAME, buildInstaller } from './windows';
+import { buildInstaller, serveInstaller } from './windows';
 
 export { NudgeDO } from './nudge-do';
 
@@ -33,32 +33,22 @@ async function openSocket(request: Request, env: Env): Promise<Response> {
   return nudge(env).fetch(new Request(request.url, { headers }));
 }
 
-async function windowsInstaller(request: Request, env: Env, origin: string): Promise<Response> {
-  if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
-  const bearer = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
-  if ((await verifyToken(env.AUTH_SECRET, bearer)) === null) return failure('unauthorized');
-  try {
-    return new Response(await buildInstaller(origin), {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${INSTALLER_FILENAME}"`,
-        'Cache-Control': 'no-store',
-      },
-    });
-  } catch (error) {
-    console.error('could not build the Windows installer', error);
-    return new Response('The Windows installer could not be built right now. Try again in a minute.', {
-      status: 503,
-    });
-  }
-}
-
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/api/config') return Response.json({ vapidPublicKey: vapidKeys(env.VAPID_JWK).publicKey });
     if (url.pathname === '/api/socket') return openSocket(request, env);
-    if (url.pathname === '/api/windows') return windowsInstaller(request, env, url.origin);
+    if (url.pathname === '/api/windows') {
+      const token = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
+      return serveInstaller(
+        { method: request.method, origin: url.origin, token },
+        {
+          verify: (value) => verifyToken(env.AUTH_SECRET, value),
+          enrolled: (deviceId) => nudge(env).isEnrolled(deviceId),
+          build: (origin) => buildInstaller(origin),
+        },
+      );
+    }
 
     const route = url.pathname.slice('/api/'.length);
     const isPublic = isPublicRoute(route);
