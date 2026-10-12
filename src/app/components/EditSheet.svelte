@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { openPicker } from '../lib/picker';
   import { untrack } from 'svelte';
   import { prefersReducedMotion } from 'svelte/motion';
   import { fly } from 'svelte/transition';
   import { LIMITS } from '../../shared/input';
   import type { Reminder } from '../../shared/reminder';
-  import { parseLocal, toInstant } from '../../shared/time';
   import { complete, remove } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { dateLabel, timeLabel, zoneLabel } from '../lib/format';
+  import { zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
   import { closeEditor, saveEditor } from '../lib/selection';
   import { CLOSE, SAVE, tip } from '../lib/shortcuts';
@@ -17,6 +15,7 @@
   import Icon from './Icon.svelte';
   import RepeatPicker from './RepeatPicker.svelte';
   import Sheet from './Sheet.svelte';
+  import When from './When.svelte';
 
   let { reminder }: { reminder: Reminder } = $props();
 
@@ -29,10 +28,6 @@
 
   const draft = untrack(() => ui.draftFor(reminder));
   const zone = $derived(draft.fields.zone ?? app.zone);
-  const startAt = $derived.by(() => {
-    const start = parseLocal(draft.fields.start);
-    return start ? toInstant(start, zone) : null;
-  });
 
   async function act(action: (current: Reminder) => Promise<void> | void) {
     await draft.persist();
@@ -73,16 +68,7 @@
   <div class="group">
     <div class="field">
       <span>When</span>
-      <span class="when">
-        <label class="picker">
-          <span>{startAt === null ? draft.date : dateLabel(startAt, zone)}</span>
-          <input type="date" bind:value={draft.date} aria-label="Date" required onclick={openPicker} />
-        </label>
-        <label class="picker">
-          <span>{startAt === null ? draft.time : timeLabel(startAt, zone)}</span>
-          <input type="time" bind:value={draft.time} aria-label="Time" required onclick={openPicker} />
-        </label>
-      </span>
+      <When bind:date={draft.date} bind:time={draft.time} {zone} />
     </div>
     <RepeatPicker choice={draft.repeat} start={draft.fields.start} />
     <div class="field stacked">
@@ -175,12 +161,6 @@
 
   .group + .group {
     margin-top: 12px;
-  }
-
-  .when {
-    display: flex;
-    gap: 6px;
-    color: var(--ink-2);
   }
 
   .alerts {

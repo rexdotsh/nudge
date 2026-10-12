@@ -1,9 +1,10 @@
 import { describeRepeat } from '../../shared/describe';
 import { memoize } from '../../shared/memoize';
 import { local, type Repeat } from '../../shared/reminder';
-import { MINUTE_MS, epochDay, toLocal } from '../../shared/time';
+import type { Time } from '../../shared/phrases';
+import { DAY_MS, MINUTE_MS, epochDay, toLocal } from '../../shared/time';
 
-const locale = navigator.language;
+export const locale = navigator.language;
 
 const formatters = memoize((zone) => {
   const style = (options: Intl.DateTimeFormatOptions) =>
@@ -16,12 +17,25 @@ const formatters = memoize((zone) => {
     date: style({ weekday: 'short', month: 'short', day: 'numeric' }),
     dayMonth: style({ day: 'numeric', month: 'short' }),
     fullDate: style({ month: 'short', day: 'numeric', year: 'numeric' }),
+    longDate: style({ dateStyle: 'full' }),
+    day: style({ day: 'numeric' }),
+    month: style({ month: 'long', year: 'numeric' }),
     zoneName: style({ timeZoneName: 'long' }),
   };
 });
 
-const format = (instant: number, zone: string, style: keyof ReturnType<typeof formatters>) =>
-  formatters(zone)[style].format(instant);
+type Style = keyof ReturnType<typeof formatters>;
+
+const format = (instant: number, zone: string, style: Style) => formatters(zone)[style].format(instant);
+
+/** A wall-clock date on its own, read on UTC so no time zone can move it to another day. */
+export function calendarLabel(days: number, style: Style): string {
+  return format(days * DAY_MS, 'UTC', style);
+}
+
+export function clockLabel({ hour, minute }: Time): string {
+  return format(Date.UTC(1970, 0, 1, hour, minute), 'UTC', 'time');
+}
 
 export function daysFromToday(instant: number, now: number, zone: string): number {
   return epochDay(toLocal(instant, zone)) - epochDay(toLocal(now, zone));
@@ -64,10 +78,6 @@ export function summaryWhen(instant: number, now: number, zone: string): string 
   return `${format(instant, zone, sameYear ? 'dayMonth' : 'fullDate')}, ${clock}`;
 }
 
-export function dateLabel(instant: number, zone: string): string {
-  return format(instant, zone, 'date');
-}
-
 export function dayHeading(now: number, zone: string): { weekday: string; date: string } {
   return { weekday: format(now, zone, 'weekday'), date: format(now, zone, 'dayMonth') };
 }
@@ -77,7 +87,7 @@ export function shortWhen(instant: number, now: number, zone: string): string {
   const time = timeLabel(instant, zone);
   if (days <= 0) return time;
   if (days === 1) return `Tomorrow ${time}`;
-  return days < 7 ? `${format(instant, zone, 'shortWeekday')} ${time}` : dateLabel(instant, zone);
+  return days < 7 ? `${format(instant, zone, 'shortWeekday')} ${time}` : format(instant, zone, 'date');
 }
 
 export function zoneLabel(zone: string, now: number): string {
