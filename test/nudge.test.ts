@@ -271,6 +271,15 @@ describe('sync', () => {
     expect(h.state.alarm).toBe(DUE);
   });
 
+  test('enrolling a device moves the zone to wherever that device is', async () => {
+    const { phone } = await h.pair();
+    await h.put(phone);
+    await h.sync(phone, [], 'Europe/Paris');
+    const { code } = await h.ok('pair', null, phone);
+    await h.ok('join', { code, device: { ...device('Windows PC'), zone: ZONE } });
+    expect(h.state.alarm).toBe(DUE);
+  });
+
   test('a change made offline is applied at the time it was made, so a missed reminder still goes out', async () => {
     const { phone } = await h.pair();
     const madeAt = h.state.now;
