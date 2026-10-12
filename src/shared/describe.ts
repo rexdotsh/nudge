@@ -35,9 +35,9 @@ class Names {
   }
 
   time(hour: number, minute: number): string {
-    return new Intl.DateTimeFormat(this.locale, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(
-      Date.UTC(2024, 0, 1, hour, minute),
-    );
+    const options: Intl.DateTimeFormatOptions = { hour: 'numeric', timeZone: 'UTC' };
+    if (minute !== 0) options.minute = '2-digit';
+    return new Intl.DateTimeFormat(this.locale, options).format(Date.UTC(2024, 0, 1, hour, minute));
   }
 }
 

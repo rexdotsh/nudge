@@ -6,7 +6,7 @@
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { repeatLabel, whenLabel } from '../lib/format';
+  import { repeatLabel, summaryWhen } from '../lib/format';
   import Icon from './Icon.svelte';
 
   let { autofocus = false }: { autofocus?: boolean } = $props();
@@ -29,13 +29,31 @@
     return parts;
   });
   const start = $derived(parsed ? (parsed.start ?? suggestedStart(app.now, app.zone)) : null);
-  const when = $derived(start ? whenLabel(toInstant(local(start), app.zone), app.now, app.zone) : null);
+  const when = $derived(start ? summaryWhen(toInstant(local(start), app.zone), app.now, app.zone) : '');
   const cadence = $derived(parsed?.repeat && start ? repeatLabel(parsed.repeat, start, app.zone) : null);
-  const preview = $derived(
-    [cadence ? `repeats ${cadence.toLowerCase()}` : null, parsed?.important ? 'important' : null]
-      .filter((part) => part !== null)
-      .join(' · '),
-  );
+  const important = $derived(parsed?.important ?? false);
+  const detail = $derived(cadence ?? (important ? 'Important' : null));
+  const summary = $derived([when, cadence, important ? 'important' : null].filter(Boolean).join(', '));
+
+  const HOLD_MS = 450;
+  let holding: ReturnType<typeof setTimeout> | undefined;
+  let revealed = $state(false);
+
+  // Touch has no tooltips, so pressing and holding the summary shows all of it instead of adding the reminder.
+  function hold(event: PointerEvent) {
+    if (event.pointerType === 'mouse') return;
+    holding = setTimeout(() => (revealed = true), HOLD_MS);
+  }
+
+  function release() {
+    clearTimeout(holding);
+  }
+
+  function click(event: MouseEvent) {
+    if (!revealed) return;
+    event.preventDefault();
+    revealed = false;
+  }
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -88,21 +106,44 @@
         placeholder="Remind me to…"
         maxlength={LIMITS.title}
         aria-label="New reminder"
-        aria-describedby="composer-preview"
         autocomplete="off"
         enterkeyhint="done"
         spellcheck="true"
       />
     </div>
     {#if parsed?.title}
-      <button class="send" type="submit" aria-label="Add reminder"><Icon name="up" size={16} /></button>
+      <button
+        class="summary"
+        type="submit"
+        title={[when, detail].filter(Boolean).join('\n')}
+        aria-label={`Add, ${summary}`}
+        onpointerdown={hold}
+        onpointerup={release}
+        onpointercancel={release}
+        onpointerleave={release}
+        oncontextmenu={(event) => event.preventDefault()}
+        onclick={click}
+      >
+        <span class="what">
+          <span class="at">{when}</span>
+          {#if detail}
+            <span class="rule"
+              >{#if important}<b aria-hidden="true">!</b>{/if}{cadence ?? 'Important'}</span
+            >
+          {/if}
+        </span>
+        <span class="go"><Icon name="up" size={15} /></span>
+      </button>
+      {#if revealed}
+        <p class="full" role="status">
+          <b>{when}</b>{#if detail}<br />{important && cadence ? '! ' : ''}{detail}{/if}
+        </p>
+      {/if}
     {:else}
       <kbd>{app.platform === 'mac' ? '⌘K' : 'Ctrl K'}</kbd>
     {/if}
   </div>
-  <p id="composer-preview" class="preview" aria-live="polite" hidden={!parsed?.title}>
-    <b>{when}</b>{preview ? ` · ${preview}` : ''}
-  </p>
+  <p class="sr-only" aria-live="polite">{parsed?.title ? summary : ''}</p>
 </form>
 
 <style>
@@ -125,6 +166,7 @@
   }
 
   .bar {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -167,16 +209,84 @@
     color: var(--accent);
   }
 
-  .send {
+  .summary {
     flex: none;
-    width: 36px;
-    height: 36px;
+    max-width: 64%;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px 0 14px;
+    border-radius: 999px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--edge);
+    color: var(--ink);
+    white-space: nowrap;
+    text-align: left;
+    -webkit-touch-callout: none;
+    user-select: none;
+    animation: pop 0.2s var(--spring);
+  }
+
+  .what {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.15;
+  }
+
+  .at,
+  .rule {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .at {
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+
+  .rule {
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .rule b {
+    margin-right: 4px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .go {
+    flex: none;
+    width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     border-radius: 50%;
     background: var(--ink);
     color: var(--bg);
-    animation: pop 0.2s var(--spring);
+  }
+
+  .full {
+    position: absolute;
+    right: 8px;
+    bottom: calc(100% + 8px);
+    max-width: calc(100% - 16px);
+    margin: 0;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--edge);
+    color: var(--ink-2);
+    font-size: 13px;
+    animation: pop 0.15s var(--ease);
+  }
+
+  .full b {
+    color: var(--ink);
+    font-weight: 600;
   }
 
   kbd {
@@ -186,22 +296,6 @@
     background: var(--raised);
     color: var(--muted);
     font: 500 11px var(--font);
-  }
-
-  .preview {
-    margin: 0 16px;
-    padding: 8px 0 11px;
-    overflow: hidden;
-    border-top: 1px solid var(--edge);
-    color: var(--ink-2);
-    font-size: 13px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .preview b {
-    color: var(--accent);
-    font-weight: 600;
   }
 
   @keyframes pop {

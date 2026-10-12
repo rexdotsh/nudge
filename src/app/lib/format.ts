@@ -10,6 +10,7 @@ const formatters = memoize((zone) => {
     new Intl.DateTimeFormat(locale, { ...options, timeZone: zone });
   return {
     time: style({ hour: 'numeric', minute: '2-digit' }),
+    hour: style({ hour: 'numeric' }),
     weekday: style({ weekday: 'long' }),
     shortWeekday: style({ weekday: 'short' }),
     date: style({ weekday: 'short', month: 'short', day: 'numeric' }),
@@ -49,6 +50,17 @@ export function whenLabel(instant: number, now: number, zone: string): string {
   if (minutes > 0 && minutes < 60) return untilLabel(instant, now);
   const days = daysFromToday(instant, now, zone);
   return days === 0 ? timeLabel(instant, zone) : `${dayLabel(instant, now, zone)}, ${timeLabel(instant, zone)}`;
+}
+
+/** "Today 8 PM", "Tomorrow 9:30 AM", "Sun 6 PM", "18 Oct 10 AM": the composer's summary of when it will remind. */
+export function summaryWhen(instant: number, now: number, zone: string): string {
+  const clock = format(instant, zone, toLocal(instant, zone).minute === 0 ? 'hour' : 'time');
+  const days = daysFromToday(instant, now, zone);
+  if (days <= 0) return `Today ${clock}`;
+  if (days === 1) return `Tomorrow ${clock}`;
+  if (days < 7) return `${format(instant, zone, 'shortWeekday')} ${clock}`;
+  const sameYear = toLocal(instant, zone).year === toLocal(now, zone).year;
+  return `${format(instant, zone, sameYear ? 'dayMonth' : 'fullDate')}, ${clock}`;
 }
 
 export function dateLabel(instant: number, zone: string): string {
