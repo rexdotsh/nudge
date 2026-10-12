@@ -14,7 +14,7 @@
 <style>
   .onboarding {
     max-width: 400px;
-    min-height: 100dvh;
+    min-height: 100%;
     margin: 0 auto;
     padding: calc(24px + env(safe-area-inset-top)) 22px calc(14vh + env(safe-area-inset-bottom));
     display: flex;

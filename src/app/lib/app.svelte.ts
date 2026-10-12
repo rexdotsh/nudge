@@ -4,7 +4,7 @@ import { Replica } from '../../browser/replica';
 import { EMPTY_LOCAL } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { commit, currentZone, enqueue } from '../../browser/outbox';
-import { MAX_REQUEST_BYTES, type Change } from '../../shared/api';
+import { MAX_REQUEST_BYTES, type Change, type Health } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
@@ -29,6 +29,9 @@ class App {
   notifications = $state<PushState>(pushState());
   /** Until the first sync attempt of this foreground settles, the replica can miss what was pushed while away. */
   caughtUp = $state(false);
+  /** The devices as last fetched, so Settings opens with them in place instead of filling in after a round trip. */
+  health = $state.raw<Health | null>(null);
+  deviceId = $state<string | null>(null);
   readonly platform = detectPlatform();
 
   private replica = new Replica();
@@ -44,12 +47,18 @@ class App {
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
     let session;
     try {
-      [session] = await Promise.all([get('session'), this.reloadLocal(), this.noteZone()]);
+      [session, this.health] = await Promise.all([
+        get('session'),
+        get('health').then((health) => health ?? null),
+        this.reloadLocal(),
+        this.noteZone(),
+      ]);
     } catch (error) {
       console.error('local storage is unavailable', error);
       this.phase = 'failed';
       return;
     }
+    this.deviceId = session?.deviceId ?? null;
     this.phase = session ? 'ready' : 'enroll';
     if (session) this.connect(session.token);
     setInterval(() => {
@@ -71,8 +80,18 @@ class App {
       },
     });
     await set('session', session);
+    this.deviceId = session.deviceId;
     this.phase = 'ready';
     this.connect(session.token);
+    void this.refreshHealth().catch((error: unknown) => {
+      if (!(error instanceof Unreachable)) throw error;
+      console.warn('devices not fetched yet; Settings will fetch them', error);
+    });
+  }
+
+  async refreshHealth(): Promise<void> {
+    this.health = await request('health', null);
+    await set('health', this.health);
   }
 
   async apply(op: Op): Promise<Reminder | undefined> {

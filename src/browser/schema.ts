@@ -1,4 +1,4 @@
-import type { Change, Session } from '../shared/api';
+import type { Change, Health, Session } from '../shared/api';
 import type { Reminder } from '../shared/reminder';
 
 export interface Snapshot {
@@ -27,4 +27,5 @@ export interface Schema {
   local: Local;
   notices: Notices;
   zone: { name: string; since: number };
+  health: Health;
 }

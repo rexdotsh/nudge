@@ -156,18 +156,20 @@
     position: fixed;
     left: 12px;
     right: 12px;
-    bottom: calc(14px + env(safe-area-inset-bottom));
+    bottom: var(--rest);
     z-index: 20;
     max-width: 536px;
     margin: 0 auto;
     border-radius: 18px;
+    --rest: max(12px, env(safe-area-inset-bottom));
     --surface-lift: 0 -16px 32px 12px var(--bg);
-    translate: 0 calc(-1 * var(--keyboard));
     transition: translate 0.25s var(--ease);
   }
 
+  /* Above the keyboard the home indicator's inset no longer applies, so the composer rides 8px over the keys. */
   .composer:focus-within {
     --surface-edge: var(--faint);
+    translate: 0 min(0px, calc(var(--rest) - 8px - var(--keyboard)));
   }
 
   .bar {
@@ -311,7 +313,8 @@
   }
 
   @media (min-width: 720px) {
-    .composer {
+    .composer,
+    .composer:focus-within {
       position: static;
       max-width: none;
       margin: 0 0 18px;

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Unreachable, request, windowsInstaller } from '../../browser/api';
-  import { get } from '../../browser/kv';
-  import type { DeviceInfo, Health } from '../../shared/api';
+  import type { DeviceInfo } from '../../shared/api';
   import { MINUTE_MS } from '../../shared/time';
   import { ulid } from '../../shared/ulid';
   import Icon from '../components/Icon.svelte';
@@ -13,8 +12,6 @@
 
   let { onBack }: { onBack: () => void } = $props();
 
-  let health = $state<Health | null>(null);
-  let me = $state<string | null>(null);
   let pairing = $state<{ code: string; expiresAt: number } | null>(null);
   let devicesFailed = $state(false);
 
@@ -36,9 +33,7 @@
 
   async function load() {
     try {
-      const [session, current] = await Promise.all([get('session'), request('health', null)]);
-      me = session?.deviceId ?? null;
-      health = current;
+      await app.refreshHealth();
       devicesFailed = false;
     } catch (error) {
       devicesFailed = error instanceof Unreachable;
@@ -129,19 +124,19 @@
 
   <h2 class="label">Devices</h2>
   <div class="group">
-    {#if devicesFailed && health === null}
+    {#if devicesFailed && app.health === null}
       <div class="field">
         <span>Can't reach Nudge right now</span>
         <button class="link" onclick={() => attempt(load)}>Try again</button>
       </div>
     {/if}
-    {#each health?.devices ?? [] as device (device.id)}
+    {#each app.health?.devices ?? [] as device (device.id)}
       <div class="field">
         <span>
-          {device.label}{#if device.id === me}<span class="me">{' · this device'}</span>{/if}
+          {device.label}{#if device.id === app.deviceId}<span class="me">{' · this device'}</span>{/if}
           <small>{delivery(device)}</small>
         </span>
-        {#if device.id !== me}
+        {#if device.id !== app.deviceId}
           <button class="link remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}
             >Remove</button
           >
@@ -185,7 +180,6 @@
 
 <style>
   .settings {
-    min-height: 100dvh;
     animation: rise 0.4s var(--ease) both;
   }
 
