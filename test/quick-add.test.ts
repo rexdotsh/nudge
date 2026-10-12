@@ -164,7 +164,7 @@ describe('describeRepeat never misstates the cadence', () => {
     ['FREQ=MONTHLY;BYDAY=-1FR', /last Friday/],
     ['FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1', /last weekday/],
     ['FREQ=YEARLY;BYMONTH=5;BYDAY=2SU', /second Sunday of May/],
-    ['FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0', /8:00 AM & 8:00 PM/],
+    ['FREQ=DAILY;BYHOUR=8,20;BYMINUTE=0', /8 AM & 8 PM/],
     ['FREQ=MONTHLY;BYDAY=TU,WE,TH;BYSETPOS=3', /^Custom repeat$/],
     ['FREQ=DAILY;INTERVAL=3;BYDAY=MO', /^Custom repeat$/],
     ['FREQ=MONTHLY;BYMONTHDAY=-2', /^Custom repeat$/],
