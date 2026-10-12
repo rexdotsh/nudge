@@ -128,8 +128,16 @@ export function wallAtOrAfter(instant: number, zone: string): LocalDateTime {
 
 const pad = (value: number, width = 2) => String(value).padStart(width, '0');
 
+export function formatDate(date: LocalDate): string {
+  return `${pad(date.year, 4)}-${pad(date.month)}-${pad(date.day)}`;
+}
+
+export function formatClock({ hour, minute }: Pick<LocalDateTime, 'hour' | 'minute'>): string {
+  return `${pad(hour)}:${pad(minute)}`;
+}
+
 export function formatLocal(local: LocalDateTime): string {
-  return `${pad(local.year, 4)}-${pad(local.month)}-${pad(local.day)}T${pad(local.hour)}:${pad(local.minute)}`;
+  return `${formatDate(local)}T${formatClock(local)}`;
 }
 
 export function parseLocal(text: string): LocalDateTime | null {

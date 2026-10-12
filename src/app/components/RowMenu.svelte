@@ -64,7 +64,7 @@
 <svelte:window onpointerdowncapture={outside} onresize={close} onblur={close} />
 
 <div
-  class="menu"
+  class="menu popup"
   role="menu"
   tabindex="-1"
   aria-label={reminder.title}
@@ -75,20 +75,30 @@
   onkeydown={navigate}
   onfocusout={(event) => event.relatedTarget instanceof Node && !menu?.contains(event.relatedTarget) && close()}
 >
-  <button role="menuitem" onclick={() => run(({ id }) => openEditor(id))}>Open<kbd>{hint(OPEN)}</kbd></button>
-  <button role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
+  <button class="item" role="menuitem" onclick={() => run(({ id }) => openEditor(id))}
+    >Open<kbd>{hint(OPEN)}</kbd></button
+  >
+  <button class="item" role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
     >Done<kbd>{hint(DONE)}</kbd></button
   >
   <div class="rule" role="separator"></div>
   <p class="caption" role="presentation">Snooze</p>
   {#each options as option (option.key)}
-    <button role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => snooze(target, option.at)))}
+    <button
+      class="item"
+      role="menuitem"
+      onclick={() => run((target) => keepSelection(target.id, () => snooze(target, option.at)))}
       >{option.label}<span class="time">{shortWhen(option.at, app.now, app.zone)}</span></button
     >
   {/each}
-  <button role="menuitem" onclick={() => run(({ id }) => ui.snooze(id))}>Pick a time…<kbd>{hint(SNOOZE)}</kbd></button>
+  <button class="item" role="menuitem" onclick={() => run(({ id }) => ui.snooze(id))}
+    >Pick a time…<kbd>{hint(SNOOZE)}</kbd></button
+  >
   <div class="rule" role="separator"></div>
-  <button role="menuitem" class="danger" onclick={() => run((target) => keepSelection(target.id, () => remove(target)))}
+  <button
+    class="item danger"
+    role="menuitem"
+    onclick={() => run((target) => keepSelection(target.id, () => remove(target)))}
     >Delete<kbd>{hint(DELETE)}</kbd></button
   >
 </div>
@@ -99,37 +109,11 @@
     z-index: 50;
     min-width: 220px;
     max-width: calc(100vw - 16px);
-    padding: 4px;
-    border: 1px solid var(--edge);
-    border-radius: 10px;
-    background: var(--surface);
-    color: var(--ink);
-    box-shadow: var(--shadow);
     transform-origin: top left;
-    animation: open 0.12s var(--ease);
   }
 
   .menu:focus {
     outline: none;
-  }
-
-  button {
-    width: 100%;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 0 10px;
-    border-radius: 6px;
-    font-size: 13.5px;
-    text-align: left;
-    white-space: nowrap;
-  }
-
-  button:is(:hover, :focus) {
-    outline: none;
-    background: var(--edge);
   }
 
   kbd,
@@ -165,20 +149,13 @@
 
   /* Android opens it with a long press. */
   @media (pointer: coarse) {
-    button {
+    .item {
       height: 44px;
       font-size: 15px;
     }
 
     kbd {
       display: none;
-    }
-  }
-
-  @keyframes open {
-    from {
-      opacity: 0;
-      transform: scale(0.97);
     }
   }
 </style>

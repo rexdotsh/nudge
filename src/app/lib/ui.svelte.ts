@@ -11,6 +11,7 @@ interface Menu {
 }
 
 const wide = new MediaQuery('min-width: 960px');
+const fine = new MediaQuery('pointer: fine');
 
 class Ui {
   editing = $state<string | null>(null);
@@ -25,6 +26,11 @@ class Ui {
   /** Wide windows dock the editor beside the list instead of covering it. */
   get docked(): boolean {
     return wide.current;
+  }
+
+  /** A mouse gets the app's own date, time and option pickers; touch keeps the system's wheels and sheets. */
+  get fine(): boolean {
+    return fine.current;
   }
 
   /** Nothing typed or open that a reload would lose. */
