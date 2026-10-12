@@ -7,6 +7,7 @@
   import Toast from '../components/Toast.svelte';
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
+  import { installer } from '../lib/install.svelte';
   import type { PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
@@ -170,6 +171,27 @@
           <small>Extract it and run “Install Nudge.cmd”. Needs Windows 11.</small>
         </span>
       </button>
+    </div>
+  {/if}
+
+  {#if installer.mac}
+    <h2 class="label">Mac app</h2>
+    <div class="group">
+      {#if installer.mac === 'prompt'}
+        <button class="field action" onclick={() => void installer.prompt()}>
+          <span>Install the Mac app<small>Nudge opens in its own window, from the Dock.</small></span>
+        </button>
+      {:else}
+        <div class="field">
+          <span>
+            Add Nudge to your Dock
+            <small
+              >In Safari, click Share, then Add to Dock. Open it, enter a code from Add a device, then remove the old
+              Mac from Devices.</small
+            >
+          </span>
+        </div>
+      {/if}
     </div>
   {/if}
 

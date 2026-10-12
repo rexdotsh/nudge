@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Reminder } from '../../shared/reminder';
-  import { FEATURED, keyLabel } from '../lib/shortcuts';
+  import { FEATURED, HELP, hint, keyLabels } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
   import EditSheet from './EditSheet.svelte';
 
@@ -19,12 +19,12 @@
           <div>
             <dt>{binding.label}</dt>
             <dd>
-              {#each binding.keys as key (key)}<kbd>{keyLabel(key)}</kbd>{/each}
+              {#each keyLabels(binding) as key (key)}<kbd>{key}</kbd>{/each}
             </dd>
           </div>
         {/each}
       </dl>
-      <button class="link quiet" onclick={() => (ui.help = true)}>All shortcuts <kbd>?</kbd></button>
+      <button class="link quiet" onclick={() => (ui.help = true)}>All shortcuts <kbd>{hint(HELP)}</kbd></button>
     </div>
   {/if}
 </aside>

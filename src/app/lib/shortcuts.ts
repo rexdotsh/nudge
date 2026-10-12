@@ -5,9 +5,13 @@ import { closeEditor, keepSelection, openEditor, rowOf, rows, saveEditor, snooze
 import { toasts } from './toasts.svelte';
 import { ui } from './ui.svelte';
 
+type Keys = readonly [string, ...string[]];
+
 interface Hint {
   label: string;
-  keys: readonly string[];
+  keys: Keys;
+  /** Apple keyboards' keys, where their conventions differ. */
+  apple?: Keys;
 }
 
 interface Binding extends Hint {
@@ -28,58 +32,88 @@ interface Context {
   openSettings: () => void;
 }
 
-const GENERAL: readonly Binding[] = [
-  { label: 'New reminder', keys: ['n', '/', 'mod+k'], inFields: true, featured: true, run: focusComposer },
-  { label: 'Undo', keys: ['mod+z'], run: undo },
-  {
-    label: 'Settings',
-    keys: ['mod+,'],
-    inFields: true,
-    run: ({ openSettings }) => {
-      openSettings();
-      return true;
-    },
+const APPLE = app.platform === 'mac' || app.platform === 'ios';
+
+export const NEW_REMINDER: Binding = {
+  label: 'New reminder',
+  keys: ['mod+k', 'n', '/'],
+  inFields: true,
+  featured: true,
+  run: focusComposer,
+};
+
+export const SETTINGS: Binding = {
+  label: 'Settings',
+  keys: ['mod+,'],
+  inFields: true,
+  run: ({ openSettings }) => {
+    openSettings();
+    return true;
   },
-  { label: 'Keyboard shortcuts', keys: ['?'], run: showHelp },
-  { label: 'Close', keys: ['Escape'], inFields: true, run: escape },
+};
+
+export const HELP: Binding = { label: 'Keyboard shortcuts', keys: ['?'], run: showHelp };
+
+export const CLOSE: Binding = { label: 'Close', keys: ['Escape'], inFields: true, run: escape };
+
+const GENERAL: readonly Binding[] = [
+  NEW_REMINDER,
+  { label: 'Undo', keys: ['mod+z'], run: undo },
+  SETTINGS,
+  HELP,
+  CLOSE,
 ];
+
+export const OPEN: Binding = {
+  label: 'Open',
+  keys: ['Enter', 'e'],
+  yields: true,
+  featured: true,
+  run: ({ target }) => act(target, ({ id }) => openEditor(id)),
+};
+
+export const DONE: Binding = {
+  label: 'Done',
+  keys: ['x', ' '],
+  yields: true,
+  featured: true,
+  run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => complete(reminder))),
+};
+
+export const SNOOZE: Binding = {
+  label: 'Snooze',
+  keys: ['s'],
+  featured: true,
+  run: ({ target }) => act(target, ({ id }) => ui.snooze(id)),
+};
+
+export const DELETE: Binding = {
+  label: 'Delete',
+  keys: ['Delete', 'Backspace'],
+  apple: ['Backspace', 'mod+Backspace'],
+  run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => remove(reminder))),
+};
 
 const REMINDERS: readonly Binding[] = [
   { label: 'Next reminder', keys: ['j', 'ArrowDown'], featured: true, run: () => move(1) },
   { label: 'Previous reminder', keys: ['k', 'ArrowUp'], run: () => move(-1) },
-  {
-    label: 'Open',
-    keys: ['Enter', 'e'],
-    yields: true,
-    featured: true,
-    run: ({ target }) => act(target, ({ id }) => openEditor(id)),
-  },
-  {
-    label: 'Done',
-    keys: ['x', ' '],
-    yields: true,
-    featured: true,
-    run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => complete(reminder))),
-  },
-  { label: 'Snooze', keys: ['s'], featured: true, run: ({ target }) => act(target, ({ id }) => ui.snooze(id)) },
-  {
-    label: 'Delete',
-    keys: ['Delete', 'Backspace'],
-    run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => remove(reminder))),
-  },
+  OPEN,
+  DONE,
+  SNOOZE,
+  DELETE,
 ];
 
-const EDITING: readonly Binding[] = [
-  {
-    label: 'Save',
-    keys: ['mod+Enter'],
-    inFields: true,
-    run: () => {
-      void saveEditor();
-      return true;
-    },
+export const SAVE: Binding = {
+  label: 'Save',
+  keys: ['mod+Enter'],
+  inFields: true,
+  run: () => {
+    void saveEditor();
+    return true;
   },
-];
+};
+
+const EDITING: readonly Binding[] = [SAVE];
 
 const SNOOZING: readonly Binding[] = [
   { label: 'Pick a snooze time', keys: ['1', '2', '3', '4', '5'], run: ({ key }) => pickSnooze(Number(key)) },
@@ -102,6 +136,8 @@ const NAMES: Record<string, string> = {
   Escape: 'Esc',
 };
 
+const APPLE_NAMES: Record<string, string> = { ...NAMES, Delete: '⌦', Enter: '↩' };
+
 interface Combo {
   mod: boolean;
   key: string;
@@ -111,19 +147,36 @@ function combo(key: string): Combo {
   return key.startsWith('mod+') ? { mod: true, key: key.slice(4) } : { mod: false, key };
 }
 
-export function keyLabel(key: string): string {
+function keysOf({ keys, apple }: Hint): Keys {
+  return (APPLE && apple) || keys;
+}
+
+function keyLabel(key: string): string {
   const { mod, key: base } = combo(key);
-  const name = NAMES[base] ?? (base.length === 1 ? base.toUpperCase() : base);
+  const name = (APPLE ? APPLE_NAMES : NAMES)[base] ?? (base.length === 1 ? base.toUpperCase() : base);
   if (!mod) return name;
-  return app.platform === 'mac' || app.platform === 'ios' ? `⌘${name}` : `Ctrl ${name}`;
+  return APPLE ? `⌘${name}` : `Ctrl ${name}`;
 }
 
-export function tip(label: string, key: string): string {
-  return `${label} (${keyLabel(key)})`;
+/** Every key that triggers it, as this keyboard labels them. */
+export function keyLabels(binding: Hint): string[] {
+  return keysOf(binding).map(keyLabel);
 }
 
+/** The key to suggest for it. */
+export function hint(binding: Hint): string {
+  return keyLabel(keysOf(binding)[0]);
+}
+
+export function tip(label: string, binding: Hint): string {
+  return `${label} (${hint(binding)})`;
+}
+
+// Command on Apple keyboards and Ctrl elsewhere; the other one belongs to the system (Control-key text editing on a
+// Mac, the Windows key on a PC), so a press with it never matches.
 function matches({ mod, key }: Combo, event: KeyboardEvent): boolean {
-  if (event.altKey || mod !== (event.ctrlKey || event.metaKey) || (mod && event.shiftKey)) return false;
+  const [command, other] = APPLE ? [event.metaKey, event.ctrlKey] : [event.ctrlKey, event.metaKey];
+  if (event.altKey || other || command !== mod || (mod && event.shiftKey)) return false;
   return event.key === key || event.key.toLowerCase() === key;
 }
 
@@ -207,7 +260,9 @@ export function shortcut(event: KeyboardEvent, openSettings: () => void): void {
   const target = event.target instanceof Element ? event.target : null;
   const typing = isTyping(target);
   for (const binding of inPlay(target)) {
-    const hit = binding.keys.map(combo).find((candidate) => matches(candidate, event));
+    const hit = keysOf(binding)
+      .map(combo)
+      .find((candidate) => matches(candidate, event));
     if (!hit) continue;
     if (typing && !(binding.inFields && (hit.mod || hit.key === 'Escape'))) return;
     if (binding.yields && target?.closest('button, a') && !target.classList.contains('open')) return;

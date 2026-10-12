@@ -5,7 +5,7 @@
   import type { SpanKind } from '../../shared/scanner';
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
-  import { keyLabel } from '../lib/shortcuts';
+  import { NEW_REMINDER, hint } from '../lib/shortcuts';
   import { app } from '../lib/app.svelte';
   import { repeatLabel, summaryWhen } from '../lib/format';
   import { ui } from '../lib/ui.svelte';
@@ -185,7 +185,7 @@
         </p>
       {/if}
     {:else}
-      <kbd>{keyLabel('mod+k')}</kbd>
+      <kbd>{hint(NEW_REMINDER)}</kbd>
     {/if}
   </div>
   <p class="sr-only" aria-live="polite">{parsed?.title ? summary : ''}</p>

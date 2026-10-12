@@ -14,7 +14,7 @@
   import { dayHeading, whenLabel } from '../lib/format';
   import { recentlyCompleted, triage } from '../lib/sections';
   import { rowOf } from '../lib/selection';
-  import { shortcut, tip } from '../lib/shortcuts';
+  import { SETTINGS, shortcut, tip } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
 
   let { onSettings, composing = false }: { onSettings: () => void; composing?: boolean } = $props();
@@ -51,7 +51,7 @@
     <h1>{day.weekday} <span>{day.date}</span></h1>
     <div class="tools">
       {#if !app.online}<span class="chip">Offline</span>{/if}
-      <button class="round" onclick={onSettings} aria-label="Settings" title={tip('Settings', 'mod+,')}
+      <button class="round" onclick={onSettings} aria-label="Settings" title={tip('Settings', SETTINGS)}
         ><Icon name="settings" size={16} /></button
       >
     </div>

@@ -4,7 +4,7 @@
   import { app } from '../lib/app.svelte';
   import { shortWhen } from '../lib/format';
   import { focusRow, keepSelection, openEditor } from '../lib/selection';
-  import { composing, keyLabel } from '../lib/shortcuts';
+  import { DELETE, DONE, OPEN, SNOOZE, composing, hint } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
 
   let { reminder, x, y }: { reminder: Reminder; x: number; y: number } = $props();
@@ -70,9 +70,9 @@
   onkeydown={navigate}
   onfocusout={(event) => event.relatedTarget instanceof Node && !menu?.contains(event.relatedTarget) && close()}
 >
-  <button role="menuitem" onclick={() => run(({ id }) => openEditor(id))}>Open<kbd>{keyLabel('Enter')}</kbd></button>
+  <button role="menuitem" onclick={() => run(({ id }) => openEditor(id))}>Open<kbd>{hint(OPEN)}</kbd></button>
   <button role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
-    >Done<kbd>{keyLabel('x')}</kbd></button
+    >Done<kbd>{hint(DONE)}</kbd></button
   >
   <div class="rule" role="separator"></div>
   <p class="caption" role="presentation">Snooze</p>
@@ -81,10 +81,10 @@
       >{option.label}<span class="time">{shortWhen(option.at, app.now, app.zone)}</span></button
     >
   {/each}
-  <button role="menuitem" onclick={() => run(({ id }) => ui.snooze(id))}>Pick a time…<kbd>{keyLabel('s')}</kbd></button>
+  <button role="menuitem" onclick={() => run(({ id }) => ui.snooze(id))}>Pick a time…<kbd>{hint(SNOOZE)}</kbd></button>
   <div class="rule" role="separator"></div>
   <button role="menuitem" class="danger" onclick={() => run((target) => keepSelection(target.id, () => remove(target)))}
-    >Delete<kbd>{keyLabel('Delete')}</kbd></button
+    >Delete<kbd>{hint(DELETE)}</kbd></button
   >
 </div>
 

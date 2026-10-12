@@ -11,7 +11,8 @@ export function detectPlatform(): Platform {
 
 export function isInstalled(): boolean {
   return (
-    matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && navigator.standalone === true)
+    matchMedia('(display-mode: standalone), (display-mode: window-controls-overlay)').matches ||
+    ('standalone' in navigator && navigator.standalone === true)
   );
 }
 

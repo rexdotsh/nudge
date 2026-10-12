@@ -8,6 +8,7 @@ import { Replica } from '../browser/replica';
 import { EMPTY_LOCAL } from '../browser/schema';
 import { claim, isSeen, settle } from '../browser/seen';
 import { MAX_REQUEST_BYTES } from '../shared/api';
+import { lateCount } from '../shared/reminder';
 import type { NotificationContent, PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
@@ -107,6 +108,15 @@ async function drain(): Promise<void> {
   if (pending.length > 0) await drain();
 }
 
+// Done or Snooze from a notification changes what is late while the app may be closed, so the icon can't wait for it.
+async function recount(): Promise<void> {
+  if (!('setAppBadge' in self.navigator)) return;
+  const local = (await get('local')) ?? EMPTY_LOCAL;
+  const zone = currentZone();
+  const reminders = new Replica(local.replica).view(local.pending, zone);
+  await self.navigator.setAppBadge(lateCount(reminders, Date.now(), zone));
+}
+
 async function act(op: Op): Promise<void> {
   await enqueue([op]);
   try {
@@ -115,6 +125,7 @@ async function act(op: Op): Promise<void> {
       console.warn('action queued for the app to send', error);
     });
   } finally {
+    await recount();
     for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
   }
 }

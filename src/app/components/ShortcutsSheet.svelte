@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GROUPS, keyLabel } from '../lib/shortcuts';
+  import { GROUPS, keyLabels } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
   import Sheet from './Sheet.svelte';
 </script>
@@ -13,7 +13,7 @@
         <div>
           <dt>{item.label}</dt>
           <dd>
-            {#each item.keys as key (key)}<kbd>{keyLabel(key)}</kbd>{/each}
+            {#each keyLabels(item) as key (key)}<kbd>{key}</kbd>{/each}
           </dd>
         </div>
       {/each}
