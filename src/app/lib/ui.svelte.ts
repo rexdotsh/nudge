@@ -1,4 +1,4 @@
-import { MediaQuery } from 'svelte/reactivity';
+import { MediaQuery, SvelteMap } from 'svelte/reactivity';
 import type { Reminder } from '../../shared/reminder';
 import { Draft } from './draft.svelte';
 import { toasts } from './toasts.svelte';
@@ -16,13 +16,26 @@ class Ui {
   snoozing = $state<string | null>(null);
   menu = $state<Menu | null>(null);
   help = $state(false);
+  composing = $state('');
   /** Unsaved changes by reminder. They live here, not in the editor, and stay until saved or discarded, so neither a
    * remount (the layout crossing its breakpoint) nor opening another reminder loses them. */
-  readonly #drafts = new Map<string, Draft>();
+  readonly #drafts = new SvelteMap<string, Draft>();
 
   /** Wide windows dock the editor beside the list instead of covering it. */
   get docked(): boolean {
     return wide.current;
+  }
+
+  /** Nothing typed or open that a reload would lose. */
+  get idle(): boolean {
+    return (
+      this.editing === null &&
+      this.snoozing === null &&
+      this.menu === null &&
+      !this.help &&
+      this.#drafts.size === 0 &&
+      this.composing.trim() === ''
+    );
   }
 
   get draft(): Draft | null {
