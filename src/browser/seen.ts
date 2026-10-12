@@ -1,5 +1,5 @@
 import { get, update } from './kv';
-import type { Notices } from './schema';
+import type { Claim, Notices } from './schema';
 
 const LIMIT = 300;
 const CLAIM_MS = 60_000;
@@ -10,14 +10,16 @@ export async function isSeen(fire: string): Promise<boolean> {
 }
 
 // The service worker and an open page can both try to show the same fire; whoever claims it first shows it.
-export async function claim(fire: string, now: number): Promise<boolean> {
-  let won = false;
+export async function claim(fire: string, now: number): Promise<Claim> {
+  let outcome: Claim = 'busy';
   await update('notices', (current = EMPTY) => {
     const claimedAt = current.claims[fire];
-    won = !current.seen.includes(fire) && (claimedAt === undefined || now - claimedAt >= CLAIM_MS);
-    return won ? { ...current, claims: { ...current.claims, [fire]: now } } : current;
+    if (current.seen.includes(fire)) outcome = 'seen';
+    else if (claimedAt !== undefined && now - claimedAt < CLAIM_MS) outcome = 'busy';
+    else outcome = 'won';
+    return outcome === 'won' ? { ...current, claims: { ...current.claims, [fire]: now } } : current;
   });
-  return won;
+  return outcome;
 }
 
 export async function settle(fire: string, shown: boolean): Promise<void> {

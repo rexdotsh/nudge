@@ -1,6 +1,6 @@
 import { Unreachable, request } from '../browser/api';
 import { get } from '../browser/kv';
-import { SNOOZE_MINUTES, isShown, show } from '../browser/notify';
+import { SNOOZE_MINUTES, isShown, showUnlessOnScreen } from '../browser/notify';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
@@ -29,8 +29,8 @@ async function present(notification: NotificationContent, shownByBrowser: boolea
   const { fire } = notification.data;
   if (shownByBrowser) {
     await settle(fire, true);
-  } else if (await claim(fire, Date.now())) {
-    await show(self.registration, notification).then(
+  } else if ((await claim(fire, Date.now())) === 'won') {
+    await showUnlessOnScreen(self.registration, notification).then(
       () => settle(fire, true),
       async (error: unknown) => {
         await settle(fire, false);
@@ -103,11 +103,14 @@ async function drain(): Promise<void> {
 
 async function act(op: Op): Promise<void> {
   await enqueue(op);
-  await drain().catch((error: unknown) => {
-    if (!(error instanceof Unreachable)) throw error;
-    console.warn('action queued for the app to send', error);
-  });
-  for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
+  try {
+    await drain().catch((error: unknown) => {
+      if (!(error instanceof Unreachable)) throw error;
+      console.warn('action queued for the app to send', error);
+    });
+  } finally {
+    for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
+  }
 }
 
 async function focus(navigate: string): Promise<void> {

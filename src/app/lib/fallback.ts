@@ -1,5 +1,6 @@
 import { fire, nextFireAt } from '../../shared/fire';
 import { fireId, reminderMessage, type NotificationContent } from '../../shared/notification';
+import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
 
@@ -13,7 +14,7 @@ type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
-  claim: (fire: string) => Promise<boolean>;
+  claim: (fire: string) => Promise<Claim>;
   settle: (fire: string, shown: boolean) => Promise<void>;
   wait: (run: () => Promise<void>, ms: number) => () => void;
   now: () => number;
@@ -35,7 +36,7 @@ export class Fallback {
     this.arm(reminders, zone, enabled);
   }
 
-  private arm(reminders: readonly Reminder[], zone: string, enabled: boolean): void {
+  private arm(reminders: readonly Reminder[], zone: string, enabled: boolean, atLeast = 0): void {
     this.cancel();
     if (!enabled) return;
     const now = this.deps.now();
@@ -43,7 +44,7 @@ export class Fallback {
     for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder, now), zone) ?? Infinity);
     if (next === Infinity) return;
     const generation = this.generation;
-    const wait = Math.min(Math.max(0, next + GRACE_MS - now), MAX_WAIT_MS);
+    const wait = Math.min(Math.max(atLeast, next + GRACE_MS - now), MAX_WAIT_MS);
     this.cancel = this.deps.wait(() => this.check(reminders, zone, generation), wait);
   }
 
@@ -68,10 +69,11 @@ export class Fallback {
     }
   }
 
-  private async showOnce(key: string, content: NotificationContent, display: Display): Promise<void> {
-    if (!(await this.deps.claim(key))) return;
+  /** Whether the fire is done with: shown here, or already shown by anyone. */
+  private async showOnce(key: string, content: NotificationContent, display: Display): Promise<boolean> {
+    const claimed = await this.deps.claim(key);
+    if (claimed !== 'won') return claimed === 'seen';
     console.warn(`push for ${key} did not arrive; showing it locally`);
-    // Not retried: if this device cannot show a notification, nothing else here can, and retrying would spin.
     const ok = await display(content).then(
       () => true,
       (error: unknown) => {
@@ -80,6 +82,7 @@ export class Fallback {
       },
     );
     await this.deps.settle(key, ok);
+    return ok;
   }
 
   private async check(reminders: readonly Reminder[], zone: string, generation: number): Promise<void> {
@@ -97,7 +100,7 @@ export class Fallback {
     const now = this.deps.now();
     const { origin, locale } = this.deps;
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
-    const shown: Promise<void>[] = [];
+    const outcomes: Promise<boolean>[] = [];
     for (const reminder of reminders) {
       const { reminder: advanced, notice } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
       if (!notice) {
@@ -106,13 +109,21 @@ export class Fallback {
       }
       const key = fireId(reminder.id, notice.at);
       const content = reminderMessage(advanced, notice, view).notification;
-      shown.push(
-        this.showOnce(key, content, display)
-          .catch((error: unknown) => console.error(`could not record ${key}`, error))
-          .finally(() => this.advance(reminder.id, advanced.firedThrough)),
+      outcomes.push(
+        this.showOnce(key, content, display).then(
+          (done) => {
+            if (done) this.advance(reminder.id, advanced.firedThrough);
+            return done;
+          },
+          (error: unknown) => {
+            console.error(`could not record ${key}`, error);
+            return false;
+          },
+        ),
       );
     }
-    await Promise.all(shown);
-    if (generation === this.generation) this.arm(reminders, zone, true);
+    // A fire that is busy elsewhere or failed to show stays unconsumed and is retried until it leaves the lookback.
+    const retry = (await Promise.all(outcomes)).includes(false);
+    if (generation === this.generation) this.arm(reminders, zone, true, retry ? RETRY_MS : 0);
   }
 }

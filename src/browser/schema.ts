@@ -11,6 +11,8 @@ export interface Local {
   pending: Change[];
 }
 
+export type Claim = 'seen' | 'busy' | 'won';
+
 export interface Notices {
   seen: string[];
   claims: Record<string, number>;

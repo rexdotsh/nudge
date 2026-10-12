@@ -25,7 +25,19 @@ export function isShown(value: unknown): value is Shown {
   );
 }
 
-export function show(registration: ServiceWorkerRegistration, content: NotificationContent): Promise<void> {
+// Safari shows declarative pushes before the service worker hears about them; an identical fire already on screen must
+// not be shown (and alert) again, while other fires of the same occurrence still replace it.
+export async function showUnlessOnScreen(
+  registration: ServiceWorkerRegistration,
+  content: NotificationContent,
+): Promise<void> {
+  const current = await registration.getNotifications({ tag: content.tag });
+  if (current.some((notification) => isShown(notification.data) && notification.data.fire === content.data.fire))
+    return;
+  await show(registration, content);
+}
+
+function show(registration: ServiceWorkerRegistration, content: NotificationContent): Promise<void> {
   const data: Shown = { ...content.data, navigate: content.navigate };
   const options: NotificationOptions & { renotify: boolean; actions: ActionButton[] } = {
     body: content.body,

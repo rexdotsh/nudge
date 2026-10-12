@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
-  import { show } from '../browser/notify';
+  import { showUnlessOnScreen } from '../browser/notify';
   import { claim, settle } from '../browser/seen';
   import Onboarding from './components/Onboarding.svelte';
   import { Fallback } from './lib/fallback';
@@ -21,7 +21,8 @@
   if (link.size > 0) history.replaceState(null, '', '/');
 
   const fallback = new Fallback({
-    ready: () => navigator.serviceWorker.ready.then((registration) => (content) => show(registration, content)),
+    ready: () =>
+      navigator.serviceWorker.ready.then((registration) => (content) => showUnlessOnScreen(registration, content)),
     claim: (fire) => claim(fire, Date.now()),
     settle,
     wait: (run, ms) => {
