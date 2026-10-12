@@ -465,6 +465,8 @@ describe('delivery', () => {
     await h.runAlarm();
     await h.runAlarm();
     expect(h.sentTo(3)).toBe(1);
+    expect(h.state.alerts).toHaveLength(0);
+    expect(h.state.alarm).toBe(h.state.now + RESEND_AFTER_MS);
   });
 
   test('test notifications are capped, go out on time, and replays return the original schedule', async () => {
