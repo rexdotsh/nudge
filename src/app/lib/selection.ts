@@ -37,7 +37,8 @@ export async function keepSelection(id: string, action: () => Promise<void>): Pr
   const neighbour = (before[index + 1] ?? before[index - 1])?.dataset.reminder;
   await action();
   await tick();
-  if (rowOf(document.activeElement)) return;
+  // A reused node (the focus card) can hold focus while showing another reminder, so compare ids, not nodes.
+  if (rowOf(document.activeElement)?.dataset.reminder === id) return;
   const stayed = rows()[index]?.dataset.reminder === id;
   if (stayed || !(neighbour && focusRow(neighbour))) focusRow(id);
 }

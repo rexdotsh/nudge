@@ -1,6 +1,7 @@
 import { MediaQuery } from 'svelte/reactivity';
 import type { Reminder } from '../../shared/reminder';
 import { Draft } from './draft.svelte';
+import { toasts } from './toasts.svelte';
 
 interface Menu {
   id: string;
@@ -15,25 +16,30 @@ class Ui {
   snoozing = $state<string | null>(null);
   menu = $state<Menu | null>(null);
   help = $state(false);
-  /** The open editor's changes. It lives here, not in the editor, so a remount (the layout crossing its breakpoint) keeps them. */
-  draft: Draft | null = null;
+  /** Unsaved changes by reminder. They live here, not in the editor, and stay until saved or discarded, so neither a
+   * remount (the layout crossing its breakpoint) nor opening another reminder loses them. */
+  readonly #drafts = new Map<string, Draft>();
 
   /** Wide windows dock the editor beside the list instead of covering it. */
   get docked(): boolean {
     return wide.current;
   }
 
+  get draft(): Draft | null {
+    return (this.editing !== null && this.#drafts.get(this.editing)) || null;
+  }
+
   draftFor(reminder: Reminder): Draft {
-    if (this.draft?.id !== reminder.id) this.draft = new Draft(reminder);
-    return this.draft;
+    const existing = this.#drafts.get(reminder.id);
+    if (existing) return existing;
+    const draft = new Draft(reminder);
+    this.#drafts.set(reminder.id, draft);
+    return draft;
   }
 
   edit(id: string): void {
-    // Opening another reminder beside the docked editor keeps that editor's changes instead of dropping them.
-    if (this.draft && this.draft.id !== id) {
-      void this.draft.save();
-      this.draft = null;
-    }
+    const leaving = this.draft;
+    if (leaving && leaving.id !== id) void this.#leave(leaving);
     this.snoozing = null;
     this.menu = null;
     this.editing = id;
@@ -44,8 +50,19 @@ class Ui {
     this.snoozing = id;
   }
 
+  /** Opening another reminder beside the docked editor saves this one's changes, or keeps them if they can't be saved yet. */
+  async #leave(draft: Draft): Promise<void> {
+    if (draft.parsed === null) {
+      toasts.show(`Kept unsaved changes to “${draft.original.title}”`);
+      return;
+    }
+    await draft.save();
+    if (this.editing !== draft.id) this.#drafts.delete(draft.id);
+  }
+
+  /** Closing the editor ends its draft: callers have saved it already, or the user discarded it. */
   close(): void {
-    this.draft = null;
+    if (this.editing !== null) this.#drafts.delete(this.editing);
     this.editing = null;
     this.snoozing = null;
   }

@@ -35,7 +35,7 @@
     top: env(titlebar-area-height, 0px);
     right: 0;
     bottom: 0;
-    width: var(--pane);
+    width: var(--pane-width);
     overflow-y: auto;
     overscroll-behavior: contain;
     border-left: 1px solid var(--line);

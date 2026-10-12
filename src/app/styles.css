@@ -14,7 +14,7 @@
   --accent-soft: rgb(255 138 101 / 0.14);
   --scrim: rgb(0 0 0 / 0.55);
   --shadow: 0 18px 40px -16px rgb(0 0 0 / 0.9);
-  --pane: 0px;
+  --pane-width: 400px;
 
   --font: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
@@ -339,12 +339,6 @@ kbd {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-@media (min-width: 960px) {
-  :root {
-    --pane: 400px;
-  }
 }
 
 @media (pointer: fine) {

@@ -187,8 +187,9 @@
 </div>
 
 <style>
+  /* A transform left in place by a forwards fill would make this page the box its fixed toast is placed in. */
   .settings {
-    animation: rise 0.4s var(--ease) both;
+    animation: rise 0.4s var(--ease) backwards;
   }
 
   .back {

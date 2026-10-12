@@ -245,6 +245,7 @@
 
   @media (min-width: 960px) {
     .home {
+      --pane: var(--pane-width);
       --gutter: max(32px, calc((100% - var(--pane) - 680px) / 2));
       max-width: none;
       padding-left: var(--gutter);

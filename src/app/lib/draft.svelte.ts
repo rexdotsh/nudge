@@ -6,7 +6,8 @@ import { toasts } from './toasts.svelte';
 
 /** The editor's unsaved changes to one reminder, kept apart from the view so a layout change never resets them. */
 export class Draft {
-  readonly original: Reminder;
+  /** What the draft started from, or what it last saved. */
+  original: Reminder;
   readonly repeat: RepeatChoice;
   title = $state('');
   notes = $state('');
@@ -33,7 +34,7 @@ export class Draft {
 
   constructor(reminder: Reminder) {
     const original = $state.snapshot(reminder);
-    this.original = original;
+    this.original = $state.raw(original);
     this.repeat = new RepeatChoice(original.repeat);
     this.title = original.title;
     this.notes = original.notes;
@@ -56,7 +57,9 @@ export class Draft {
   }
 
   async persist(): Promise<void> {
-    if (this.parsed && this.changed) await app.apply({ type: 'put', id: this.id, fields: this.parsed });
+    if (!this.parsed || !this.changed) return;
+    const saved = await app.apply({ type: 'put', id: this.id, fields: this.parsed });
+    if (saved) this.original = $state.snapshot(saved);
   }
 
   /** Persists any change and says so; the editor stays or goes as its caller decides. */
