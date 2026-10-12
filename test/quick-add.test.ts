@@ -118,6 +118,10 @@ describe('parseQuickAdd', () => {
       start: '2026-10-12T09:00',
       repeat: { rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' },
     });
+    expect(parse('meds every 48 hours after done')).toMatchObject({
+      title: 'meds',
+      repeat: { rule: 'FREQ=DAILY;INTERVAL=2', anchor: 'completion' },
+    });
   });
 
   test('exclamation marks flag a reminder as important', () => {

@@ -17,10 +17,11 @@ import { applyOp } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { ulid } from '../shared/ulid';
 import { isRecord } from '../shared/validate';
+import { deviceInfo, type DeviceRow } from './devices';
 import { ApiFailure, DEVICE_REQUESTS, PUBLIC_REQUESTS } from './requests';
 import type { Runtime } from './runtime';
 import { Scheduler } from './scheduler';
-import { Store, deviceInfo, type DeviceRow } from './store';
+import { Store } from './store';
 import { digest, issueToken, sameSecret } from './tokens';
 
 export interface Caller {
@@ -51,7 +52,7 @@ export class Nudge {
       this.enroll(
         device,
         code,
-        () => this.store.deviceCount() === 0 && sameSecret(code, this.runtime.secrets.setupCode.toUpperCase()),
+        () => !this.store.devices.everEnrolled() && sameSecret(code, this.runtime.secrets.setupCode.toUpperCase()),
         () => {},
       ),
     join: ({ code, device }) =>
@@ -66,20 +67,24 @@ export class Nudge {
   private readonly deviceHandlers: Handlers<DeviceRoutes, DeviceRow> = {
     pair: () => this.issuePairCode(),
     subscribe: (keys, device) => {
-      this.store.setSubscription(device.id, keys);
+      this.store.devices.subscribe(device.id, keys);
       return null;
     },
     health: () => ({
-      devices: this.store.devices().map(deviceInfo),
+      devices: this.store.devices.all().map(deviceInfo),
     }),
     revoke: ({ id }) => {
-      this.store.revokeDevice(id);
+      this.store.devices.revoke(id);
       this.runtime.disconnect(id);
       return null;
     },
     test: ({ id, delay }) => this.scheduleTest(id, delay),
     receipt: ({ fire }, device) => {
-      this.store.receipt(fire, device.id, this.runtime.now());
+      const now = this.runtime.now();
+      this.runtime.transaction(() => {
+        this.store.deliveries.confirm(fire, device.id, now);
+        this.store.devices.confirmed(device.id, now);
+      });
       return null;
     },
     sync: (request, device) => this.sync(request, device),
@@ -97,7 +102,7 @@ export class Nudge {
   }
 
   canConnect(deviceId: string): boolean {
-    return this.store.device(deviceId) !== undefined;
+    return this.store.devices.get(deviceId) !== undefined;
   }
 
   async message(deviceId: string, text: string): Promise<ServerMessage> {
@@ -138,7 +143,7 @@ export class Nudge {
   }
 
   private requireDevice(deviceId: string | null): DeviceRow {
-    const device = deviceId === null ? undefined : this.store.device(deviceId);
+    const device = deviceId === null ? undefined : this.store.devices.get(deviceId);
     if (!device) throw new ApiFailure('unauthorized');
     return device;
   }
@@ -156,7 +161,7 @@ export class Nudge {
     const outcome = this.runtime.transaction((): { id: string } | ApiFailure => {
       const failures = this.recentFailures(now);
       if (failures.length >= FAILURE_LIMIT) return new ApiFailure('locked');
-      const replayed = this.store.enrolledDevice(credential, device.key);
+      const replayed = this.store.devices.enrolled(credential, device.key);
       if (replayed) return { id: replayed.id };
       if (!fresh()) {
         this.store.setMeta('failures', JSON.stringify([...failures, now]));
@@ -164,13 +169,14 @@ export class Nudge {
       }
       consume();
       this.store.setMeta('failures', '[]');
-      const id = this.store.deviceByKey(device.key)?.id ?? ulid(now);
-      if (!this.store.device(id)) {
-        this.store.addDevice(id, device, now);
+      const existing = this.store.devices.byKey(device.key);
+      const id = existing?.id ?? ulid(now);
+      if (!existing) {
+        this.store.devices.add(id, device, now);
         if (this.store.meta('zone') === null) this.store.setMeta('zone', device.zone);
         this.store.setMeta('locale', device.locale);
       }
-      this.store.recordEnrollment(credential, device.key, id);
+      this.store.devices.recordEnrollment(credential, device.key, id);
       return { id };
     });
     if (outcome instanceof ApiFailure) throw outcome;
@@ -199,7 +205,7 @@ export class Nudge {
   private async scheduleTest(id: string, delay: number): Promise<{ at: number }> {
     const existing = this.store.testRequest(id);
     if (existing !== null) return { at: existing };
-    if (this.store.pendingCount('test:') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
+    if (this.store.deliveries.pendingCount('test:') >= MAX_PENDING_TESTS) throw new ApiFailure('locked');
     const at = this.runtime.now() + delay * 1000;
     this.runtime.transaction(() => {
       this.store.recordTestRequest(id, at);
@@ -213,7 +219,7 @@ export class Nudge {
     const now = this.runtime.now();
     let applied = 0;
     const zoneChanged = this.runtime.transaction(() => {
-      this.store.touchDevice(device.id, zone, now);
+      this.store.devices.touch(device.id, zone, now);
       const changed = this.scheduler.setZone(zone);
       const clock = { now, zone };
       for (const { opId, op } of changes) {

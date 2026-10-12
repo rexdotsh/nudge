@@ -10,7 +10,7 @@ import { ulid } from '../src/shared/ulid';
 import { Nudge } from '../src/worker/nudge';
 import type { Runtime } from '../src/worker/runtime';
 import { DEAD_MAN_MS, ESCALATE_AFTER_MS, LEASE_MS, RESEND_AFTER_MS } from '../src/worker/scheduler';
-import type { SqlValue } from '../src/worker/store';
+import type { SqlValue } from '../src/worker/sql';
 import { verifyToken } from '../src/worker/tokens';
 
 const ORIGIN = 'https://nudge.example';

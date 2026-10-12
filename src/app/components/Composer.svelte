@@ -1,7 +1,8 @@
 <script lang="ts">
   import { LIMITS } from '../../shared/input';
-  import { parseQuickAdd, suggestedStart, type SpanKind } from '../../shared/quick-add';
+  import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
   import { local } from '../../shared/reminder';
+  import type { SpanKind } from '../../shared/scanner';
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
   import { app } from '../lib/app.svelte';

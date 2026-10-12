@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { RuleError, formatRule, nextOccurrence, occurrences, parseRule } from '../src/shared/rrule';
+import { nextOccurrence, occurrences } from '../src/shared/occurrences';
+import { RuleError, formatRule, parseRule } from '../src/shared/rrule';
 import { formatLocal, parseLocal, toInstant, toLocal, type LocalDateTime } from '../src/shared/time';
 
 const NY = 'America/New_York';

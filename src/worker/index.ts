@@ -1,6 +1,6 @@
 import { API_ERRORS, SOCKET_PROTOCOL, isDeviceRoute, isPublicRoute, type ApiError, type Reply } from '../shared/api';
 import { readJson } from './body';
-import { DEVICE_HEADER } from './runtime';
+import { DEVICE_HEADER } from './nudge-do';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
 

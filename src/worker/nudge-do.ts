@@ -2,8 +2,9 @@ import { DurableObject } from 'cloudflare:workers';
 import { SOCKET_PROTOCOL, type Route } from '../shared/api';
 import { sendTelegram } from './alerts';
 import { Nudge, type Caller } from './nudge';
-import { DEVICE_HEADER } from './runtime';
 import { sendPush, vapidKeys } from './webpush';
+
+export const DEVICE_HEADER = 'X-Nudge-Device';
 
 export class NudgeDO extends DurableObject<Env> {
   private readonly nudge: Nudge;
