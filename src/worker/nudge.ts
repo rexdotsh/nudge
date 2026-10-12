@@ -177,13 +177,17 @@ export class Nudge {
       const id = existing?.id ?? ulid(now);
       if (!existing) {
         this.store.devices.add(id, device, now);
-        if (this.store.meta('zone') === null) this.store.setMeta('zone', device.zone);
+        // Enrolling means typing a code on this device, so the person is wherever it is.
+        this.scheduler.setZone(device.zone);
         this.store.setMeta('locale', device.locale);
       }
       this.store.devices.recordEnrollment(credential, device.key, id);
       return { id };
     });
     if (outcome instanceof ApiFailure) throw outcome;
+    // Both are idempotent, so a replayed enrollment repairs whatever a failure after the commit left undone.
+    await this.scheduler.rearm();
+    this.runtime.broadcast({ kind: 'changed', version: this.store.version() }, outcome.id);
     return { token: await issueToken(this.runtime.secrets.auth, outcome.id), deviceId: outcome.id };
   }
 
@@ -226,8 +230,10 @@ export class Nudge {
     const now = this.runtime.now();
     let applied = 0;
     const zoneChanged = this.runtime.transaction(() => {
+      // The instance zone follows the device that last moved, so a device that never left home (a laptop left open)
+      // cannot keep flipping it back against the one that travelled.
+      const changed = device.zone !== zone && this.scheduler.setZone(zone);
       this.store.devices.touch(device.id, zone, now);
-      const changed = this.scheduler.setZone(zone);
       for (const { opId, op, at } of changes) {
         if (this.store.applied(opId)) continue;
         const previous = this.store.reminder(op.id);
