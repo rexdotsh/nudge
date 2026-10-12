@@ -30,6 +30,8 @@ class App {
   now = $state(Date.now());
   zone = $state(currentZone());
   travelling = $state(false);
+  /** Whether every reminder offers to keep its time zone, not only while travelling. */
+  zoneControls = $state(false);
   notifications = $state<PushState>(pushState());
   freshness = $state<Freshness>('catching-up');
   /** The devices as last fetched, so Settings opens with them in place instead of filling in after a round trip. */
@@ -52,9 +54,10 @@ class App {
     watchPermission(() => void this.permissionChanged());
     let session;
     try {
-      [session, this.health] = await Promise.all([
+      [session, this.health, this.zoneControls] = await Promise.all([
         get('session'),
         get('health').then((health) => health ?? null),
+        get('zoneControls').then((on) => on ?? false),
         this.reloadLocal(),
         this.noteZone(),
       ]);
@@ -216,6 +219,11 @@ class App {
     }
     this.notifications = 'enabled';
     this.refreshDevices();
+  }
+
+  async showZoneControls(on: boolean): Promise<void> {
+    this.zoneControls = on;
+    await set('zoneControls', on);
   }
 
   async enableNotifications(): Promise<PushState> {

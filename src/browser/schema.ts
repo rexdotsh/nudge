@@ -27,5 +27,6 @@ export interface Schema {
   local: Local;
   notices: Notices;
   zone: { name: string; since: number };
+  zoneControls: boolean;
   health: Health;
 }

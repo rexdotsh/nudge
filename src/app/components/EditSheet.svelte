@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openPicker } from '../lib/picker';
   import { untrack } from 'svelte';
   import { prefersReducedMotion } from 'svelte/motion';
   import { fly } from 'svelte/transition';
@@ -75,11 +76,11 @@
       <span class="when">
         <label class="picker">
           <span>{startAt === null ? draft.date : dateLabel(startAt, zone)}</span>
-          <input type="date" bind:value={draft.date} aria-label="Date" required />
+          <input type="date" bind:value={draft.date} aria-label="Date" required onclick={openPicker} />
         </label>
         <label class="picker">
           <span>{startAt === null ? draft.time : timeLabel(startAt, zone)}</span>
-          <input type="time" bind:value={draft.time} aria-label="Time" required />
+          <input type="time" bind:value={draft.time} aria-label="Time" required onclick={openPicker} />
         </label>
       </span>
     </div>
@@ -112,9 +113,6 @@
       </label>
     {/if}
   </div>
-  {#if !draft.showZone}
-    <button class="link quiet zone" onclick={() => (draft.showZone = true)}>Time zone · follows you</button>
-  {/if}
 
   <div class="acts">
     {#if reminder.due !== null}
@@ -207,13 +205,6 @@
     background: var(--ink);
     color: var(--bg);
     font-weight: 600;
-  }
-
-  .zone {
-    display: block;
-    margin: 10px auto 0;
-    padding: 6px 10px;
-    font-size: 13px;
   }
 
   .acts {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openPicker } from '../lib/picker';
   import { untrack } from 'svelte';
   import { HOUR_MS, formatLocal, parseLocal, toInstant, toLocal } from '../../shared/time';
   import type { Reminder } from '../../shared/reminder';
@@ -39,7 +40,7 @@
     <div class="field">
       <label class="picker">
         <span>{customAt === null ? 'Pick a time' : whenLabel(customAt, app.now, app.zone)}</span>
-        <input type="datetime-local" bind:value={custom} aria-label="Pick a time" />
+        <input type="datetime-local" bind:value={custom} aria-label="Pick a time" onclick={openPicker} />
       </label>
       <button class="link" onclick={pickCustom} disabled={settable === null}>Set</button>
     </div>

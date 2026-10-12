@@ -6,7 +6,7 @@
   import Icon from '../components/Icon.svelte';
   import Toast from '../components/Toast.svelte';
   import { app } from '../lib/app.svelte';
-  import { whenLabel } from '../lib/format';
+  import { whenLabel, zoneLabel } from '../lib/format';
   import { installer } from '../lib/install.svelte';
   import { UNBLOCK_STEPS, type PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
@@ -126,6 +126,23 @@
     {:else if app.notifications === 'enabled'}
       <button class="field action" onclick={test}>Send a test notification</button>
     {/if}
+  </div>
+
+  <h2 class="label">Time zone</h2>
+  <div class="group">
+    <div class="field">
+      <span>Reminders follow you<small>Times move with you when you travel</small></span>
+      <span class="value">{zoneLabel(app.zone, app.now)}</span>
+    </div>
+    <label class="field">
+      <span>Time zone per reminder<small>Let a reminder keep one time zone wherever you are</small></span>
+      <input
+        class="toggle"
+        type="checkbox"
+        checked={app.zoneControls}
+        onchange={(event) => void app.showZoneControls(event.currentTarget.checked)}
+      />
+    </label>
   </div>
 
   <h2 class="label">Devices</h2>

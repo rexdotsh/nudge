@@ -72,6 +72,12 @@ select {
   color: inherit;
 }
 
+/* Windows draws a select's options in a light popup, in the select's own colour unless told otherwise. */
+option {
+  background: var(--raised);
+  color: var(--ink);
+}
+
 input,
 textarea {
   -webkit-touch-callout: default;

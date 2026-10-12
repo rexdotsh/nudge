@@ -43,7 +43,7 @@ export class Draft {
     this.important = original.important;
     this.alerts = [...original.alerts];
     this.pinned = original.zone !== null;
-    this.showZone = original.zone !== null || app.travelling;
+    this.showZone = original.zone !== null || app.travelling || app.zoneControls;
   }
 
   get id(): string {
