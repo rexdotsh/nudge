@@ -125,9 +125,9 @@ async function act(op: Op): Promise<void> {
       console.warn('action queued for the app to send', error);
     });
   } finally {
-    await recount();
     for (const client of await self.clients.matchAll()) client.postMessage({ kind: 'changed' }, { transfer: [] });
   }
+  await recount();
 }
 
 async function focus(navigate: string): Promise<void> {

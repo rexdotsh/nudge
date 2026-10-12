@@ -32,7 +32,11 @@
 
 <Onboarding {title} {tagline}>
   <ol class="group">
-    <li class="field"><span>{press} <Icon name="share" size={17} /> {where}</span><span class="value">1</span></li>
+    <li class="field">
+      <span>{press} <Icon name="share" size={17} /><span class="sr-only">Share</span> {where}</span><span class="value"
+        >1</span
+      >
+    </li>
     <li class="field"><span>Choose <b>{add}</b></span><span class="value">2</span></li>
     <li class="field"><span>Open Nudge from {home}</span><span class="value">3</span></li>
   </ol>

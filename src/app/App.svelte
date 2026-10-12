@@ -38,13 +38,13 @@
 
   const late = $derived(lateCount(app.reminders, app.now, app.zone));
 
-  // Pushes badge the icon as they arrive; once the app knows better (something done, snoozed or newly late), it corrects it.
+  // Pushes badge the icon as they arrive; only a replica synced in this foreground knows better than the latest push.
   $effect(() => {
-    if (app.phase === 'ready' && 'setAppBadge' in navigator) void navigator.setAppBadge(late);
+    if (app.freshness === 'synced' && 'setAppBadge' in navigator) void navigator.setAppBadge(late);
   });
 
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.caughtUp);
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.freshness !== 'catching-up');
   });
 </script>
 

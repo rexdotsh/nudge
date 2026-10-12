@@ -158,12 +158,10 @@ function keyLabel(key: string): string {
   return APPLE ? `⌘${name}` : `Ctrl ${name}`;
 }
 
-/** Every key that triggers it, as this keyboard labels them. */
 export function keyLabels(binding: Hint): string[] {
   return keysOf(binding).map(keyLabel);
 }
 
-/** The key to suggest for it. */
 export function hint(binding: Hint): string {
   return keyLabel(keysOf(binding)[0]);
 }
