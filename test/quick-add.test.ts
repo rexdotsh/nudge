@@ -106,6 +106,14 @@ describe('parseQuickAdd', () => {
       'FREQ=DAILY;INTERVAL=3',
     ],
     ['pills every day after done at 8am and 8pm', 'pills at 8am and 8pm', '2026-10-12T09:00', 'FREQ=DAILY'],
+    ['pay rent every 1st 10am', 'pay rent', '2026-10-11T10:00', 'FREQ=MONTHLY;BYMONTHDAY=1'],
+    ['pay card every 1st and 15th 9:30am', 'pay card', '2026-10-11T09:30', 'FREQ=MONTHLY;BYMONTHDAY=1,15'],
+    ['pay rent every month on the 1st 10am', 'pay rent', '2026-10-11T10:00', 'FREQ=MONTHLY;BYMONTHDAY=1'],
+    ['pay rent the 1st of every month 10am', 'pay rent', '2026-10-11T10:00', 'FREQ=MONTHLY;BYMONTHDAY=1'],
+    ['lunch every 12.30', 'lunch every 12.30', null, null],
+    ['gym every mon wed fri 7am', 'gym', '2026-10-11T07:00', 'FREQ=WEEKLY;BYDAY=MO,WE,FR'],
+    ['gym mon wed fri 7am', 'gym', '2026-10-11T07:00', 'FREQ=WEEKLY;BYDAY=MO,WE,FR'],
+    ['swim on tuesdays and thursdays at 6pm', 'swim', '2026-10-11T18:00', 'FREQ=WEEKLY;BYDAY=TU,TH'],
   ])('%p', (text, title, start, rule) => {
     const parsed = parse(text);
     expect(parsed.title).toBe(title);

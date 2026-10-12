@@ -6,7 +6,9 @@ export type Time = { hour: number; minute: number };
 
 export const DAY =
   '(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
-const DAYS = `(${DAY}(?:\\s*(?:,|and|&)\\s*${DAY})*)`;
+const AND = '(?:\\s*(?:,|and|&)\\s*|\\s+)';
+const DAYS = `(${DAY}(?:${AND}${DAY})*)`;
+const PLURAL_DAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)days';
 export const MONTH =
   '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const ORDINAL = '(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)';
@@ -59,6 +61,7 @@ const byDays = (list: string) =>
     .toSorted((a, b) => a - b)
     .map((day) => ({ weekday: day, nth: 0 }));
 const numbers = (text: string) => (text.match(/\d{1,2}/g) ?? []).map(Number);
+const MONTH_DAYS = `(?:the\\s+)?(\\d{1,2})${SUFFIX}((?:\\s*(?:,|and|&)\\s*(?:the\\s+)?\\d{1,2}${SUFFIX})*)`;
 
 export function clock(hourText: string, minuteText: string | undefined, meridiem: string | undefined): Time | null {
   let hour = Number(hourText);
@@ -86,6 +89,13 @@ export interface RepeatMatch {
 
 const scheduled = (found: Rule | null, defaultTime: Time | null = null): RepeatMatch | null =>
   found && { rule: found, anchor: 'schedule', defaultTime };
+const weekly = (m: RegExpExecArray) => scheduled(rule('WEEKLY', { byDay: byDays(m[1] ?? '') }));
+const monthly = (list: string) => {
+  const days = numbers(list).filter((day) => day >= 1 && day <= 31);
+  return days.length === 0
+    ? null
+    : scheduled(rule('MONTHLY', { byMonthDay: [...new Set(days)].toSorted((a, b) => a - b) }));
+};
 
 export const REPEATS: [pattern: string, build: (match: RegExpExecArray) => RepeatMatch | null][] = [
   [
@@ -121,7 +131,8 @@ export const REPEATS: [pattern: string, build: (match: RegExpExecArray) => Repea
   [`every\\s+other\\s+${DAYS}`, (m) => scheduled(rule('WEEKLY', { interval: 2, byDay: byDays(m[1] ?? '') }))],
   [`every\\s+week\\s*day|(?:on\\s+)?week\\s*days`, () => scheduled(rule('WEEKLY', { byDay: WEEKDAYS }))],
   [`every\\s+weekend|(?:on\\s+)?weekends`, () => scheduled(rule('WEEKLY', { byDay: WEEKEND }))],
-  [`(?:every|each)\\s+${DAYS}`, (m) => scheduled(rule('WEEKLY', { byDay: byDays(m[1] ?? '') }))],
+  [`(?:every|each)\\s+${DAYS}`, weekly],
+  [`(?:on\\s+)?(${PLURAL_DAY}(?:${AND}${PLURAL_DAY})*|${DAY}(?:${AND}${DAY})+)`, weekly],
   [
     `every\\s+quarter(?:\\s+on\\s+(?:the\\s+)?(\\d{1,2})${SUFFIX})?`,
     (m) => scheduled(rule('MONTHLY', { interval: 3, byMonthDay: m[1] ? [Number(m[1])] : [] })),
@@ -162,14 +173,10 @@ export const REPEATS: [pattern: string, build: (match: RegExpExecArray) => Repea
     (m) => scheduled(rule('YEARLY', { byMonth: [monthNumber(m[2] ?? '')], byMonthDay: [Number(m[1])] })),
   ],
   [
-    `(every\\s+month\\s+on|every|each|on)\\s+(?:the\\s+)?(\\d{1,2})${SUFFIX}((?:\\s*(?:,|and|&)\\s*(?:the\\s+)?\\d{1,2}${SUFFIX})*)(\\s+of\\s+(?:the\\s+|every\\s+|each\\s+)?month)?(?!\\s*(?::|am|pm|a\\.m|p\\.m|\\d|h\\b|hours?|mins?|minutes?|days?|weeks?|months?|years?|times))`,
-    (m) => {
-      if (m[1] === 'on' && !m[3] && !m[4]) return null;
-      const days = [Number(m[2]), ...numbers(m[3] ?? '')].filter((day) => day >= 1 && day <= 31);
-      if (days.length === 0) return null;
-      return scheduled(rule('MONTHLY', { byMonthDay: [...new Set(days)].toSorted((a, b) => a - b) }));
-    },
+    `(every\\s+month\\s+on|every|each|on)\\s+${MONTH_DAYS}(\\s+of\\s+(?:the\\s+|every\\s+|each\\s+)?month)?(?!\\s*(?::|\\.\\d|am|pm|a\\.m|p\\.m|h\\b|hours?|mins?|minutes?|days?|weeks?|months?|years?|times|${DAY}))`,
+    (m) => (m[1] === 'on' && !m[3] && !m[4] ? null : monthly(`${m[2]} ${m[3]}`)),
   ],
+  [`${MONTH_DAYS}\\s+of\\s+(?:every|each)\\s+month`, (m) => monthly(`${m[1]} ${m[2]}`)],
   [
     `every\\s+(morning|afternoon|evening|night)|(?:each|every)\\s+(?:single\\s+)?day|daily`,
     (m) => scheduled(rule('DAILY'), PARTS_OF_DAY[m[1] ?? ''] ?? null),
