@@ -87,8 +87,8 @@
     margin: auto auto 0;
     padding: 0;
     /* A real border, not an inset shadow: content (the sticky grabber) paints over inset shadows but never over borders. */
-    border: 1px solid var(--edge);
-    border-bottom: 0;
+    border: 0;
+    border-top: 1px solid var(--edge);
     border-radius: 26px 26px 0 0;
     background: var(--bg);
     color: var(--ink);
@@ -149,7 +149,7 @@
     dialog {
       max-height: calc(100dvh - 80px);
       margin: auto;
-      border-bottom: 1px solid var(--edge);
+      border: 1px solid var(--edge);
       border-radius: 20px;
     }
 
