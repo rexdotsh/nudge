@@ -32,8 +32,12 @@ export async function showUnlessOnScreen(
   content: NotificationContent,
 ): Promise<void> {
   const current = await registration.getNotifications({ tag: content.tag });
-  if (current.some((notification) => isShown(notification.data) && notification.data.fire === content.data.fire))
-    return;
+  const { fire } = content.data;
+  const onScreen = current.some((notification) => {
+    const data: unknown = notification.data;
+    return isRecord(data) && data.fire === fire;
+  });
+  if (onScreen) return;
   await show(registration, content);
 }
 
