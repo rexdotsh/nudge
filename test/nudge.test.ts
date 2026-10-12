@@ -256,6 +256,21 @@ describe('sync', () => {
     expect(h.state.alarm).toBe(Date.UTC(2026, 9, 12, 4, 30));
   });
 
+  test('the zone follows the device that moved, and one left at home cannot flip it back', async () => {
+    const { phone, laptop } = await h.pair();
+    await h.put(phone);
+    await h.sync(phone, [], 'Europe/Paris');
+    const abroad = h.state.alarm;
+    expect(abroad).toBe(Date.UTC(2026, 9, 12, 7, 0));
+    const before = h.state.broadcasts.length;
+    await h.sync(laptop, []);
+    await h.sync(laptop, []);
+    expect(h.state.alarm).toBe(abroad);
+    expect(h.state.broadcasts.length).toBe(before);
+    await h.sync(phone, []);
+    expect(h.state.alarm).toBe(DUE);
+  });
+
   test('a change made offline is applied at the time it was made, so a missed reminder still goes out', async () => {
     const { phone } = await h.pair();
     const madeAt = h.state.now;

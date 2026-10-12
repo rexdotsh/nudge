@@ -226,8 +226,10 @@ export class Nudge {
     const now = this.runtime.now();
     let applied = 0;
     const zoneChanged = this.runtime.transaction(() => {
+      // The instance zone follows the device that last moved, so a device that never left home (a laptop left open)
+      // cannot keep flipping it back against the one that travelled.
+      const changed = device.zone !== zone && this.scheduler.setZone(zone);
       this.store.devices.touch(device.id, zone, now);
-      const changed = this.scheduler.setZone(zone);
       for (const { opId, op, at } of changes) {
         if (this.store.applied(opId)) continue;
         const previous = this.store.reminder(op.id);
