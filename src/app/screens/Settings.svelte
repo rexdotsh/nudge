@@ -41,7 +41,7 @@
       health = current;
       devicesFailed = false;
     } catch (error) {
-      devicesFailed = true;
+      devicesFailed = error instanceof Unreachable;
       throw error;
     }
   }
