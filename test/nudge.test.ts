@@ -276,8 +276,12 @@ describe('sync', () => {
     await h.put(phone);
     await h.sync(phone, [], 'Europe/Paris');
     const { code } = await h.ok('pair', null, phone);
-    await h.ok('join', { code, device: { ...device('Windows PC'), zone: ZONE } });
+    const laptop = { ...device('Windows PC'), zone: ZONE };
+    await h.ok('join', { code, device: laptop });
     expect(h.state.alarm).toBe(DUE);
+    h.state.alarm = null;
+    await h.ok('join', { code, device: laptop });
+    expect(h.state).toMatchObject({ alarm: DUE });
   });
 
   test('a change made offline is applied at the time it was made, so a missed reminder still goes out', async () => {

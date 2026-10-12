@@ -186,10 +186,8 @@ export class Nudge {
       return { id, moved };
     });
     if (outcome instanceof ApiFailure) throw outcome;
-    if (outcome.moved) {
-      await this.scheduler.rearm();
-      this.runtime.broadcast({ kind: 'changed', version: this.store.version() }, outcome.id);
-    }
+    await this.scheduler.rearm();
+    if (outcome.moved) this.runtime.broadcast({ kind: 'changed', version: this.store.version() }, outcome.id);
     return { token: await issueToken(this.runtime.secrets.auth, outcome.id), deviceId: outcome.id };
   }
 
