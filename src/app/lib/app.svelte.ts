@@ -49,7 +49,7 @@ class App {
   async start(): Promise<void> {
     navigator.serviceWorker?.addEventListener('message', () => void this.reloadLocal().then(() => this.sync()));
     document.addEventListener('visibilitychange', () => this.visibilityChanged());
-    watchPermission(() => this.permissionChanged());
+    watchPermission(() => void this.permissionChanged());
     let session;
     try {
       [session, this.health] = await Promise.all([
@@ -88,6 +88,10 @@ class App {
     this.deviceId = session.deviceId;
     this.phase = 'ready';
     this.connect(session.token);
+    this.refreshDevices();
+  }
+
+  private refreshDevices(): void {
     void this.refreshHealth().catch((error: unknown) => {
       if (!(error instanceof Unreachable)) throw error;
       console.warn('devices not fetched yet; Settings will fetch them', error);
@@ -195,14 +199,28 @@ class App {
     }
   }
 
-  private permissionChanged(): void {
-    const previous = this.notifications;
-    this.notifications = pushState();
-    if (this.notifications === 'enabled' && previous !== 'enabled') void syncSubscription();
+  /** Allowed outside the app counts as on only once this device is subscribed. Safari subscribes only from a tap, so
+   * if that fails here, Settings keeps its Turn on button to finish it. */
+  private async permissionChanged(): Promise<void> {
+    const state = pushState();
+    if (state !== 'enabled' || this.notifications === 'enabled') {
+      this.notifications = state;
+      return;
+    }
+    try {
+      await syncSubscription();
+    } catch (error) {
+      console.warn('subscribing needs a tap on this browser', error);
+      this.notifications = 'prompt';
+      return;
+    }
+    this.notifications = 'enabled';
+    this.refreshDevices();
   }
 
   async enableNotifications(): Promise<PushState> {
     this.notifications = await enablePush();
+    if (this.notifications === 'enabled') this.refreshDevices();
     return this.notifications;
   }
 
