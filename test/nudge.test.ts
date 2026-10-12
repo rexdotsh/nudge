@@ -152,12 +152,17 @@ function harness() {
     const second = await ok('join', { code, device: device('Windows PC') });
     await ok('subscribe', keys(1), first.deviceId);
     await ok('subscribe', keys(2), second.deviceId);
+    confirmedBefore(first.deviceId, second.deviceId);
     return { phone: first.deviceId, laptop: second.deviceId };
+  }
+
+  function confirmedBefore(...deviceIds: string[]) {
+    for (const id of deviceIds) db.query('UPDATE devices SET receipt_at = 1 WHERE id = ?').run(id);
   }
 
   const sentTo = (seed: number) => state.pushes.filter((push) => push.endpoint === keys(seed).endpoint).length;
 
-  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, sentTo };
+  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, confirmedBefore, sentTo };
 }
 
 let h: ReturnType<typeof harness>;
@@ -427,12 +432,22 @@ describe('delivery', () => {
     expect(h.state.alarm).toBeNull();
   });
 
+  test('a device that has never confirmed gets each notification once and raises no alert', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId);
+    await h.runAlarmsThrough(DUE + HOUR_MS);
+    expect(h.sentTo(1)).toBe(1);
+    expect(h.state.alerts).toHaveLength(0);
+  });
+
   test.each([
     ['answers from the first nag on', 0, DUE + NAG_INTERVAL_MS],
     ['never answers', 1, Infinity],
   ])('an important reminder on a device that %s raises %d alert(s) in its first hour', async (_, alerts, onlineAt) => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
+    h.confirmedBefore(deviceId);
     await h.put(deviceId, { important: true });
     await h.runAlarmsThrough(DUE + HOUR_MS, (arrived) =>
       Promise.all(
@@ -483,6 +498,7 @@ describe('delivery', () => {
   test('an escalation whose alert could not be delivered is retried until it is', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
+    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     await h.runAlarm();
     await h.runAlarm();
@@ -499,6 +515,7 @@ describe('delivery', () => {
   test('a receipt that lands while an escalation alert is failing ends the work', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
+    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     await h.runAlarm();
     await h.runAlarm();
@@ -513,6 +530,7 @@ describe('delivery', () => {
   test('a push that outlives its lease cannot undo the retry that replaced it', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
+    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     h.state.holdNext = true;
     h.state.now = DUE;
@@ -583,6 +601,7 @@ describe('delivery', () => {
   test('every unconfirmed reminder escalates on its own, even within the alert cooldown', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
+    h.confirmedBefore(deviceId);
     await h.put(deviceId, { title: 'First' });
     await h.put(deviceId, { title: 'Second' });
     await h.runAlarm();
@@ -609,6 +628,7 @@ describe('delivery', () => {
   test('a subscription that expired while being replaced is retried on its replacement', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
+    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     h.state.status = (target) => (target.endpoint === keys(1).endpoint ? 410 : 201);
     h.state.onPush = (target) => {

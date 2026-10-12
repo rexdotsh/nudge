@@ -44,11 +44,20 @@ export type DeviceRow = {
 export interface Target extends PushKeys {
   deviceId: string;
   label: string;
+  /** Has confirmed a delivery before, so a missing confirmation means something went wrong. */
+  confirms: boolean;
 }
 
 function target(row: DeviceRow): Target | undefined {
   return row.endpoint && row.p256dh && row.auth
-    ? { deviceId: row.id, label: row.label, endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }
+    ? {
+        deviceId: row.id,
+        label: row.label,
+        endpoint: row.endpoint,
+        p256dh: row.p256dh,
+        auth: row.auth,
+        confirms: row.receipt_at !== null,
+      }
     : undefined;
 }
 

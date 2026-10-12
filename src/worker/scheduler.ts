@@ -206,8 +206,10 @@ export class Scheduler {
       this.store.deliveries.release(row, now);
       return;
     }
+    // A device that has never confirmed a delivery (some iPhones never run the worker for a push) would get every
+    // notification twice from a resend and raise alerts that mean nothing, so an accepted push to it is final.
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
-    const nextAt = ok || isRetryable(result.status) ? now + followUp : null;
+    const nextAt = (ok && target.confirms) || isRetryable(result.status) ? now + followUp : null;
     const owned = this.runtime.transaction(() => {
       if (!this.store.deliveries.recordSend(row, result.status, nextAt, now)) return false;
       if (gone) this.store.devices.dropSubscription(target);
