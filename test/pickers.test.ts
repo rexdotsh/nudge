@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { monthGrid, parseTime, timeSlots, weekStart } from '../src/app/lib/pickers';
+import { monthGrid, parseTime, regionWeekStart, timeSlots, weekStart } from '../src/app/lib/pickers';
 import { daysInMonth, epochDay, formatClock, formatDate, fromEpochDay } from '../src/shared/time';
 
 test('the month grid starts on the locale’s first weekday and holds the whole month', () => {
@@ -17,6 +17,20 @@ test('the month grid starts on the locale’s first weekday and holds the whole 
     expect(formatDate(fromEpochDay(grid[0] ?? 0))).toBe(first);
     expect(grid).toContain(epochDay({ year, month, day: daysInMonth(year, month) }));
   }
+});
+
+test('without the week info API, the region still decides the first weekday', () => {
+  const cases: [locale: string, start: number][] = [
+    ['ar-EG', 5],
+    ['fa-IR', 5],
+    ['fa', 5],
+    ['en-US', 6],
+    ['he', 6],
+    ['en-GB', 0],
+    ['de-DE', 0],
+    ['dv-MV', 4],
+  ];
+  for (const [locale, start] of cases) expect(regionWeekStart(locale)).toBe(start);
 });
 
 test('a typed time becomes the time she meant', () => {

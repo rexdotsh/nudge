@@ -3,11 +3,13 @@
   import { formatClock } from '../../shared/time';
   import { clockLabel } from '../lib/format';
   import { parseTime, timeSlots } from '../lib/pickers';
-  import Listbox from './Listbox.svelte';
+  import { composing } from '../lib/shortcuts';
+  import Listbox, { optionId } from './Listbox.svelte';
 
   let { value, onPick }: { value: string; onPick: (value: string) => void } = $props();
 
   const id = $props.id();
+  const listId = `${id}-list`;
   const slots = timeSlots(untrack(() => value));
   const labelOf = (slot: string) => {
     const time = parseTime(slot);
@@ -53,6 +55,7 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    if (composing(event) || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'ArrowDown') step(1);
     else if (event.key === 'ArrowUp') step(-1);
     else if (event.key === 'PageDown') step(4);
@@ -70,9 +73,9 @@
   role="combobox"
   aria-label="Time"
   aria-expanded="true"
-  aria-controls="{id}-list"
+  aria-controls={listId}
   aria-autocomplete="none"
-  aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
+  aria-activedescendant={active >= 0 ? optionId(listId, active) : undefined}
   aria-invalid={invalid}
   placeholder="Type a time"
   data-autofocus
@@ -82,7 +85,7 @@
   onkeydown={keydown}
 />
 <Listbox
-  id="{id}-list"
+  id={listId}
   options={slots.map((slot) => ({ value: slot, label: labelOf(slot) }))}
   selected={value}
   {active}
@@ -94,6 +97,7 @@
 <style>
   .entry {
     display: block;
+    flex: none;
     width: 100%;
     margin-bottom: 4px;
     height: 32px;

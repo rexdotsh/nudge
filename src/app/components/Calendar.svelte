@@ -26,6 +26,7 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const step = STEPS[event.key];
     const startOfWeek = focused - ((weekday(focused) - FIRST_WEEKDAY + 7) % 7);
     if (step !== undefined) void move(focused + step);

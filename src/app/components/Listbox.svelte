@@ -1,3 +1,7 @@
+<script lang="ts" module>
+  export const optionId = (list: string, index: number) => `${list}-${index}`;
+</script>
+
 <script lang="ts" generics="T extends string">
   import type { HTMLAttributes } from 'svelte/elements';
   import Icon from './Icon.svelte';
@@ -36,7 +40,7 @@
       class="item"
       class:active={index === active}
       role="option"
-      id="{id}-{index}"
+      id={optionId(id, index)}
       tabindex="-1"
       aria-selected={option.value === selected}
       onclick={() => onPick(option.value)}

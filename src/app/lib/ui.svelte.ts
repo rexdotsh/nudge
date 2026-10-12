@@ -28,7 +28,6 @@ class Ui {
     return wide.current;
   }
 
-  /** A mouse gets the app's own date, time and option pickers; touch keeps the system's wheels and sheets. */
   get fine(): boolean {
     return fine.current;
   }

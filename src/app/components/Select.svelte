@@ -1,7 +1,7 @@
 <script lang="ts" generics="T extends string">
   import { composing } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
-  import Listbox from './Listbox.svelte';
+  import Listbox, { optionId } from './Listbox.svelte';
   import Popover from './Popover.svelte';
 
   let {
@@ -19,6 +19,7 @@
   const TYPEAHEAD_MS = 600;
 
   const id = $props.id();
+  const listId = `${id}-list`;
   const selected = $derived(
     Math.max(
       0,
@@ -56,6 +57,7 @@
 
   // The select-only combobox pattern: focus stays on the button, which drives the list.
   function keydown(event: KeyboardEvent) {
+    if (open) event.stopPropagation();
     if (composing(event) || event.ctrlKey || event.metaKey) return;
     const printable = event.key.length === 1 && event.key !== ' ';
     if (!open) {
@@ -77,7 +79,6 @@
     else if (printable) highlight(typeahead(event.key));
     else return;
     event.preventDefault();
-    event.stopPropagation();
   }
 </script>
 
@@ -88,9 +89,9 @@
     role="combobox"
     aria-labelledby="{labelledby} {id}"
     aria-haspopup="listbox"
-    aria-controls="{id}-list"
+    aria-controls={listId}
     aria-expanded={open}
-    aria-activedescendant={open ? `${id}-${active}` : undefined}
+    aria-activedescendant={open ? optionId(listId, active) : undefined}
     bind:this={trigger}
     onclick={() => (open ? (open = false) : show(selected))}
     onkeydown={keydown}
@@ -99,7 +100,7 @@
   {#if open && trigger}
     <Popover anchor={trigger} onClose={() => (open = false)}>
       <Listbox
-        id="{id}-list"
+        id={listId}
         {options}
         selected={value}
         {active}
