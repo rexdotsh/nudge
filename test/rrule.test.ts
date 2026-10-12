@@ -217,6 +217,16 @@ describe('reminder-shaped rules', () => {
     ]);
   });
 
+  test('times of day with different minutes, picked by BYSETPOS, across spring-forward', () => {
+    expect(expand('FREQ=DAILY;BYHOUR=2,21;BYMINUTE=0,30;BYSETPOS=2,3', '2026-03-07T00:00', 5)).toEqual([
+      '2026-03-07T02:30',
+      '2026-03-07T21:00',
+      '2026-03-08T03:30',
+      '2026-03-08T21:00',
+      '2026-03-09T02:30',
+    ]);
+  });
+
   test('every 5 hours keeps its cadence across midnight', () => {
     expect(expand('FREQ=HOURLY;INTERVAL=5', '2026-10-11T20:15', 4)).toEqual([
       '2026-10-11T20:15',

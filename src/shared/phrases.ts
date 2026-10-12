@@ -6,7 +6,8 @@ export type Time = { hour: number; minute: number };
 
 export const DAY =
   '(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
-const AND = '(?:\\s*(?:,|and|&)\\s*|\\s+)';
+export const LIST = '\\s*(?:,|and|&)\\s*';
+const AND = `(?:${LIST}|\\s+)`;
 const DAYS = `(${DAY}(?:${AND}${DAY})*)`;
 const PLURAL_DAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)days';
 export const MONTH =
@@ -50,6 +51,28 @@ export const PARTS_OF_DAY: Record<string, Time> = {
   evening: { hour: 18, minute: 0 },
   night: { hour: 21, minute: 0 },
 };
+export const PART_OF_DAY = '(?:morning|afternoon|evening|night)';
+const PARTS_OF_DAY_LIST = `${PART_OF_DAY}(?:${LIST}${PART_OF_DAY})*`;
+const TIMES_A_DAY: Record<string, number> = {
+  once: 1,
+  one: 1,
+  twice: 2,
+  two: 2,
+  thrice: 3,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+};
+/** The hours "n times a day" spreads across the waking day. */
+const SPREAD: Record<number, number[]> = {
+  1: [],
+  2: [9, 21],
+  3: [9, 15, 21],
+  4: [8, 12, 16, 20],
+  5: [8, 11, 14, 17, 20],
+  6: [7, 10, 13, 16, 19, 22],
+};
 const WEEKDAYS: ByDay[] = [0, 1, 2, 3, 4].map((day) => ({ weekday: day, nth: 0 }));
 const WEEKEND: ByDay[] = [5, 6].map((day) => ({ weekday: day, nth: 0 }));
 
@@ -61,7 +84,36 @@ const byDays = (list: string) =>
     .toSorted((a, b) => a - b)
     .map((day) => ({ weekday: day, nth: 0 }));
 const numbers = (text: string) => (text.match(/\d{1,2}/g) ?? []).map(Number);
-const MONTH_DAYS = `(?:the\\s+)?(\\d{1,2})${SUFFIX}((?:\\s*(?:,|and|&)\\s*(?:the\\s+)?\\d{1,2}${SUFFIX})*)`;
+const MONTH_DAYS = `(?:the\\s+)?(\\d{1,2})${SUFFIX}((?:${LIST}(?:the\\s+)?\\d{1,2}${SUFFIX})*)`;
+
+export const partsOfDay = (text: string) =>
+  (text.match(new RegExp(PART_OF_DAY, 'g')) ?? []).flatMap((part) => PARTS_OF_DAY[part] ?? []);
+
+/** The times of day in order, each once. */
+export function distinctTimes(times: Time[]): Time[] {
+  return times
+    .filter((time, i) => times.findIndex((other) => other.hour === time.hour && other.minute === time.minute) === i)
+    .toSorted((a, b) => a.hour - b.hour || a.minute - b.minute);
+}
+
+const ascending = (items: number[]) => [...new Set(items)].toSorted((a, b) => a - b);
+
+/** The rule firing at each of several times of day, or null when its period cannot be limited to them. */
+export function atTimes(base: Rule, times: Time[]): Rule | null {
+  const wanted = distinctTimes(times);
+  if (wanted.length < 2) return base;
+  if (base.bySetPos.length > 0) return null;
+  const byHour = ascending(wanted.map((time) => time.hour));
+  const byMinute = ascending(wanted.map((time) => time.minute));
+  if (byHour.length * byMinute.length === wanted.length) return { ...base, byHour, byMinute };
+  // BYHOUR and BYMINUTE fire at every pairing of the two, so BYSETPOS picks the wanted pairs within each day.
+  const weekly = base.freq === 'WEEKLY' && base.interval === 1 && base.byDay.length > 0;
+  if (base.freq !== 'DAILY' && !weekly) return null;
+  const bySetPos = wanted.map(
+    (time) => byHour.indexOf(time.hour) * byMinute.length + byMinute.indexOf(time.minute) + 1,
+  );
+  return { ...base, freq: 'DAILY', byHour, byMinute, bySetPos };
+}
 
 export function clock(hourText: string, minuteText: string | undefined, meridiem: string | undefined): Time | null {
   let hour = Number(hourText);
@@ -87,8 +139,9 @@ export interface RepeatMatch {
   defaultTime: Time | null;
 }
 
-const scheduled = (found: Rule | null, defaultTime: Time | null = null): RepeatMatch | null =>
+export const scheduled = (found: Rule | null, defaultTime: Time | null = null): RepeatMatch | null =>
   found && { rule: found, anchor: 'schedule', defaultTime };
+const scheduledAt = (base: Rule, times: Time[]) => scheduled(atTimes(base, times), distinctTimes(times)[0] ?? null);
 const weekly = (m: RegExpExecArray) => scheduled(rule('WEEKLY', { byDay: byDays(m[1] ?? '') }));
 const monthly = (list: string) => {
   const days = numbers(list).filter((day) => day >= 1 && day <= 31);
@@ -178,10 +231,17 @@ export const REPEATS: [pattern: string, build: (match: RegExpExecArray) => Repea
   ],
   [`${MONTH_DAYS}\\s+of\\s+(?:every|each)\\s+month`, (m) => monthly(`${m[1]} ${m[2]}`)],
   [
-    `every\\s+(morning|afternoon|evening|night)|(?:each|every)\\s+(?:single\\s+)?day|daily`,
-    (m) => scheduled(rule('DAILY'), PARTS_OF_DAY[m[1] ?? ''] ?? null),
+    `(once|twice|thrice|(\\d+|one|two|three|four|five|six)\\s*(?:times?|x))\\s+(?:(?:a|per|each|every)\\s+day|daily)`,
+    (m) => {
+      const word = m[2] ?? m[1] ?? '';
+      const times = SPREAD[TIMES_A_DAY[word] ?? Number(word)]?.map((hour) => ({ hour, minute: 0 }));
+      return times ? scheduledAt(rule('DAILY'), times) : null;
+    },
   ],
-  [`twice\\s+(?:a|per)\\s+day`, () => scheduled(rule('DAILY', { byHour: [9, 21], byMinute: [0] }))],
+  [
+    `every\\s+(${PARTS_OF_DAY_LIST})|(?:each|every)\\s+(?:single\\s+)?day|daily`,
+    (m) => scheduledAt(rule('DAILY'), partsOfDay(m[1] ?? '')),
+  ],
   [
     `every\\s+(hour|week|month|year)|(hourly|weekly|monthly|yearly|annually)`,
     (m) => {

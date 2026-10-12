@@ -1,5 +1,6 @@
 import type { Repeat } from './reminder';
 import { memoize } from './memoize';
+import { atPositions, timesOfDay } from './occurrences';
 import { parseRule, type ByDay, type Rule } from './rrule';
 import { epochDay, toLocal, weekday, type LocalDateTime } from './time';
 
@@ -101,10 +102,19 @@ function cadence(rule: Rule, start: LocalDateTime, names: Names): string | null 
   }
 }
 
-function times(rule: Rule, start: LocalDateTime, names: Names): string {
-  if (rule.freq === 'HOURLY' || rule.byHour.length < 2) return '';
-  const minute = rule.byMinute[0] ?? start.minute;
-  return ` at ${list(rule.byHour.map((hour) => names.time(hour, minute)))}`;
+function pickedTimes(rule: Rule, start: LocalDateTime) {
+  const grid = timesOfDay(rule, start);
+  if (rule.bySetPos.length === 0) return grid;
+  if (rule.freq !== 'DAILY') return grid.length === 1 ? grid : null;
+  const picked = atPositions(grid, rule.bySetPos);
+  return picked.length > 0 ? picked : null;
+}
+
+function times(rule: Rule, start: LocalDateTime, names: Names): string | null {
+  if (rule.freq === 'HOURLY') return '';
+  const picked = pickedTimes(rule, start);
+  if (picked === null) return null;
+  return picked.length < 2 ? '' : ` at ${list(picked.map(({ hour, minute }) => names.time(hour, minute)))}`;
 }
 
 function ending(rule: Rule, names: Names, zone: string): string {
@@ -122,6 +132,7 @@ export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: str
     return `${rule.interval} ${unit}${rule.interval === 1 ? '' : 's'} after done`;
   }
   const phrase = cadence(rule, start, names);
-  if (phrase === null) return 'Custom repeat';
-  return `${phrase}${times(rule, start, names)}${ending(rule, names, zone)}`;
+  const at = times(rule, start, names);
+  if (phrase === null || at === null) return 'Custom repeat';
+  return `${phrase}${at}${ending(rule, names, zone)}`;
 }

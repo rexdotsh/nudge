@@ -1,20 +1,26 @@
 import { isRepeat } from './input';
 import {
   DAY,
+  LIST,
   MERIDIEM_TIME,
   MONTH,
   PARTS_OF_DAY,
+  PART_OF_DAY,
   REPEATS,
   SUFFIX,
   TIME,
+  atTimes,
   clock,
   dayIndex,
+  distinctTimes,
   monthNumber,
+  partsOfDay,
+  scheduled,
   type RepeatMatch,
   type Time,
 } from './phrases';
 import type { Repeat } from './reminder';
-import { RuleError, formatRule, parseRule, type Rule } from './rrule';
+import { RuleError, formatRule, parseRule, rule, type Rule } from './rrule';
 import { Scanner, type Span } from './scanner';
 import {
   DAY_MS,
@@ -88,7 +94,8 @@ const endOfDay = (date: LocalDate, zone: string) => toInstant({ ...date, hour: 2
 const UNTIL = `until\\s+${MONTH}\\s+(\\d{1,2})${SUFFIX}|until\\s+(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}`;
 const COUNT = `(?:for\\s+)?(\\d+)\\s+times`;
 const DURATION = `for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`;
-const TIME_LIST = `(?:at\\s+)?${TIME}(?:\\s*(?:,|and|&)\\s*${TIME})+`;
+const TIME_LIST = `(?:at\\s+)?${TIME}(?:${LIST}${TIME})+`;
+const PARTS_LIST = `(?:in\\s+the\\s+)?${PART_OF_DAY}(?:${LIST}(?:in\\s+the\\s+|at\\s+)?${PART_OF_DAY})+`;
 
 function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string): void {
   if (!draft.repeat) return;
@@ -168,17 +175,14 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   );
 
   scanner.take(TIME_LIST, 'when', (m) => {
-    const times = [...m[0].matchAll(new RegExp(TIME, 'g'))].map((part) => clock(part[1] ?? '', part[2], part[3]));
+    const parts = [...m[0].matchAll(new RegExp(TIME, 'g'))];
+    const times = parts.map((part) => clock(part[1] ?? '', part[2], part[3]));
     const valid = times.filter((time): time is Time => time !== null);
-    const [first] = valid;
-    const oneMinute = new Set(valid.map((time) => time.minute)).size === 1;
-    if (draft.repeat?.anchor !== 'schedule' || !first || valid.length !== times.length || !oneMinute) return false;
-    draft.repeat.rule.byHour = valid.map((time) => time.hour).toSorted((a, b) => a - b);
-    draft.repeat.rule.byMinute = [first.minute];
-    draft.listedTime = first;
-    return true;
+    const unmistakable = parts.every((part) => part[3] !== undefined || part[0].includes(':'));
+    return valid.length === times.length && listTimes(draft, valid, unmistakable);
   });
   scanner.shield(TIME_LIST);
+  scanner.take(PARTS_LIST, 'when', (m) => listTimes(draft, partsOfDay(m[0]), true));
   const setTime = (time: Time | null): boolean => {
     if (time) draft.time = time;
     return time !== null;
@@ -202,6 +206,19 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   scanner.take(`(?:in\\s+the\\s+|this\\s+)?(morning|afternoon|evening|night)`, 'when', (m) => {
     draft.defaultTime = PARTS_OF_DAY[m[1] ?? ''] ?? null;
   });
+}
+
+/** Several times of day make the repeat fire at each, and with no date or repeat they mean every day. */
+function listTimes(draft: Draft, times: Time[], unmistakable: boolean): boolean {
+  const [first, second] = distinctTimes(times);
+  if (!first) return false;
+  const undated = draft.date === null && draft.offset === null && draft.offsetDays === null;
+  const repeat = draft.repeat ?? (unmistakable && undated && second ? scheduled(rule('DAILY')) : null);
+  const timed = repeat?.anchor === 'schedule' ? atTimes(repeat.rule, times) : null;
+  if (!repeat || !timed || !isValidRule(timed)) return false;
+  draft.repeat = { ...repeat, rule: timed };
+  draft.listedTime = first;
+  return true;
 }
 
 function resolveBareHour(hour: number, date: LocalDate | null, now: number, zone: string): Time {

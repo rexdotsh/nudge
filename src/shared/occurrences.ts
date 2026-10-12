@@ -20,13 +20,26 @@ interface Expansion {
   monthDays: number[];
   days: ByDay[];
   nthWithinYear: boolean;
-  hours: number[];
-  minutes: number[];
+  times: ClockTime[];
   setPos: number[];
 }
 
+type ClockTime = Pick<LocalDateTime, 'hour' | 'minute'>;
+
 function ascending(items: number[]): number[] {
   return items.toSorted((a, b) => a - b);
+}
+
+/** The items at BYSETPOS positions, counted from 1 or from the end when negative, in their order. */
+export function atPositions<T>(items: T[], positions: number[]): T[] {
+  return items.filter((_, i) => positions.some((pos) => (pos > 0 ? pos - 1 : items.length + pos) === i));
+}
+
+/** Every time of day the rule's hours and minutes combine into, in order. */
+export function timesOfDay(value: Rule, start: LocalDateTime): ClockTime[] {
+  const minutes = ascending(value.byMinute.length > 0 ? value.byMinute : [start.minute]);
+  const hours = ascending(value.byHour.length > 0 ? value.byHour : [start.hour]);
+  return hours.flatMap((hour) => minutes.map((minute) => ({ hour, minute })));
 }
 
 function expansion(value: Rule, start: LocalDateTime): Expansion {
@@ -48,8 +61,7 @@ function expansion(value: Rule, start: LocalDateTime): Expansion {
     monthDays,
     days: nthApplies ? days : days.map(({ weekday: day }) => ({ weekday: day, nth: 0 })),
     nthWithinYear: value.freq === 'YEARLY' && months.length === 0,
-    hours: ascending(value.byHour.length > 0 ? value.byHour : [start.hour]),
-    minutes: ascending(value.byMinute.length > 0 ? value.byMinute : [start.minute]),
+    times: timesOfDay(value, start),
     setPos: value.bySetPos,
   };
 }
@@ -139,18 +151,14 @@ function dayMatches(plan: Expansion, day: number, date: LocalDate): boolean {
 }
 
 function candidates(plan: Expansion, unit: number): LocalDateTime[] {
-  const hours = plan.freq === 'HOURLY' ? [unit % 24] : plan.hours;
+  const times = plan.freq === 'HOURLY' ? plan.times.map(({ minute }) => ({ hour: unit % 24, minute })) : plan.times;
   const found: LocalDateTime[] = [];
   for (const day of PERIODS[plan.freq].days(unit)) {
     const date = fromEpochDay(day);
     if (!dayMatches(plan, day, date)) continue;
-    for (const hour of hours) for (const minute of plan.minutes) found.push({ ...date, hour, minute });
+    for (const time of times) found.push({ ...date, ...time });
   }
-  if (plan.setPos.length === 0) return found;
-  return plan.setPos
-    .map((pos) => found.at(pos > 0 ? pos - 1 : pos))
-    .filter((local): local is LocalDateTime => local !== undefined)
-    .toSorted((a, b) => wallMs(a) - wallMs(b));
+  return plan.setPos.length === 0 ? found : atPositions(found, plan.setPos);
 }
 
 function nextUnit(plan: Expansion, unit: number, firstUnit: number): number {
