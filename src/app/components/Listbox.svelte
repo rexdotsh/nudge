@@ -62,4 +62,8 @@
   .list:hover .active:not(:hover) {
     background: none;
   }
+
+  [aria-selected='true'] > :global(svg) {
+    color: var(--on);
+  }
 </style>

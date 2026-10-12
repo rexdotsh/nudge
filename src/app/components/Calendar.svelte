@@ -150,8 +150,8 @@
   }
 
   [aria-selected='true'] button {
-    background: var(--ink);
-    color: var(--bg);
+    background: var(--on);
+    color: var(--on-ink);
     font-weight: 600;
     outline-color: var(--surface);
   }

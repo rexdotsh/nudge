@@ -74,13 +74,13 @@
   }
 
   .disc {
-    fill: var(--ink);
+    fill: var(--on);
     transform: scale(0.4);
   }
 
   .tick {
     fill: none;
-    stroke: var(--bg);
+    stroke: var(--on-ink);
     stroke-width: 2.4;
     stroke-linecap: round;
     stroke-linejoin: round;

@@ -301,8 +301,12 @@
     cursor: pointer;
   }
 
+  .option > :global(svg) {
+    color: var(--on);
+  }
+
   .option:has(:focus-visible) .swatch {
-    outline: 2px solid var(--ink-2);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
 

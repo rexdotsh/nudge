@@ -182,8 +182,8 @@
   }
 
   .alerts button[aria-pressed='true'] {
-    background: var(--ink);
-    color: var(--bg);
+    background: var(--on);
+    color: var(--on-ink);
     font-weight: 600;
   }
 

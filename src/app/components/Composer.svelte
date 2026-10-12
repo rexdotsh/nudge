@@ -323,8 +323,8 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: var(--ink);
-    color: var(--bg);
+    background: var(--on);
+    color: var(--on-ink);
   }
 
   .full {

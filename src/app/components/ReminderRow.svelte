@@ -102,8 +102,8 @@
   }
 
   .leading {
-    background: var(--ink);
-    color: var(--bg);
+    background: var(--on);
+    color: var(--on-ink);
   }
 
   .trailing {
@@ -163,7 +163,7 @@
 
   .content:has(.open:focus-visible)::before {
     opacity: 1;
-    outline: 2px solid var(--ink-2);
+    outline: 2px solid var(--ring);
     outline-offset: -2px;
   }
 
