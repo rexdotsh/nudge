@@ -11,6 +11,11 @@ export interface Local {
   pending: Change[];
 }
 
+export interface Notices {
+  seen: string[];
+  claims: Record<string, number>;
+}
+
 export const EMPTY_LOCAL: Local = { replica: { version: 0, reminders: [] }, pending: [] };
 
 export interface Schema {
@@ -18,6 +23,6 @@ export interface Schema {
   installKey: string;
   vapidPublicKey: string;
   local: Local;
-  seen: string[];
+  notices: Notices;
   zone: { name: string; since: number };
 }

@@ -6,7 +6,7 @@ import { commit, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
 import { Replica } from '../browser/replica';
 import { EMPTY_LOCAL } from '../browser/schema';
-import { markSeen, seenFires } from '../browser/seen';
+import { claim, isSeen, settle } from '../browser/seen';
 import { MAX_REQUEST_BYTES } from '../shared/api';
 import type { NotificationContent, PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
@@ -27,8 +27,18 @@ function isPushMessage(value: unknown): value is PushMessage {
 // again without alerting twice.
 async function present(notification: NotificationContent, shownByBrowser: boolean): Promise<void> {
   const { fire } = notification.data;
-  if (!shownByBrowser && !(await seenFires()).has(fire)) await show(self.registration, notification);
-  await markSeen(fire);
+  if (shownByBrowser) {
+    await settle(fire, true);
+  } else if (await claim(fire, Date.now())) {
+    await show(self.registration, notification).then(
+      () => settle(fire, true),
+      async (error: unknown) => {
+        await settle(fire, false);
+        throw error;
+      },
+    );
+  }
+  if (!(await isSeen(fire))) return;
   await request('receipt', { fire }).catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
     console.warn('receipt failed; the server will resend and this device will confirm then', error);
@@ -87,7 +97,8 @@ async function drain(): Promise<void> {
   const response = await request('sync', { since: local.replica.version, zone: currentZone(), changes });
   const replica = new Replica(local.replica);
   replica.receive(response);
-  await commit(replica.snapshot(), new Set(changes.map((change) => change.opId)));
+  const { pending } = await commit(replica.snapshot(), new Set(changes.map((change) => change.opId)));
+  if (pending.length > 0) await drain();
 }
 
 async function act(op: Op): Promise<void> {

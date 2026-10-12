@@ -14,6 +14,7 @@ export class Replica {
   }
 
   receive(response: SyncResponse): void {
+    if (!response.reset && response.version < this.version) return;
     if (response.reset) this.server.clear();
     for (const reminder of response.reminders) this.server.set(reminder.id, reminder);
     this.version = response.version;

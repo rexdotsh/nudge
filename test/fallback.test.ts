@@ -27,6 +27,7 @@ function lateReminder() {
 function harness(alreadySeen: string[] = []) {
   const shown: string[] = [];
   const seen = new Set(alreadySeen);
+  const claimed = new Set<string>();
   const timers = new Set<() => Promise<void>>();
   const readiness: (() => void)[] = [];
   const fallback = new Fallback({
@@ -38,9 +39,14 @@ function harness(alreadySeen: string[] = []) {
           }),
         );
       }),
-    seen: async () => new Set(seen),
-    markSeen: async (fire) => {
-      seen.add(fire);
+    claim: async (fire) => {
+      if (seen.has(fire) || claimed.has(fire)) return false;
+      claimed.add(fire);
+      return true;
+    },
+    settle: async (fire, displayed) => {
+      claimed.delete(fire);
+      if (displayed) seen.add(fire);
     },
     wait: (run) => {
       timers.add(run);

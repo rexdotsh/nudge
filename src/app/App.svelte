@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
   import { show } from '../browser/notify';
-  import { markSeen, seenFires } from '../browser/seen';
+  import { claim, settle } from '../browser/seen';
   import Onboarding from './components/Onboarding.svelte';
   import { Fallback } from './lib/fallback';
   import { ui } from './lib/ui.svelte';
@@ -22,8 +22,8 @@
 
   const fallback = new Fallback({
     ready: () => navigator.serviceWorker.ready.then((registration) => (content) => show(registration, content)),
-    seen: seenFires,
-    markSeen,
+    claim: (fire) => claim(fire, Date.now()),
+    settle,
     wait: (run, ms) => {
       const timer = setTimeout(() => void run(), ms);
       return () => clearTimeout(timer);

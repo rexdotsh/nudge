@@ -50,3 +50,11 @@ test('a reset drops everything the server no longer has', () => {
   expect(replica.view([], ZONE)).toEqual([]);
   expect(replica.version).toBe(3);
 });
+
+test('a slower, older sync response never rolls the replica back', () => {
+  const replica = new Replica({ version: 1, reminders: [server()] });
+  replica.receive({ version: 3, reminders: [{ ...server(), title: 'Newer' }], reset: false });
+  replica.receive({ version: 2, reminders: [{ ...server(), title: 'Older' }], reset: false });
+  expect(replica.version).toBe(3);
+  expect(replica.view([], ZONE)[0]?.title).toBe('Newer');
+});

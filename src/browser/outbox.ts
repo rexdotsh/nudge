@@ -18,7 +18,7 @@ export async function enqueue(op: Op): Promise<Change> {
 
 export function commit(snapshot: Snapshot, acknowledged: ReadonlySet<string>): Promise<Local> {
   return update('local', (local = EMPTY_LOCAL) => ({
-    replica: snapshot,
+    replica: snapshot.version >= local.replica.version ? snapshot : local.replica,
     pending: local.pending.filter((change) => !acknowledged.has(change.opId)),
   }));
 }

@@ -113,6 +113,7 @@ class App {
       });
       this.replica.receive(response);
       const local = await commit(this.replica.snapshot(), new Set(sent.map((change) => change.opId)));
+      this.replica = new Replica(local.replica);
       this.pending = local.pending;
       this.online = true;
       settled();

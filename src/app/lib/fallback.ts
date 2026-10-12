@@ -6,13 +6,15 @@ import { HOUR_MS } from '../../shared/time';
 const GRACE_MS = 45_000;
 const MAX_WAIT_MS = HOUR_MS;
 const LOOKBACK_MS = HOUR_MS;
+const READY_TIMEOUT_MS = 10_000;
+const RETRY_MS = 60_000;
 
 type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
-  seen: () => Promise<ReadonlySet<string>>;
-  markSeen: (fire: string) => Promise<void>;
+  claim: (fire: string) => Promise<boolean>;
+  settle: (fire: string, shown: boolean) => Promise<void>;
   wait: (run: () => Promise<void>, ms: number) => () => void;
   now: () => number;
   origin: string;
@@ -20,12 +22,11 @@ export interface FallbackDeps {
 }
 
 // The server advances firedThrough when it plans a push, not when the push arrives, so this ignores it and instead
-// trusts only what this device has actually shown (the seen set the service worker also writes).
+// trusts only what this device has actually shown, through the claims the service worker shares.
 export class Fallback {
   private cancel = () => {};
   private generation = 0;
   private readonly watermarks = new Map<string, number>();
-  private readonly showing = new Set<string>();
 
   constructor(private readonly deps: FallbackDeps) {}
 
@@ -55,8 +56,43 @@ export class Fallback {
     this.watermarks.set(id, Math.max(this.watermarks.get(id) ?? -Infinity, firedThrough));
   }
 
+  private async ready(): Promise<Display> {
+    let cancel: (() => void) | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      cancel = this.deps.wait(async () => reject(new Error('the service worker is not ready')), READY_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([this.deps.ready(), timeout]);
+    } finally {
+      cancel?.();
+    }
+  }
+
+  private async showOnce(key: string, content: NotificationContent, display: Display): Promise<void> {
+    if (!(await this.deps.claim(key))) return;
+    console.warn(`push for ${key} did not arrive; showing it locally`);
+    // Not retried: if this device cannot show a notification, nothing else here can, and retrying would spin.
+    const ok = await display(content).then(
+      () => true,
+      (error: unknown) => {
+        console.error(`could not show ${key} locally`, error);
+        return false;
+      },
+    );
+    await this.deps.settle(key, ok);
+  }
+
   private async check(reminders: readonly Reminder[], zone: string, generation: number): Promise<void> {
-    const [display, seen] = await Promise.all([this.deps.ready(), this.deps.seen()]);
+    let display: Display;
+    try {
+      display = await this.ready();
+    } catch (error) {
+      console.error('local fallback could not reach the service worker; retrying', error);
+      if (generation === this.generation) {
+        this.cancel = this.deps.wait(() => this.check(reminders, zone, generation), RETRY_MS);
+      }
+      return;
+    }
     if (generation !== this.generation) return;
     const now = this.deps.now();
     const { origin, locale } = this.deps;
@@ -69,21 +105,11 @@ export class Fallback {
         continue;
       }
       const key = fireId(reminder.id, notice.at);
-      if (seen.has(key) || this.showing.has(key)) {
-        this.advance(reminder.id, advanced.firedThrough);
-        continue;
-      }
-      console.warn(`push for ${key} did not arrive; showing it locally`);
-      this.showing.add(key);
+      const content = reminderMessage(advanced, notice, view).notification;
       shown.push(
-        display(reminderMessage(advanced, notice, view).notification)
-          .then(() => this.deps.markSeen(key))
-          // Not retried: if this device cannot show a notification, nothing else here can, and retrying would spin.
-          .catch((error: unknown) => console.error(`could not show ${key} locally`, error))
-          .finally(() => {
-            this.showing.delete(key);
-            this.advance(reminder.id, advanced.firedThrough);
-          }),
+        this.showOnce(key, content, display)
+          .catch((error: unknown) => console.error(`could not record ${key}`, error))
+          .finally(() => this.advance(reminder.id, advanced.firedThrough)),
       );
     }
     await Promise.all(shown);
