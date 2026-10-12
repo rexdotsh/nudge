@@ -174,7 +174,12 @@
   <div class="group">
     <button class="field action" onclick={exportData}>Export reminders</button>
   </div>
-  <p class="footer">Nudge · {location.host}</p>
+  <p class="footer">
+    Nudge · {location.host} ·
+    <a class="commit" href="https://github.com/rexdotsh/nudge/commit/{NUDGE_COMMIT}" target="_blank" rel="noreferrer"
+      >{NUDGE_COMMIT.slice(0, 7)}</a
+    >
+  </p>
   <Toast />
 </div>
 
@@ -227,5 +232,15 @@
     color: var(--muted);
     font-size: 13px;
     text-align: center;
+  }
+
+  .commit {
+    color: inherit;
+    font-variant-numeric: tabular-nums;
+    text-decoration: none;
+  }
+
+  .commit:hover {
+    text-decoration: underline;
   }
 </style>
