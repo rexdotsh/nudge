@@ -260,7 +260,11 @@ describe('firing', () => {
 
   test.each([
     ['a 24-hour early alert and the due notice', { alerts: [1440] }, ['due', 'early']],
-    ['an early alert and a nag', { alerts: [1425], important: true }, ['due', 'nag', 'early']],
+    [
+      'an early alert and a nag',
+      { alerts: [1440 - NAG_INTERVAL_MS / MINUTE_MS], important: true },
+      ['due', 'nag', 'early'],
+    ],
   ])('%s that land in the same minute both go out', (_, overrides, expected) => {
     let reminder = create({ repeat: daily, ...overrides }, '2026-10-12T08:59');
     const alerts: string[] = [];
@@ -298,17 +302,32 @@ describe('firing', () => {
     expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-11T20:30'));
   });
 
-  test('important reminders nag every 15 minutes, a limited number of times', () => {
+  test('important reminders nag evenly until two hours after they came up, then stop', () => {
     let reminder = fire(create({ important: true }), at('2026-10-12T09:00'), ZONE).reminder;
     const nags: number[] = [];
     for (let next = nextFireAt(reminder, ZONE); next !== null; next = nextFireAt(reminder, ZONE)) {
       const fired = fire(reminder, next, ZONE);
-      expect(fired.notices.at(-1)?.alert).toBe('nag');
+      expect(fired.notices.map(({ alert }) => alert)).toEqual(['nag']);
       nags.push(next);
       reminder = fired.reminder;
     }
-    expect(nags).toHaveLength(NAG_LIMIT);
-    expect(nags[0]).toBe(at('2026-10-12T09:00') + NAG_INTERVAL_MS);
+    expect(nags).toEqual(
+      Array.from({ length: NAG_LIMIT }, (_, i) => at('2026-10-12T09:00') + (i + 1) * NAG_INTERVAL_MS),
+    );
+    expect(nags.at(-1)).toBeLessThanOrEqual(at('2026-10-12T11:00'));
+  });
+
+  test('finishing an important occurrence mid-nag stops its nagging', () => {
+    const cases: { repeat: typeof daily | null; op: 'complete' | 'skip'; next: string | null }[] = [
+      { repeat: null, op: 'complete', next: null },
+      { repeat: daily, op: 'complete', next: '2026-10-13T09:00' },
+      { repeat: daily, op: 'skip', next: '2026-10-13T09:00' },
+    ];
+    for (const { repeat, op, next } of cases) {
+      const nagging = fire(create({ important: true, repeat }), at('2026-10-12T09:10'), ZONE).reminder;
+      const finished = apply(nagging, { type: op, id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:12');
+      expect(nextFireAt(finished, ZONE)).toBe(next === null ? null : at(next));
+    }
   });
 
   test('snoozing silences until the snooze ends, then nagging restarts from there', () => {

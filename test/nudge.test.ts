@@ -2,10 +2,11 @@ import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { DeviceInput, PushKeys, Route, ServerMessage } from '../src/shared/api';
 import { BASE64URL } from '../src/shared/encoding';
-import type { PushMessage } from '../src/shared/notification';
+import { NAG_INTERVAL_MS } from '../src/shared/fire';
+import { fireId, type PushMessage } from '../src/shared/notification';
 import type { Op } from '../src/shared/ops';
 import type { ReminderFields } from '../src/shared/reminder';
-import { MINUTE_MS } from '../src/shared/time';
+import { HOUR_MS, MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 import { Nudge } from '../src/worker/nudge';
 import type { Runtime } from '../src/worker/runtime';
@@ -18,6 +19,7 @@ const ZONE = 'Asia/Kolkata';
 const SETUP_CODE = 'CORRECT-HORSE';
 const AUTH = 'auth-secret';
 const DUE = Date.UTC(2026, 9, 12, 3, 30);
+const daily = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
 
 const device = (label: string, key = crypto.randomUUID().replaceAll('-', '')): DeviceInput => ({
   key,
@@ -44,6 +46,8 @@ const fields = (overrides: Partial<ReminderFields> = {}): ReminderFields => ({
   ...overrides,
 });
 
+type Pushed = { endpoint: string; message: PushMessage; topic: string };
+
 function harness() {
   const db = new Database(':memory:');
   const state = {
@@ -55,7 +59,7 @@ function harness() {
     holdNext: false,
     failTransactions: 0,
     failAlerts: false,
-    pushes: [] as { endpoint: string; message: PushMessage; topic: string }[],
+    pushes: [] as Pushed[],
     alerts: [] as string[],
     broadcasts: [] as { message: ServerMessage; except: string | undefined }[],
   };
@@ -130,6 +134,14 @@ function harness() {
     await nudge.alarm();
   }
 
+  async function runAlarmsThrough(until: number, arrived: (pushes: Pushed[]) => Promise<unknown> = async () => {}) {
+    if (state.alarm === null || state.alarm > until) return;
+    const sent = state.pushes.length;
+    await runAlarm();
+    await arrived(state.pushes.slice(sent));
+    await runAlarmsThrough(until, arrived);
+  }
+
   async function pair() {
     const first = await ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const { code } = await ok('pair', null, first.deviceId);
@@ -141,7 +153,7 @@ function harness() {
 
   const sentTo = (seed: number) => state.pushes.filter((push) => push.endpoint === keys(seed).endpoint).length;
 
-  return { nudge, state, attempts, call, ok, sync, put, runAlarm, pair, sentTo };
+  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, sentTo };
 }
 
 let h: ReturnType<typeof harness>;
@@ -378,6 +390,59 @@ describe('delivery', () => {
     expect(h.state.alarm).toBeNull();
   });
 
+  test.each([
+    ['answers from the first nag on', 0, DUE + NAG_INTERVAL_MS],
+    ['never answers', 1, Infinity],
+  ])('an important reminder on a device that %s raises %d alert(s) in its first hour', async (_, alerts, onlineAt) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId, { important: true });
+    await h.runAlarmsThrough(DUE + HOUR_MS, (arrived) =>
+      Promise.all(
+        arrived
+          .filter(() => h.state.now >= onlineAt)
+          .map((push) => h.ok('receipt', { fire: push.message.notification.data.fire }, deviceId)),
+      ),
+    );
+    expect(h.state.alerts).toHaveLength(alerts);
+  });
+
+  const receipts: [string, 'due' | 'early' | 'nag' | 'unknown', string[]][] = [
+    ['a nag confirms the earlier pushes of its occurrence', 'nag', ['due', 'nag']],
+    ['the due push confirms only itself', 'due', ['due']],
+    ['an early alert for the next occurrence confirms only itself', 'early', ['early']],
+    ['an unknown fire confirms nothing', 'unknown', []],
+  ];
+  test.each(receipts)('a receipt for %s, on that device only', async (_, receipted, confirmed) => {
+    const { phone, laptop } = await h.pair();
+    const series = await h.put(phone, { important: true, repeat: daily, alerts: [1440] });
+    const other = await h.put(phone, { title: 'Call the bank' });
+    await h.runAlarmsThrough(DUE + 2 * NAG_INTERVAL_MS);
+    const fires = {
+      due: fireId(series, DUE),
+      early: fireId(series, DUE + 1),
+      nag: fireId(series, DUE + NAG_INTERVAL_MS),
+      later: fireId(series, DUE + 2 * NAG_INTERVAL_MS),
+      other: fireId(other, DUE),
+      unknown: fireId(series, DUE + HOUR_MS),
+    };
+    await h.ok('receipt', { fire: fires[receipted] }, phone);
+    const rows = h.db
+      .query<{ fire: string; device_id: string; receipt_at: number | null }, []>(
+        'SELECT fire, device_id, receipt_at FROM deliveries',
+      )
+      .all();
+    const status = (fire: string, deviceId: string) => {
+      const row = rows.find((r) => r.fire === fire && r.device_id === deviceId);
+      if (row === undefined) return 'absent';
+      return row.receipt_at === null ? 'pending' : 'confirmed';
+    };
+    const pushed = ['due', 'early', 'nag', 'later', 'other'] as const;
+    expect(pushed.map((label) => [label, status(fires[label], phone), status(fires[label], laptop)])).toEqual(
+      pushed.map((label) => [label, confirmed.includes(label) ? 'confirmed' : 'pending', 'pending']),
+    );
+  });
+
   test('an escalation whose alert could not be delivered is retried until it is', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
@@ -494,6 +559,14 @@ describe('delivery', () => {
     await h.put(deviceId);
     await h.runAlarm();
     expect(h.state.alerts).toHaveLength(1);
+  });
+
+  test('with no device to notify, each occurrence raises one alert per cooldown, not one per nag', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.put(deviceId, { title: 'First', important: true });
+    await h.put(deviceId, { title: 'Second', important: true, start: '2026-10-12T09:10' });
+    await h.runAlarmsThrough(DUE + HOUR_MS - MINUTE_MS);
+    expect(h.state.alerts).toHaveLength(2);
   });
 
   test('a subscription that expired while being replaced is retried on its replacement', async () => {

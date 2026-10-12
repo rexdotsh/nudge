@@ -13,12 +13,14 @@ export interface NotificationContent {
   navigate: string;
   tag: string;
   silent: false;
+  renotify: true;
+  requireInteraction: boolean;
   app_badge?: string;
   data: PushData;
 }
 
-function declarative(notification: Omit<NotificationContent, 'silent'>): PushMessage {
-  return { web_push: 8030, mutable: true, notification: { ...notification, silent: false } };
+function declarative(notification: Omit<NotificationContent, 'silent' | 'renotify'>): PushMessage {
+  return { web_push: 8030, mutable: true, notification: { ...notification, silent: false, renotify: true } };
 }
 
 export interface PushMessage {
@@ -80,6 +82,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
     body: bodyFor(reminder, notice, due, view),
     navigate: `${view.origin}/?open=${reminder.id}`,
     tag: occurrenceTag(reminder.id, notice.due),
+    requireInteraction: reminder.important && notice.alert !== 'early',
     app_badge: String(view.badge),
     data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
   });
@@ -91,6 +94,7 @@ export function testMessage(fire: string, view: Presentation): PushMessage {
     body: 'This is a test from Nudge. Reminders will arrive just like this.',
     navigate: `${view.origin}/?settings`,
     tag: 'test',
+    requireInteraction: false,
     data: { fire, reminder: null },
   });
 }

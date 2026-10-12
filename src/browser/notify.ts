@@ -48,7 +48,8 @@ function show(registration: ServiceWorkerRegistration, content: NotificationCont
     tag: content.tag,
     data,
     icon: '/icons/icon-192.png',
-    renotify: true,
+    renotify: content.renotify,
+    requireInteraction: content.requireInteraction,
     actions: content.data.reminder ? ACTIONS : [],
   };
   return registration.showNotification(content.title, options);
