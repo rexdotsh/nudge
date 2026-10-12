@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Unreachable, request, windowsInstaller } from '../../browser/api';
-  import type { DeviceInfo } from '../../shared/api';
+  import { THEMES, type DeviceInfo } from '../../shared/api';
   import { MINUTE_MS } from '../../shared/time';
   import { ulid } from '../../shared/ulid';
   import Icon from '../components/Icon.svelte';
@@ -11,6 +11,7 @@
   import { installer, type Prompted } from '../lib/install.svelte';
   import { UNBLOCK_STEPS, type PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
+  import { THEME_LABELS, appearance } from '../lib/theme.svelte';
   import { toasts } from '../lib/toasts.svelte';
 
   let { onBack }: { onBack: () => void } = $props();
@@ -233,6 +234,26 @@
     </div>
   {/if}
 
+  <h2 class="label" id="theme-heading">Theme</h2>
+  <div class="group" role="radiogroup" aria-labelledby="theme-heading">
+    {#each THEMES as theme (theme)}
+      <label class="field option">
+        <span class="name">
+          <span class="swatch" data-theme={theme}><span></span></span>
+          {THEME_LABELS[theme]}
+        </span>
+        <input
+          class="sr-only"
+          type="radio"
+          name="theme"
+          checked={appearance.theme === theme}
+          onchange={() => app.chooseTheme(theme)}
+        />
+        {#if appearance.theme === theme}<Icon name="check" size={18} />{/if}
+      </label>
+    {/each}
+  </div>
+
   <h2 class="label">Data</h2>
   <div class="group">
     <button class="field action" onclick={exportData}>Export reminders</button>
@@ -274,6 +295,40 @@
 
   .remove {
     font-size: 14px;
+  }
+
+  .option {
+    cursor: pointer;
+  }
+
+  .option:has(:focus-visible) .swatch {
+    outline: 2px solid var(--ink-2);
+    outline-offset: 2px;
+  }
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .swatch {
+    width: 34px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 6px;
+    border-radius: 7px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--edge);
+  }
+
+  .swatch span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
   }
 
   .pairing {

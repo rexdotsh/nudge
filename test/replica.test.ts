@@ -39,6 +39,7 @@ test('pending changes are layered over the server state until the server acknowl
     version: 2,
     reminders: [{ ...server(), title: 'Pay rent (edited elsewhere)' }],
     reset: false,
+    theme: 'classic',
   });
   expect(replica.view([complete], ZONE)[0]).toMatchObject({ title: 'Pay rent (edited elsewhere)', due: null });
   expect(replica.view([], ZONE)[0]?.due).toBe('2026-10-12T09:00');
@@ -46,15 +47,15 @@ test('pending changes are layered over the server state until the server acknowl
 
 test('a reset drops everything the server no longer has', () => {
   const replica = new Replica({ version: 5, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [], reset: true });
+  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic' });
   expect(replica.view([], ZONE)).toEqual([]);
   expect(replica.version).toBe(3);
 });
 
 test('a slower, older sync response never rolls the replica back', () => {
   const replica = new Replica({ version: 1, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [{ ...server(), title: 'Newer' }], reset: false });
-  replica.receive({ version: 2, reminders: [{ ...server(), title: 'Older' }], reset: false });
+  replica.receive({ version: 3, reminders: [{ ...server(), title: 'Newer' }], reset: false, theme: 'classic' });
+  replica.receive({ version: 2, reminders: [{ ...server(), title: 'Older' }], reset: false, theme: 'classic' });
   expect(replica.version).toBe(3);
   expect(replica.view([], ZONE)[0]?.title).toBe('Newer');
 });

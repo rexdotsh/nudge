@@ -42,16 +42,29 @@ export interface Change {
   at: number;
 }
 
+export const THEMES = ['classic', 'rex'] as const;
+export type Theme = (typeof THEMES)[number];
+export const DEFAULT_THEME: Theme = 'classic';
+
+/** A theme picked on one device, sent with every sync until a response to one of them arrives. */
+export interface ThemeChoice {
+  id: string;
+  theme: Theme;
+  at: number;
+}
+
 export interface SyncRequest {
   since: number;
   zone: string;
   changes: Change[];
+  theme: ThemeChoice | null;
 }
 
 export interface SyncResponse {
   version: number;
   reminders: Reminder[];
   reset: boolean;
+  theme: Theme;
 }
 
 export interface PublicRoutes {

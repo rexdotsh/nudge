@@ -1,6 +1,7 @@
 @import './fonts.css';
 
-:root {
+:root,
+[data-theme='classic'] {
   --bg: #111110;
   --surface: #1b1a18;
   --raised: #24231f;
@@ -14,6 +15,27 @@
   --accent-soft: rgb(255 138 101 / 0.14);
   --scrim: rgb(0 0 0 / 0.55);
   --shadow: 0 18px 40px -16px rgb(0 0 0 / 0.9);
+}
+
+/* The dark palette of rexdotsh/www. Its rose (#e94b70) is too dim for small text on the raised surfaces here, so
+   attention takes the hottest cell of its heatmap. */
+[data-theme='rex'] {
+  --bg: #131315;
+  --surface: #1c1c1f;
+  --raised: #232326;
+  --line: color-mix(in oklab, var(--ink) 8%, transparent);
+  --edge: color-mix(in oklab, var(--ink) 10%, transparent);
+  --faint: color-mix(in oklab, var(--ink) 25%, transparent);
+  --muted: #a09c94;
+  --ink-2: #cfcdc9;
+  --ink: #e8e6e3;
+  --accent: #ef7d99;
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --scrim: color-mix(in oklab, var(--bg) 55%, transparent);
+  --shadow: 0 18px 40px -20px rgb(23 20 15 / 0.38);
+}
+
+:root {
   --pane-width: 400px;
 
   --font: 'DM Sans', ui-sans-serif, system-ui, sans-serif;

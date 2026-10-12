@@ -5,7 +5,7 @@ import { EMPTY_LOCAL } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { isWorkerMessage } from '../../browser/messages';
 import { commit, currentZone, enqueue } from '../../browser/outbox';
-import { MAX_REQUEST_BYTES, type Change, type Health } from '../../shared/api';
+import { MAX_REQUEST_BYTES, type Change, type Health, type Theme } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
@@ -14,6 +14,7 @@ import { Connection } from './connection';
 import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
 import { enablePush, pushState, syncSubscription, watchPermission, type PushState } from './push';
+import { appearance } from './theme.svelte';
 
 type Phase = 'loading' | 'enroll' | 'ready' | 'failed';
 
@@ -63,6 +64,7 @@ class App {
         get('zoneControls').then((on) => on ?? false),
         this.reloadLocal(),
         this.noteZone(),
+        appearance.load(),
       ]);
     } catch (error) {
       console.error('local storage is unavailable', error);
@@ -124,6 +126,11 @@ class App {
     void this.sync();
   }
 
+  async chooseTheme(theme: Theme): Promise<void> {
+    await appearance.choose(theme);
+    void this.sync();
+  }
+
   sync(): Promise<void> {
     if (this.inflight) {
       this.again = true;
@@ -146,15 +153,20 @@ class App {
       if (current() && this.freshness !== 'synced') this.freshness = outcome;
     };
     const sent = batch(this.pending, MAX_REQUEST_BYTES);
+    const theme = appearance.pending;
     this.zone = currentZone();
     try {
       const response = await this.connection.sync({
         since: this.replica.version,
         zone: this.zone,
         changes: sent,
+        theme,
       });
       this.replica.receive(response);
-      const local = await commit(this.replica.snapshot(), new Set(sent.map((change) => change.opId)));
+      const [local] = await Promise.all([
+        commit(this.replica.snapshot(), new Set(sent.map((change) => change.opId))),
+        appearance.receive(response, theme),
+      ]);
       this.replica = new Replica(local.replica);
       this.pending = local.pending;
       this.online = true;
@@ -196,10 +208,15 @@ class App {
       return;
     }
     this.freshness = 'catching-up';
-    if (this.pending.length > 0 && this.token) {
+    if ((this.pending.length > 0 || appearance.pending) && this.token) {
       void request(
         'sync',
-        { since: this.replica.version, zone: this.zone, changes: batch(this.pending, KEEPALIVE_BYTES) },
+        {
+          since: this.replica.version,
+          zone: this.zone,
+          changes: batch(this.pending, KEEPALIVE_BYTES),
+          theme: appearance.pending,
+        },
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
     }
