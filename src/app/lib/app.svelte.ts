@@ -8,6 +8,7 @@ import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
 import { DAY_MS } from '../../shared/time';
 import { Connection } from './connection';
+import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
 import { enablePush, pushState, syncSubscription, type PushState } from './push';
 import { Replica } from './replica';
@@ -36,7 +37,7 @@ class App {
   zone = currentZone();
   travelling = $state(false);
   notifications = $state<PushState>(pushState());
-  /** Until the first sync after coming to the foreground, the replica can miss what was pushed while away. */
+  /** Until the first sync attempt of this foreground settles, the replica can miss what was pushed while away. */
   caughtUp = $state(false);
   readonly platform = detectPlatform();
 
@@ -46,6 +47,7 @@ class App {
   private connection: Connection | null = null;
   private inflight: Promise<void> | null = null;
   private again = false;
+  private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
   async start(): Promise<void> {
     navigator.serviceWorker?.addEventListener('message', () => void this.reloadPending().then(() => this.sync()));
@@ -108,6 +110,10 @@ class App {
 
   private async exchange(): Promise<void> {
     if (!this.connection) return;
+    const current = this.gate.attempt();
+    const settled = () => {
+      if (current()) this.caughtUp = true;
+    };
     const sent = this.pending.slice(0, MAX_CHANGES);
     this.zone = currentZone();
     try {
@@ -121,11 +127,13 @@ class App {
       await set('replica', this.replica.snapshot());
       this.pending = remaining;
       this.online = true;
-      this.caughtUp = true;
+      settled();
       if (remaining.length > 0) this.again = true;
     } catch (error) {
-      if (error instanceof Unreachable) this.online = false;
-      else if (error instanceof ApiRejected && error.code === 'unauthorized') this.phase = 'enroll';
+      if (error instanceof Unreachable) {
+        this.online = false;
+        settled();
+      } else if (error instanceof ApiRejected && error.code === 'unauthorized') this.phase = 'enroll';
       else throw error;
     } finally {
       this.refresh();
@@ -142,10 +150,12 @@ class App {
       () => void this.sync(),
     );
     this.connection.open();
+    void this.sync();
     void syncSubscription();
   }
 
   private visibilityChanged(): void {
+    this.gate.changed(document.visibilityState === 'visible');
     if (document.visibilityState === 'visible') {
       this.notifications = pushState();
       void this.noteZone();
