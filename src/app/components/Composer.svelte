@@ -8,25 +8,25 @@
   import { keyLabel } from '../lib/shortcuts';
   import { app } from '../lib/app.svelte';
   import { repeatLabel, summaryWhen } from '../lib/format';
+  import { ui } from '../lib/ui.svelte';
   import Icon from './Icon.svelte';
 
   let { autofocus = false }: { autofocus?: boolean } = $props();
 
-  let text = $state('');
   let input: HTMLInputElement | undefined = $state();
   let mirror: HTMLDivElement | undefined = $state();
   let keyboard = $state(0);
 
-  const parsed = $derived(text.trim() === '' ? null : parseQuickAdd(text, app.now, app.zone));
+  const parsed = $derived(ui.composing.trim() === '' ? null : parseQuickAdd(ui.composing, app.now, app.zone));
   const segments = $derived.by(() => {
     const parts: { text: string; kind: SpanKind | null }[] = [];
     let cursor = 0;
     for (const span of parsed?.spans ?? []) {
-      if (span.start > cursor) parts.push({ text: text.slice(cursor, span.start), kind: null });
-      parts.push({ text: text.slice(span.start, span.end), kind: span.kind });
+      if (span.start > cursor) parts.push({ text: ui.composing.slice(cursor, span.start), kind: null });
+      parts.push({ text: ui.composing.slice(span.start, span.end), kind: span.kind });
       cursor = span.end;
     }
-    parts.push({ text: text.slice(cursor), kind: null });
+    parts.push({ text: ui.composing.slice(cursor), kind: null });
     return parts;
   });
   const start = $derived(parsed ? (parsed.start ?? suggestedStart(app.now, app.zone)) : null);
@@ -63,7 +63,7 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (await add(text)) text = '';
+    if (await add(ui.composing)) ui.composing = '';
     input?.focus();
   }
 
@@ -98,7 +98,7 @@
         class="bare"
         id="composer"
         bind:this={input}
-        bind:value={text}
+        bind:value={ui.composing}
         onscroll={syncScroll}
         oninput={syncScroll}
         placeholder="Remind me to…"
