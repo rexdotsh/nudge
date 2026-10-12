@@ -90,7 +90,7 @@ export function firstDue(fields: ReminderFields, now: number, currentZone: strin
   return occurrenceAfter(fields, Math.max(instantOf(fields, fields.start, currentZone), now) - 1, currentZone);
 }
 
-const ADVANCE: Record<Exclude<Frequency, 'HOURLY'>, (date: LocalDate, amount: number) => LocalDate> = {
+export const ADVANCE_DATE: Record<Exclude<Frequency, 'HOURLY'>, (date: LocalDate, amount: number) => LocalDate> = {
   DAILY: (date, amount) => fromEpochDay(epochDay(date) + amount),
   WEEKLY: (date, amount) => fromEpochDay(epochDay(date) + amount * 7),
   MONTHLY: addMonthsClamped,
@@ -109,7 +109,7 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
     return formatLocal(wallAtOrAfter(completedAt + interval * HOUR_MS, zoneFor(reminder, currentZone)));
   }
   const { hour, minute } = local(reminder.start);
-  const date = ADVANCE[freq](toLocal(completedAt, zoneFor(reminder, currentZone)), interval);
+  const date = ADVANCE_DATE[freq](toLocal(completedAt, zoneFor(reminder, currentZone)), interval);
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour, minute });
 }
 

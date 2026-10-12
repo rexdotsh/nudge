@@ -67,14 +67,9 @@ export function fireId(reminderId: string, at: number): string {
   return `${reminderId}@${at}`;
 }
 
-function occurrenceTag(reminderId: string, due: string): string {
-  return `${reminderId}:${due}`;
-}
-
 type Occurrence = NonNullable<PushData['reminder']>;
 
-/** Whether a notification's occurrence no longer needs the user: done, skipped, snoozed or deleted. A reminder this
- * replica doesn't know yet keeps its notification, and so do early alerts of occurrences still to come. */
+// Unknown reminders and upcoming occurrences keep their notifications.
 export function isSettled(shown: Occurrence, reminder: Reminder | undefined, now: number): boolean {
   if (!reminder) return false;
   if (reminder.deleted || reminder.due === null) return true;
@@ -91,7 +86,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
     title: reminder.title,
     body: bodyFor(reminder, notice, due, view),
     navigate: `${view.origin}/?open=${reminder.id}`,
-    tag: occurrenceTag(reminder.id, notice.due),
+    tag: `${reminder.id}:${notice.due}`,
     requireInteraction: reminder.important && notice.alert !== 'early',
     app_badge: String(view.badge),
     data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },

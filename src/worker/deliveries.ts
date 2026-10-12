@@ -36,12 +36,7 @@ export type DeliveryRow = {
   next_at: number | null;
 };
 
-export interface Outgoing {
-  fire: string;
-  title: string;
-  topic: string;
-  payload: string;
-}
+export type Outgoing = Pick<DeliveryRow, 'fire' | 'title' | 'topic' | 'payload'>;
 
 export class Deliveries {
   constructor(private readonly sql: Sql) {}
@@ -96,6 +91,18 @@ export class Deliveries {
           row.lease,
         )
         .toArray().length > 0
+    );
+  }
+
+  owns(row: DeliveryRow): boolean {
+    return (
+      count(
+        this.sql,
+        'SELECT COUNT(*) AS count FROM deliveries WHERE fire = ? AND device_id = ? AND lease = ? AND receipt_at IS NULL',
+        row.fire,
+        row.device_id,
+        row.lease,
+      ) > 0
     );
   }
 

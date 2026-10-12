@@ -35,8 +35,7 @@ function outgoing(id: string, title: string, topic: string, message: PushMessage
   return { fire: id, title, topic, payload: JSON.stringify(message) };
 }
 
-// Every fire of an occurrence (its early alerts, due notice and nags) replaces the last on screen, so a problem
-// delivering one of them is one problem with the occurrence, reported once per cooldown rather than once per nag.
+// Fires replace each other on screen, so alert once per occurrence rather than once per nag.
 function occurrenceAlertKey(problem: string, delivery: Pick<Outgoing, 'topic'>): string {
   return `${problem}:${delivery.topic}`;
 }
@@ -47,7 +46,7 @@ export class Scheduler {
     private readonly runtime: Runtime,
   ) {}
 
-  private zone(): string {
+  zone(): string {
     return this.store.meta('zone') ?? 'UTC';
   }
 
@@ -60,7 +59,9 @@ export class Scheduler {
     for (const reminder of this.store.reminders()) {
       if (reminder.zone !== null) continue;
       const firedThrough =
-        previous === null ? reminder.firedThrough : toInstant(toLocal(reminder.firedThrough, previous), zone);
+        previous === null
+          ? reminder.firedThrough
+          : toInstant(toLocal(reminder.firedThrough, previous), zone) + (reminder.firedThrough % MINUTE_MS);
       this.save({ ...reminder, firedThrough });
     }
   }
@@ -232,7 +233,9 @@ export class Scheduler {
     const [delay, ...later] = delays;
     if (delay === undefined || !isRetryable(result.status)) return result;
     await this.runtime.sleep(delay);
-    if (this.store.devices.target(target.deviceId)?.endpoint !== target.endpoint) return result;
+    if (!this.store.deliveries.owns(row) || this.store.devices.target(target.deviceId)?.endpoint !== target.endpoint) {
+      return result;
+    }
     return this.pushWithRetry(target, row, later);
   }
 

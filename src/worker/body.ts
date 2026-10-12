@@ -1,4 +1,3 @@
-/** Reads a body, giving up as soon as it exceeds `limit` bytes so an oversized one is never buffered. */
 export async function readBounded(source: Request | Response, limit: number): Promise<Uint8Array | null> {
   if (Number(source.headers.get('Content-Length') ?? 0) > limit) return null;
   let size = 0;

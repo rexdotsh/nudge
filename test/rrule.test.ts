@@ -259,6 +259,21 @@ describe('time zones', () => {
     expect(new Date(toInstant(local('2026-11-01T01:30'), NY)).toISOString()).toBe('2026-11-01T05:30:00.000Z');
   });
 
+  test.each([
+    ['FREQ=DAILY;BYHOUR=2,3;BYMINUTE=0,30;COUNT=3', ['2026-03-08T03:00', '2026-03-08T03:30', '2026-03-09T02:00']],
+    ['FREQ=DAILY;BYHOUR=2,3;BYMINUTE=0,30;BYSETPOS=2,3;UNTIL=20260308T070000Z', ['2026-03-08T03:00']],
+    ['FREQ=DAILY;BYHOUR=2,3;BYMINUTE=0,30;BYSETPOS=2,3;COUNT=2', ['2026-03-08T03:00', '2026-03-08T03:30']],
+  ])('spring-forward candidates stay ordered and count each instant once: %s', (rule, expected) => {
+    expect(expand(rule, '2026-03-08T00:00')).toEqual(expected);
+  });
+
+  test('duplicate clock selectors do not consume positions or repeat occurrences', () => {
+    expect(expand('FREQ=DAILY;BYHOUR=9,9,21;BYMINUTE=0,0;BYSETPOS=2;COUNT=2', '2026-10-11T00:00')).toEqual([
+      '2026-10-11T21:00',
+      '2026-10-12T21:00',
+    ]);
+  });
+
   test('the same rule fires at different instants in different zones', () => {
     const rule = parseRule('FREQ=DAILY');
     const start = local('2026-10-11T09:00');
@@ -333,6 +348,8 @@ describe('parse and format', () => {
       '',
       'FREQ=SECONDLY',
       'FREQ=DAILY;INTERVAL=0',
+      'FREQ=DAILY;INTERVAL=1,2',
+      'FREQ=DAILY;COUNT=1,2',
       'FREQ=DAILY;BYMONTHDAY=0',
       'FREQ=DAILY;BYDAY=XX',
       'FREQ=DAILY;COUNT=2;UNTIL=20261231T000000Z',

@@ -12,7 +12,6 @@ const CONNECTOR_BEFORE_CONSUMED = new RegExp(`\\s+(?:by|due|starting|from|until|
 
 const wholeWord = (pattern: string) => `(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`;
 
-/** Finds phrases in the text one pattern at a time, masking each match so later patterns cannot reuse its words. */
 export class Scanner {
   readonly spans: Span[] = [];
   private text: string;
@@ -37,18 +36,15 @@ export class Scanner {
     return true;
   }
 
-  /** Finds a phrase without taking it. */
   peek(pattern: string): RegExpExecArray | null {
     return this.find(wholeWord(pattern));
   }
 
-  /** Hides a phrase that was recognised but not taken, so no later pattern reads part of it. */
   shield(pattern: string): void {
     const match = this.find(wholeWord(pattern));
     if (match) this.mask(match, SHIELDED);
   }
 
-  /** The original text without what was taken, or the connector words that only introduced it ("by friday"). */
   rest(): string {
     let rest = '';
     for (let i = 0; i < this.original.length; i++) rest += this.text[i] === CONSUMED ? CONSUMED : this.original[i];

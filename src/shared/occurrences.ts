@@ -1,4 +1,5 @@
-import type { ByDay, Frequency, Rule } from './rrule';
+import type { Frequency, Rule } from './rrule';
+import { sortedUnique } from './numbers';
 import {
   daysInMonth,
   epochDay,
@@ -13,32 +14,21 @@ import {
   type LocalDateTime,
 } from './time';
 
-interface Expansion {
-  freq: Frequency;
-  interval: number;
-  months: number[];
-  monthDays: number[];
-  days: ByDay[];
+interface Expansion extends Rule {
   nthWithinYear: boolean;
   times: ClockTime[];
-  setPos: number[];
 }
 
 type ClockTime = Pick<LocalDateTime, 'hour' | 'minute'>;
-
-function ascending(items: number[]): number[] {
-  return items.toSorted((a, b) => a - b);
-}
 
 /** The items at BYSETPOS positions, counted from 1 or from the end when negative, in their order. */
 export function atPositions<T>(items: T[], positions: number[]): T[] {
   return items.filter((_, i) => positions.some((pos) => (pos > 0 ? pos - 1 : items.length + pos) === i));
 }
 
-/** Every time of day the rule's hours and minutes combine into, in order. */
 export function timesOfDay(value: Rule, start: LocalDateTime): ClockTime[] {
-  const minutes = ascending(value.byMinute.length > 0 ? value.byMinute : [start.minute]);
-  const hours = ascending(value.byHour.length > 0 ? value.byHour : [start.hour]);
+  const minutes = sortedUnique(value.byMinute.length > 0 ? value.byMinute : [start.minute]);
+  const hours = sortedUnique(value.byHour.length > 0 ? value.byHour : [start.hour]);
   return hours.flatMap((hour) => minutes.map((minute) => ({ hour, minute })));
 }
 
@@ -55,14 +45,12 @@ function expansion(value: Rule, start: LocalDateTime): Expansion {
   }
   const nthApplies = value.freq === 'MONTHLY' || value.freq === 'YEARLY';
   return {
-    freq: value.freq,
-    interval: value.interval,
-    months,
-    monthDays,
-    days: nthApplies ? days : days.map(({ weekday: day }) => ({ weekday: day, nth: 0 })),
+    ...value,
+    byMonth: months,
+    byMonthDay: monthDays,
+    byDay: nthApplies ? days : days.map(({ weekday: day }) => ({ weekday: day, nth: 0 })),
     nthWithinYear: value.freq === 'YEARLY' && months.length === 0,
     times: timesOfDay(value, start),
-    setPos: value.bySetPos,
   };
 }
 
@@ -132,15 +120,15 @@ function matchesNth(nth: number, index: number, length: number): boolean {
 }
 
 function dayMatches(plan: Expansion, day: number, date: LocalDate): boolean {
-  if (plan.months.length > 0 && !plan.months.includes(date.month)) return false;
+  if (plan.byMonth.length > 0 && !plan.byMonth.includes(date.month)) return false;
   const monthLength = daysInMonth(date.year, date.month);
-  if (plan.monthDays.length > 0 && !plan.monthDays.some((d) => d === date.day || d === date.day - monthLength - 1)) {
+  if (plan.byMonthDay.length > 0 && !plan.byMonthDay.some((d) => d === date.day || d === date.day - monthLength - 1)) {
     return false;
   }
-  if (plan.days.length === 0) return true;
+  if (plan.byDay.length === 0) return true;
   const yearStart = epochDay({ year: date.year, month: 1, day: 1 });
   const yearLength = epochDay({ year: date.year + 1, month: 1, day: 1 }) - yearStart;
-  return plan.days.some(
+  return plan.byDay.some(
     ({ weekday: wd, nth }) =>
       wd === weekday(day) &&
       (nth === 0 ||
@@ -158,7 +146,7 @@ function candidates(plan: Expansion, unit: number): LocalDateTime[] {
     if (!dayMatches(plan, day, date)) continue;
     for (const time of times) found.push({ ...date, ...time });
   }
-  return plan.setPos.length === 0 ? found : atPositions(found, plan.setPos);
+  return plan.bySetPos.length === 0 ? found : atPositions(found, plan.bySetPos);
 }
 
 function nextUnit(plan: Expansion, unit: number, firstUnit: number): number {
@@ -184,16 +172,19 @@ export function* occurrences(value: Rule, start: LocalDateTime, zone: string, af
   let previous = -Infinity;
   for (; current - progress <= longestGap; current = nextUnit(plan, current, firstUnit)) {
     if (period.days(current).length === 0) return;
-    for (const local of candidates(plan, current)) {
-      if (wallMs(local) < startWall) continue;
-      const instant = toInstant(local, zone);
-      if (instant === previous) continue;
-      if (value.until !== null && instant > value.until) return;
-      previous = instant;
-      progress = current;
-      emitted++;
-      if (instant > after) yield instant;
-      if (value.count !== null && emitted >= value.count) return;
+    for (const day of Map.groupBy(candidates(plan, current), epochDay).values()) {
+      const instants = sortedUnique(
+        day.filter((local) => wallMs(local) >= startWall).map((local) => toInstant(local, zone)),
+      );
+      for (const instant of instants) {
+        if (instant <= previous) continue;
+        if (value.until !== null && instant > value.until) return;
+        previous = instant;
+        progress = current;
+        emitted++;
+        if (instant > after) yield instant;
+        if (value.count !== null && emitted >= value.count) return;
+      }
     }
   }
 }

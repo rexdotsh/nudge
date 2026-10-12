@@ -3,7 +3,6 @@ import {
   type DeviceInput,
   type DeviceRoute,
   type DeviceRoutes,
-  type PublicRoute,
   type PublicRoutes,
   type Reply,
   type Route,
@@ -97,7 +96,8 @@ export class Nudge {
   async call<R extends Route>(route: R, caller: Caller, body: unknown): Promise<Reply<Routes[R]['response']>> {
     try {
       if (this.store.meta('origin') !== caller.origin) this.store.setMeta('origin', caller.origin);
-      if (isPublicRoute(route)) return { ok: true, data: await this.callPublic(route, body) };
+      if (isPublicRoute(route))
+        return { ok: true, data: await this.publicHandlers[route](PUBLIC_REQUESTS[route](body), null) };
       return { ok: true, data: await this.callDevice(route, this.requireDevice(caller.deviceId), body) };
     } catch (error) {
       if (error instanceof ApiFailure) return { ok: false, error: error.code };
@@ -132,10 +132,6 @@ export class Nudge {
 
   watchdog(): Promise<{ healthy: boolean }> {
     return this.scheduler.watchdog();
-  }
-
-  private async callPublic<R extends PublicRoute>(route: R, body: unknown): Promise<PublicRoutes[R]['response']> {
-    return this.publicHandlers[route](PUBLIC_REQUESTS[route](body), null);
   }
 
   private async callDevice<R extends DeviceRoute>(
@@ -177,7 +173,6 @@ export class Nudge {
       const id = existing?.id ?? ulid(now);
       if (!existing) {
         this.store.devices.add(id, device, now);
-        // Enrolling means typing a code on this device, so the person is wherever it is.
         this.scheduler.setZone(device.zone);
         this.store.setMeta('locale', device.locale);
       }
@@ -185,7 +180,7 @@ export class Nudge {
       return { id };
     });
     if (outcome instanceof ApiFailure) throw outcome;
-    // Both are idempotent, so a replayed enrollment repairs whatever a failure after the commit left undone.
+    // A replay repairs failures after the commit.
     await this.scheduler.rearm();
     this.runtime.broadcast({ kind: 'changed', version: this.store.version() }, outcome.id);
     return { token: await issueToken(this.runtime.secrets.auth, outcome.id), deviceId: outcome.id };
@@ -237,7 +232,7 @@ export class Nudge {
       for (const { opId, op, at } of changes) {
         if (this.store.applied(opId)) continue;
         const previous = this.store.reminder(op.id);
-        const next = applyOp(previous, op, { now: madeAt(at), zone });
+        const next = applyOp(previous, op, { now: madeAt(at), zone: this.scheduler.zone() });
         if (next) {
           this.scheduler.save(next);
           if (op.type !== 'put' || previous?.due !== next.due) this.store.deliveries.cancelForReminder(op.id);
@@ -251,8 +246,7 @@ export class Nudge {
     });
     const version = this.store.version();
     await this.scheduler.rearm();
-    // Told whenever the caller was behind, not only when this attempt wrote, so a retry after a failure past the commit
-    // still reaches the other devices.
+    // A retry after the commit must still reach other devices.
     if (since < version) this.runtime.broadcast({ kind: 'changed', version }, device.id);
     const reset = since > version;
     return { version, reminders: this.store.changedSince(reset ? 0 : since), reset, theme: this.store.theme() };

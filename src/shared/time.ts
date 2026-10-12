@@ -34,6 +34,11 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+export function isRealDate(date: LocalDate): boolean {
+  const actual = fromEpochDay(epochDay(date));
+  return actual.year === date.year && actual.month === date.month && actual.day === date.day;
+}
+
 export function monthIndex({ year, month }: Pick<LocalDate, 'year' | 'month'>): number {
   return year * 12 + month - 1;
 }
@@ -141,14 +146,8 @@ export function formatLocal(local: LocalDateTime): string {
 }
 
 export function parseLocal(text: string): LocalDateTime | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(text);
-  if (!match) return null;
-  const local = {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    day: Number(match[3]),
-    hour: Number(match[4]),
-    minute: Number(match[5]),
-  };
+  const instant = Date.parse(`${text}:00Z`);
+  if (Number.isNaN(instant)) return null;
+  const local = fromWallMs(instant);
   return formatLocal(fromWallMs(wallMs(local))) === text ? local : null;
 }

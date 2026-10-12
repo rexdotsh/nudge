@@ -19,20 +19,10 @@ function crc32(data: Uint8Array): number {
 }
 
 async function inflate(data: Uint8Array, limit: number): Promise<Uint8Array> {
-  let size = 0;
-  const stream = new Blob([data])
-    .stream()
-    .pipeThrough(new DecompressionStream('deflate-raw'))
-    .pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          size += chunk.byteLength;
-          if (size > limit) controller.error(new ZipError('entry inflates past its limit'));
-          else controller.enqueue(chunk);
-        },
-      }),
-    );
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const bytes = await readBounded(new Response(stream), limit);
+  if (bytes === null) throw new ZipError('entry inflates past its limit');
+  return bytes;
 }
 
 class ZipError extends Error {}
@@ -131,7 +121,6 @@ function directory(view: DataView, zip: Uint8Array): Entry[] {
   return entries;
 }
 
-/** Reads one entry by a predicate on its name (stored or deflated, ZIP64 aware), checking its size and CRC. */
 export async function readEntry(
   zip: Uint8Array,
   matches: (name: string) => boolean,
@@ -154,7 +143,6 @@ export async function readEntry(
   return data;
 }
 
-/** Writes an uncompressed zip archive. */
 export function writeZip(files: readonly { name: string; data: Uint8Array }[]): Uint8Array {
   const encoder = new TextEncoder();
   const parts: Uint8Array[] = [];
@@ -205,3 +193,4 @@ export function writeZip(files: readonly { name: string; data: Uint8Array }[]): 
   }
   return out;
 }
+import { readBounded } from './body';

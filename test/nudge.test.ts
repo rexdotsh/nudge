@@ -304,6 +304,23 @@ describe('sync', () => {
     expect(h.state).toMatchObject({ alarm: DUE });
   });
 
+  test('a device left at home schedules floating repeats in the instance zone, not its stale zone', async () => {
+    const { phone, laptop } = await h.pair();
+    h.state.now = Date.UTC(2026, 9, 12, 8);
+    await h.sync(phone, [], 'America/New_York');
+    await h.put(laptop, { repeat: daily });
+    expect(h.state.alarm).toBe(Date.UTC(2026, 9, 12, 13));
+  });
+
+  test('moving zones preserves the millisecond separating an upcoming early alert from the current due notice', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await h.put(deviceId, { repeat: daily, alerts: [1440] });
+    await h.runAlarmsThrough(DUE + 1);
+    await h.sync(deviceId, [], 'America/New_York');
+    expect(h.state.alarm).toBe(Date.UTC(2026, 9, 13, 13));
+  });
+
   test('a change made offline is applied at the time it was made, so a missed reminder still goes out', async () => {
     const { phone } = await h.pair();
     const madeAt = h.state.now;
@@ -573,6 +590,30 @@ describe('delivery', () => {
     const health = await h.ok('health', null, phone);
     expect(health.devices.map((d) => d.push.enabled)).toEqual([true, true]);
   });
+
+  test.each(['receipt', 'complete', 'lease'] as const)(
+    'quick retries stop after a %s ends their claim',
+    async (end) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      await h.ok('subscribe', keys(1), deviceId);
+      h.confirmedBefore(deviceId);
+      const id = await h.put(deviceId);
+      h.state.holdNext = true;
+      const pushed = new Promise<void>((resolve) => (h.state.onPush = () => resolve()));
+      h.state.now = DUE;
+      const sending = h.nudge.alarm();
+      await pushed;
+      if (end === 'receipt') await h.ok('receipt', { fire: fireId(id, DUE) }, deviceId);
+      if (end === 'complete') await h.sync(deviceId, [{ type: 'complete', id, due: '2026-10-12T09:00' }]);
+      if (end === 'lease') {
+        h.state.now += LEASE_MS;
+        await h.nudge.alarm();
+      }
+      h.state.held?.(503);
+      await sending;
+      expect(h.sentTo(1)).toBe(end === 'lease' ? 2 : 1);
+    },
+  );
 
   test('a push service outage that outlasts the quick retries is resent later, then escalated', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });

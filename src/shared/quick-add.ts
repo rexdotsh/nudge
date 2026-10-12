@@ -1,37 +1,35 @@
 import { isRepeat } from './input';
-import { nextOccurrence } from './occurrences';
 import {
   DAY,
+  DATE,
   LIST,
   MERIDIEM_TIME,
-  MONTH,
   PARTS_OF_DAY,
   PART_OF_DAY,
   REPEATS,
-  SUFFIX,
   TIME,
   atTimes,
   clock,
+  dateInPhrase,
   dayIndex,
   distinctTimes,
-  monthNumber,
   partsOfDay,
   scheduled,
   type RepeatMatch,
   type Time,
 } from './phrases';
 import type { Repeat } from './reminder';
-import { RuleError, formatRule, parseRule, rule, type Rule } from './rrule';
+import { applyEnding, scanEnding } from './quick-add-end';
+import { formatRule, rule } from './rrule';
 import { Scanner, type Span } from './scanner';
 import {
   DAY_MS,
   MINUTE_MS,
   addMonths,
-  daysInMonth,
   epochDay,
   formatLocal,
   fromEpochDay,
-  parseLocal,
+  isRealDate,
   toInstant,
   toLocal,
   wallAtOrAfter,
@@ -55,31 +53,15 @@ interface Draft {
   date: LocalDate | null;
   time: Time | null;
   bareHour: number | null;
-  /** The first of several times a day, which also become the rule's hours. */
   listedTime: Time | null;
   defaultTime: Time | null;
   offset: number | null;
   offsetDays: number | null;
-  duration: { unit: 'day' | 'week' | 'month'; amount: number } | null;
   /** The repeat is a daily one implied only by a list of times, so it holds only if the list has no date. */
   tentative: boolean;
 }
 
 const DEFAULT_TIME: Time = { hour: 9, minute: 0 };
-
-function isRealDate({ year, month, day }: LocalDate): boolean {
-  return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
-}
-
-function isValidRule(candidate: Rule): boolean {
-  try {
-    parseRule(formatRule(candidate));
-    return true;
-  } catch (error) {
-    if (error instanceof RuleError) return false;
-    throw error;
-  }
-}
 
 function nextWeekday(today: LocalDate, target: number, includeToday = false): LocalDate {
   const day = epochDay(today);
@@ -87,47 +69,8 @@ function nextWeekday(today: LocalDate, target: number, includeToday = false): Lo
   return fromEpochDay(day + (ahead === 0 && !includeToday ? 7 : ahead));
 }
 
-function nextDate(today: LocalDate, month: number, day: number, year?: number): LocalDate {
-  const candidate = { year: year ?? today.year, month, day };
-  return year === undefined && epochDay(candidate) < epochDay(today)
-    ? { ...candidate, year: today.year + 1 }
-    : candidate;
-}
-
-const endOfDay = (date: LocalDate, zone: string) => toInstant({ ...date, hour: 23, minute: 59 }, zone);
-
-const UNTIL = `until\\s+${MONTH}\\s+(\\d{1,2})${SUFFIX}|until\\s+(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}`;
-const COUNT = `(?:for\\s+)?(\\d+)\\s+times`;
-const DURATION = `for\\s+(?:(\\d+|a|an|one)\\s+)?(day|week|month)s?`;
 const TIME_LIST = `(?:at\\s+)?${TIME}(?:${LIST}${TIME})+`;
 const PARTS_LIST = `(?:in\\s+the\\s+)?${PART_OF_DAY}(?:${LIST}(?:in\\s+the\\s+|at\\s+)?${PART_OF_DAY})+`;
-
-function scanEnds(scanner: Scanner, draft: Draft, today: LocalDate, zone: string): boolean {
-  if (!draft.repeat) return false;
-  const current = draft.repeat.rule;
-  if (draft.repeat.anchor === 'completion') {
-    for (const end of [UNTIL, COUNT, DURATION]) scanner.shield(end);
-    return false;
-  }
-  scanner.take(UNTIL, 'repeat', (m) => {
-    const date = nextDate(today, monthNumber(m[1] ?? m[4] ?? ''), Number(m[2] ?? m[3]));
-    if (!isRealDate(date)) return false;
-    current.until = endOfDay(date, zone);
-    return true;
-  });
-  if (current.until !== null) return true;
-  const counted = scanner.take(COUNT, 'repeat', (m) => {
-    const times = Number(m[1]);
-    if (times < 1) return false;
-    current.count = times;
-    return true;
-  });
-  if (counted) return true;
-  return scanner.take(DURATION, 'repeat', (m) => {
-    const unit = m[2] === 'week' || m[2] === 'month' ? m[2] : 'day';
-    draft.duration = { unit, amount: /^\d+$/.test(m[1] ?? '') ? Number(m[1]) : 1 };
-  });
-}
 
 function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   const setDate = (date: LocalDate): boolean => {
@@ -164,16 +107,11 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   scanner.take(`(\\d{4})-(\\d{2})-(\\d{2})`, 'when', (m) =>
     setDate({ year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }),
   );
-  scanner.take(`(?:on\\s+)?${MONTH}\\s+(\\d{1,2})${SUFFIX}(?:,?\\s+(\\d{4}))?`, 'when', (m) =>
-    setDate(nextDate(today, monthNumber(m[1] ?? ''), Number(m[2]), m[3] ? Number(m[3]) : undefined)),
-  );
-  scanner.take(`(?:on\\s+)?(?:the\\s+)?(\\d{1,2})${SUFFIX}\\s+(?:of\\s+)?${MONTH}(?:\\s+(\\d{4}))?`, 'when', (m) =>
-    setDate(nextDate(today, monthNumber(m[2] ?? ''), Number(m[1]), m[3] ? Number(m[3]) : undefined)),
-  );
+  scanner.take(`(?:on\\s+)?(?:${DATE})`, 'when', (m) => setDate(dateInPhrase(m, today)));
   scanner.take(`on\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)`, 'when', (m) => {
     const day = Number(m[1]);
     const thisMonth = { ...today, day };
-    setDate(day >= today.day ? thisMonth : addMonths(thisMonth, 1));
+    return setDate(day >= today.day ? thisMonth : addMonths(thisMonth, 1));
   });
   scanner.take(`(?:on\\s+|(next|this|coming)\\s+)?(${DAY})`, 'when', (m) =>
     setDate(nextWeekday(today, dayIndex(m[2] ?? ''), m[1] === 'this')),
@@ -185,6 +123,7 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   });
   scanner.shield(TIME_LIST);
   scanner.take(PARTS_LIST, 'when', (m) => listTimes(draft, partsOfDay(m[0]), true));
+  scanner.shield(PARTS_LIST);
   const setTime = (time: Time | null): boolean => {
     if (time) draft.time = time;
     return time !== null;
@@ -232,7 +171,7 @@ function listTimes(draft: Draft, times: Time[], unmistakable: boolean): boolean 
   const dated = draft.date !== null || draft.offset !== null || draft.offsetDays !== null;
   if (!first || repeat?.anchor !== 'schedule' || (draft.tentative && (dated || !unmistakable))) return false;
   const timed = atTimes(repeat.rule, times);
-  if (!timed || !isValidRule(timed)) return false;
+  if (!timed || !isRepeat({ rule: formatRule(timed), anchor: repeat.anchor })) return false;
   repeat.rule = timed;
   draft.listedTime = first;
   return true;
@@ -272,21 +211,6 @@ function startOf(draft: Draft, time: Time | null, now: number, zone: string): st
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour: at.hour, minute: at.minute });
 }
 
-/** The duration counts from the first day the repeat still fires, so days that have already passed are not lost. */
-function applyDuration(draft: Draft, start: string | null, now: number, zone: string): void {
-  const local = start === null ? null : parseLocal(start);
-  if (!draft.repeat || !draft.duration || !local) return;
-  const first = nextOccurrence(draft.repeat.rule, local, zone, now - 1);
-  if (first === null) return;
-  const startDate = toLocal(first, zone);
-  const { unit, amount } = draft.duration;
-  const last =
-    unit === 'month'
-      ? fromEpochDay(epochDay(addMonths(startDate, amount)) - 1)
-      : fromEpochDay(epochDay(startDate) + (unit === 'week' ? amount * 7 : amount) - 1);
-  draft.repeat.rule.until = endOfDay(last, zone);
-}
-
 function cleanTitle(text: string): string {
   return text
     .replace(/\s+/g, ' ')
@@ -308,14 +232,13 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
     defaultTime: null,
     offset: null,
     offsetDays: null,
-    duration: null,
     tentative: false,
   };
   const important = scanner.take(`!+`, 'flag', () => true, { wholeWords: false });
   for (const [pattern, build] of REPEATS) {
     const taken = scanner.take(pattern, 'repeat', (m) => {
       const found = build(m);
-      if (!found || !isValidRule(found.rule)) return false;
+      if (!found || !isRepeat({ rule: formatRule(found.rule), anchor: found.anchor })) return false;
       draft.repeat = found;
       draft.defaultTime = found.defaultTime;
       return true;
@@ -324,13 +247,12 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
   }
   const implied = draft.repeat === null && impliesDaily(scanner);
   if (implied) draft.repeat = scheduled(rule('DAILY'));
-  const ended = scanEnds(scanner, draft, today, zone);
-  draft.tentative = implied && !ended;
+  const ending = scanEnding(scanner, draft.repeat, today, zone);
+  draft.tentative = implied && ending === null;
   scanWhen(scanner, draft, today);
   if (draft.tentative && draft.listedTime === null) draft.repeat = null;
   const time = timeOf(draft, now, zone);
-  const start = startOf(draft, time, now, zone);
-  applyDuration(draft, start, now, zone);
+  const start = applyEnding(draft.repeat, startOf(draft, time, now, zone), ending, now, zone);
   const repeat = draft.repeat && { rule: formatRule(draft.repeat.rule), anchor: draft.repeat.anchor };
   return {
     title: cleanTitle(scanner.rest()),
