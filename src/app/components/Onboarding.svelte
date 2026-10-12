@@ -20,7 +20,7 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    animation: rise 0.5s var(--ease) both;
+    animation: rise var(--base) var(--ease) both;
   }
 
   img {

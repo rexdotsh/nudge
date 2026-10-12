@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { prefersReducedMotion } from 'svelte/motion';
   import { fly } from 'svelte/transition';
   import { LIMITS } from '../../shared/input';
   import type { Reminder } from '../../shared/reminder';
@@ -8,6 +7,7 @@
   import { app } from '../lib/app.svelte';
   import { zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
+  import { arrive } from '../lib/motion.svelte';
   import { closeEditor, saveEditor } from '../lib/selection';
   import { CLOSE, SAVE, tip } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
@@ -124,7 +124,7 @@
     class="docked"
     tabindex="-1"
     aria-label="Edit {draft.original.title}"
-    in:fly={{ x: prefersReducedMotion.current ? 0 : 12, duration: 180 }}
+    in:fly|global={arrive({ x: 12 })}
   >
     {@render form()}
   </section>

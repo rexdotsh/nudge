@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { HTMLAttributes } from 'svelte/elements';
+  import { fade } from 'svelte/transition';
+  import { depart } from '../lib/motion.svelte';
   import { composing } from '../lib/shortcuts';
 
   let {
@@ -71,6 +73,7 @@
   style:transform-origin={origin}
   bind:this={popup}
   {@attach show}
+  out:fade={depart()}
   onkeydown={keydown}
   onfocusout={(event) => event.relatedTarget !== null && !inside(event.relatedTarget) && onClose()}
 >

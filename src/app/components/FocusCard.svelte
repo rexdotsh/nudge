@@ -16,7 +16,7 @@
 </script>
 
 {#if focus}
-  <section class="surface card" aria-label="Now" data-reminder={focus.reminder.id}>
+  <section class="surface card" aria-label="Now" data-reminder={focus.reminder.id} data-glide="now:{focus.reminder.id}">
     <p class="when">
       <span class="chip hot">{focus.late ? 'late' : untilLabel(focus.at, now)}</span>
       {focus.late ? whenLabel(focus.at, now, zone) : timeLabel(focus.at, zone)}
@@ -34,7 +34,7 @@
       >
     </div>
     {#each triage.late as entry (entry.reminder.id)}
-      <div class="also" data-reminder={entry.reminder.id}>
+      <div class="also" data-reminder={entry.reminder.id} data-glide="late:{entry.reminder.id}">
         <CheckCircle
           late
           small
@@ -47,7 +47,7 @@
     {/each}
   </section>
 {:else}
-  <section class="surface card quiet" aria-label="Now">
+  <section class="surface card quiet" aria-label="Now" data-glide="now">
     <p class="heading"><b>{summary.lead}</b> {summary.rest}</p>
   </section>
 {/if}
@@ -56,7 +56,6 @@
   .card {
     padding: 16px;
     border-radius: 20px;
-    animation: rise 0.4s var(--ease) both;
   }
 
   .when {

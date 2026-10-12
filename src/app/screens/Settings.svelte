@@ -9,6 +9,7 @@
   import { whenLabel, zoneLabel } from '../lib/format';
   import { closeOnBack } from '../lib/close';
   import { installer, type Prompted } from '../lib/install.svelte';
+  import { swap } from '../lib/motion.svelte';
   import { UNBLOCK_STEPS, type PushState } from '../lib/push';
   import { composing } from '../lib/shortcuts';
   import { THEME_LABELS, appearance } from '../lib/theme.svelte';
@@ -247,7 +248,7 @@
           type="radio"
           name="theme"
           checked={appearance.theme === theme}
-          onchange={() => app.chooseTheme(theme)}
+          onchange={() => swap(() => app.chooseTheme(theme))}
         />
         {#if appearance.theme === theme}<Icon name="check" size={18} />{/if}
       </label>
@@ -268,10 +269,6 @@
 <Toast />
 
 <style>
-  .settings {
-    animation: rise 0.4s var(--ease) backwards;
-  }
-
   .back {
     display: inline-flex;
     align-items: center;

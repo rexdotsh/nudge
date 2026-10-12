@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { prefersReducedMotion } from 'svelte/motion';
   import { fly } from 'svelte/transition';
+  import { arrive, depart } from '../lib/motion.svelte';
 
   let { label, onClose, children }: { label: string; onClose: () => void; children: Snippet } = $props();
 
@@ -38,9 +38,10 @@
   }
 
   function release() {
+    // A dismissed sheet leaves from where it was let go.
     if (drag > DISMISS_PX) onClose();
+    else drag = 0;
     startY = null;
-    drag = 0;
   }
 
   function cancel() {
@@ -60,7 +61,8 @@
     onClose();
   }}
   onclick={(event) => event.target === event.currentTarget && onClose()}
-  transition:fly={{ y: prefersReducedMotion.current ? 0 : 80, duration: 300, easing: (t) => 1 - (1 - t) ** 3 }}
+  in:fly|global={arrive({ y: 64 })}
+  out:fly|global={depart({ y: 64 })}
 >
   <div class="body">
     <div
@@ -101,6 +103,19 @@
 
   dialog::backdrop {
     background: var(--scrim);
+    transition: opacity var(--base);
+  }
+
+  @starting-style {
+    dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+
+  /* Svelte makes whatever is on its way out inert. */
+  dialog:global([inert])::backdrop {
+    opacity: 0;
+    transition-duration: var(--fast);
   }
 
   .dragging {

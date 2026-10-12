@@ -13,6 +13,7 @@
   import { remove, reopen } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { dayHeading, whenLabel } from '../lib/format';
+  import { glide } from '../lib/motion.svelte';
   import { recentlyCompleted, triage } from '../lib/sections';
   import { rowOf } from '../lib/selection';
   import { SETTINGS, shortcut, tip } from '../lib/shortcuts';
@@ -21,6 +22,7 @@
   let { onSettings, composing = false }: { onSettings: () => void; composing?: boolean } = $props();
 
   let showCompleted = $state(false);
+  let page: HTMLElement | undefined = $state();
 
   const day = $derived(dayHeading(app.now, app.zone));
   const lists = $derived(triage(app.reminders, app.now, app.zone));
@@ -32,6 +34,11 @@
     const reminder = at && app.reminders.find((candidate) => candidate.id === at.id);
     return at && reminder ? { ...at, reminder } : null;
   });
+
+  glide(
+    () => page,
+    () => [lists, completed, showCompleted],
+  );
 
   function openMenu(event: MouseEvent) {
     const row = rowOf(event.target instanceof Element ? event.target : null);
@@ -52,12 +59,12 @@
 
 <svelte:window onkeydown={(event) => shortcut(event, onSettings)} oncontextmenu={openMenu} />
 
-<div class="page home">
+<div class="page home" bind:this={page}>
   <header>
     <h1>{day.weekday} <span>{day.date}</span></h1>
     <div class="tools">
       {#if !app.online}<span class="chip">Offline</span>{/if}
-      <button class="round" onclick={onSettings} aria-label="Settings" title={tip('Settings', SETTINGS)}
+      <button class="round press" onclick={onSettings} aria-label="Settings" title={tip('Settings', SETTINGS)}
         ><Icon name="settings" size={16} /></button
       >
     </div>
@@ -69,7 +76,7 @@
 
   {#if lists.today.length > 0}
     <section>
-      <h2 class="label"><span>Next</span><span>today</span></h2>
+      <h2 class="label" data-glide="next"><span>Next</span><span>today</span></h2>
       {#each lists.today as entry (entry.reminder.id)}
         <ReminderRow {entry} now={app.now} zone={app.zone} />
       {/each}
@@ -78,7 +85,7 @@
 
   {#if lists.later.length > 0}
     <section>
-      <h2 class="label"><span>Later</span><span>{lists.later.length}</span></h2>
+      <h2 class="label" data-glide="later"><span>Later</span><span>{lists.later.length}</span></h2>
       {#each lists.later as entry (entry.reminder.id)}
         <ReminderRow {entry} now={app.now} zone={app.zone} compact />
       {/each}
@@ -87,12 +94,17 @@
 
   {#if completed.length > 0}
     <section>
-      <button class="label toggle-done" aria-expanded={showCompleted} onclick={() => (showCompleted = !showCompleted)}>
+      <button
+        class="label toggle-done"
+        data-glide="completed"
+        aria-expanded={showCompleted}
+        onclick={() => (showCompleted = !showCompleted)}
+      >
         <span>Completed</span><span>{showCompleted ? 'hide' : completed.length}</span>
       </button>
       {#if showCompleted}
         {#each completed as { reminder, at } (reminder.id)}
-          <div class="done">
+          <div class="done" data-glide="done:{reminder.id}">
             <!-- An ended series does not keep which occurrence was its last, so only a one-off can be put back. -->
             {#if !reminder.repeat}
               <CheckCircle
@@ -112,8 +124,10 @@
             >
           </div>
         {/each}
-        <button class="link clear" onclick={() => void remove(...completed.map(({ reminder }) => reminder))}
-          >Clear completed</button
+        <button
+          class="link clear"
+          data-glide="clear"
+          onclick={() => void remove(...completed.map(({ reminder }) => reminder))}>Clear completed</button
         >
       {/if}
     </section>
@@ -230,11 +244,11 @@
       right: 0;
       margin: 0;
       opacity: 0;
-      transition: opacity 0.12s;
+      transition: opacity var(--fast);
     }
 
     .stamp {
-      transition: opacity 0.12s;
+      transition: opacity var(--fast);
     }
 
     .done:is(:hover, :focus-within) .forget {

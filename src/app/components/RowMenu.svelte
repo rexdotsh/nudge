@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { fade } from 'svelte/transition';
   import type { Reminder } from '../../shared/reminder';
   import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { closeOnBack } from '../lib/close';
   import { shortWhen } from '../lib/format';
+  import { depart } from '../lib/motion.svelte';
   import { focusRow, keepSelection, openEditor } from '../lib/selection';
   import { DELETE, DONE, OPEN, SNOOZE, composing, hint } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
@@ -72,6 +74,7 @@
   style:top="{top}px"
   bind:this={menu}
   {@attach show}
+  out:fade={depart()}
   onkeydown={navigate}
   onfocusout={(event) => event.relatedTarget instanceof Node && !menu?.contains(event.relatedTarget) && close()}
 >

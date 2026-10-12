@@ -82,6 +82,8 @@
   --font: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
   --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --fast: 120ms;
+  --base: 200ms;
 
   height: 100%;
   background: var(--bg);
@@ -217,13 +219,20 @@ button:disabled {
   color: var(--ink-2);
   font-size: 14px;
   font-weight: 600;
-  transition:
-    transform 0.12s,
-    opacity 0.2s;
 }
 
-.btn:active {
+.btn,
+.press {
+  transition:
+    transform var(--base) var(--spring),
+    opacity var(--base);
+}
+
+/* Pressing lands at once and lets go with a spring, so even a quick tap shows. */
+.btn:active,
+.press:active {
   transform: scale(0.97);
+  transition-duration: 0ms;
 }
 
 .btn.primary {
@@ -360,7 +369,7 @@ button:disabled {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow);
-  animation: pop 0.12s var(--ease);
+  animation: pop var(--fast) var(--ease);
 }
 
 .item {
@@ -404,7 +413,7 @@ button:disabled {
   height: 20px;
   border-radius: 50%;
   background: var(--muted);
-  transition: transform 0.25s var(--spring);
+  transition: transform var(--base) var(--spring);
 }
 
 .toggle:checked {
@@ -468,7 +477,49 @@ kbd {
   }
 }
 
+::view-transition-group(root) {
+  animation-duration: var(--base);
+}
+
+/* Like a push on a phone, but shorter: the next screen comes in from the side it lives on. */
+@media (pointer: coarse) {
+  [data-step='forward'] {
+    --step: 1;
+  }
+
+  [data-step='back'] {
+    --step: -1;
+  }
+
+  [data-step]::view-transition-old(root) {
+    animation: step-out var(--fast) ease-in both;
+  }
+
+  [data-step]::view-transition-new(root) {
+    animation: step-in var(--base) var(--ease) both;
+  }
+}
+
+@keyframes step-out {
+  to {
+    opacity: 0;
+    transform: translateX(calc(var(--step) * -24px));
+  }
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--step) * 32px));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --fast: 0ms;
+    --base: 0ms;
+  }
+
   *,
   *::before,
   *::after {

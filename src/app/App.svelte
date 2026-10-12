@@ -9,6 +9,7 @@
   import TitleBar from './components/TitleBar.svelte';
   import { Fallback } from './lib/fallback';
   import { installer } from './lib/install.svelte';
+  import { swap } from './lib/motion.svelte';
   import { ui } from './lib/ui.svelte';
   import Enroll from './screens/Enroll.svelte';
   import Home from './screens/Home.svelte';
@@ -106,8 +107,8 @@
   {:else if offerApp}
     <InstallOffer onDone={() => (offerApp = false)} />
   {:else if screen === 'settings'}
-    <Settings onBack={() => (screen = 'home')} />
+    <Settings onBack={() => swap(() => (screen = 'home'), 'back')} />
   {:else}
-    <Home onSettings={() => (screen = 'settings')} composing={link.has('new')} />
+    <Home onSettings={() => swap(() => (screen = 'settings'), 'forward')} composing={link.has('new')} />
   {/if}
 {/if}

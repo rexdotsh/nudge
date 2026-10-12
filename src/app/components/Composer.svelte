@@ -160,7 +160,7 @@
     </div>
     {#if parsed?.title}
       <button
-        class="summary"
+        class="summary press"
         type="submit"
         title={[when, detail].filter(Boolean).join('\n')}
         aria-label={`Add, ${summary}`}
@@ -283,7 +283,7 @@
     text-align: left;
     -webkit-touch-callout: none;
     user-select: none;
-    animation: pop 0.2s var(--spring);
+    animation: pop var(--base) var(--spring);
   }
 
   .what {
@@ -339,7 +339,7 @@
     box-shadow: inset 0 0 0 1px var(--edge);
     color: var(--ink-2);
     font-size: 13px;
-    animation: pop 0.15s var(--ease);
+    animation: pop var(--fast) var(--ease);
   }
 
   .full b {

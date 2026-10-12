@@ -32,7 +32,7 @@
   }
 </script>
 
-<div class="row" class:compact>
+<div class="row" class:compact data-glide={reminder.id}>
   <div class="reveal leading" style:opacity={Math.min(Math.max(offset, 0) / 80, 1)}>
     <Icon name="check" size={20} />
   </div>
@@ -133,7 +133,7 @@
     border-radius: 10px;
     background: var(--surface);
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity var(--fast);
   }
 
   .content:has(.open:active)::before {
@@ -252,11 +252,11 @@
       position: absolute;
       right: 0;
       opacity: 0;
-      transition: opacity 0.12s;
+      transition: opacity var(--fast);
     }
 
     .trail {
-      transition: opacity 0.12s;
+      transition: opacity var(--fast);
     }
 
     .content:is(:hover, :has(.actions :global(:focus-visible))) .actions {
