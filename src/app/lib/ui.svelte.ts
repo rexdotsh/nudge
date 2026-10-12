@@ -19,11 +19,8 @@ class Ui {
   menu = $state<Menu | null>(null);
   help = $state(false);
   composing = $state('');
-  /** Unsaved changes by reminder. They live here, not in the editor, and stay until saved or discarded, so neither a
-   * remount (the layout crossing its breakpoint) nor opening another reminder loses them. */
   readonly #drafts = new SvelteMap<string, Draft>();
 
-  /** Wide windows dock the editor beside the list instead of covering it. */
   get docked(): boolean {
     return wide.current;
   }
@@ -32,8 +29,6 @@ class Ui {
     return fine.current;
   }
 
-  /** Nothing typed or open that a reload would lose. */
-  /** Nothing typed, unsaved or covering the screen that a reload would lose; a docked editor with no edits is fine. */
   get idle(): boolean {
     return (
       (this.editing === null || this.docked) &&
@@ -70,17 +65,15 @@ class Ui {
     this.snoozing = id;
   }
 
-  /** Opening another reminder beside the docked editor saves this one's changes, or keeps them if they can't be saved yet. */
   async #leave(draft: Draft): Promise<void> {
     if (draft.parsed === null) {
       toasts.show(`Kept unsaved changes to “${draft.original.title}”`);
       return;
     }
     await draft.save();
-    if (this.editing !== draft.id) this.#drafts.delete(draft.id);
+    if (this.editing !== draft.id && !draft.dirty) this.#drafts.delete(draft.id);
   }
 
-  /** Closing the editor ends its draft: callers have saved it already, or the user discarded it. */
   close(): void {
     if (this.editing !== null) this.#drafts.delete(this.editing);
     this.editing = null;

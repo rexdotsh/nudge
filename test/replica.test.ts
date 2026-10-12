@@ -59,3 +59,14 @@ test('a slower, older sync response never rolls the replica back', () => {
   expect(replica.version).toBe(3);
   expect(replica.view([], ZONE)[0]?.title).toBe('Newer');
 });
+
+test.each([
+  [10, 10, 3],
+  [11, 10, 3],
+  [4, 10, 4],
+])('a reset to version 3 from version %i reconciles against the sent version %i', (version, since, expected) => {
+  const replica = new Replica({ version, reminders: [server()] });
+  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic' }, since);
+  expect(replica.version).toBe(expected);
+  expect(replica.view([], ZONE)).toHaveLength(expected === 3 ? 0 : 1);
+});

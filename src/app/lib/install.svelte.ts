@@ -3,7 +3,6 @@ import { isInstalled } from './platform';
 
 export type Guide = 'ios' | 'mac';
 
-/** Where Chrome and Edge install Nudge as an app of the system's own; Windows gets a packaged installer instead. */
 const PROMPTED = ['mac', 'android'] as const;
 export type Prompted = (typeof PROMPTED)[number];
 
@@ -30,7 +29,6 @@ class Installer {
     addEventListener('appinstalled', () => (this.#offer = null));
   }
 
-  /** How to make this browser's Nudge an app: Chrome and Edge prompt, Safari adds it to the Dock from its Share menu. */
   get route(): 'prompt' | 'dock' | null {
     if (this.#offer) return 'prompt';
     return this.guide === 'mac' ? 'dock' : null;

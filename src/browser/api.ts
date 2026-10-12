@@ -1,4 +1,5 @@
 import type { ApiError, Reply, Route, Routes } from '../shared/api';
+import { isRecord } from '../shared/validate';
 import { get, set } from './kv';
 
 export class ApiRejected extends Error {
@@ -49,8 +50,12 @@ export async function request<R extends Route>(
 
 export async function vapidPublicKey(): Promise<string> {
   try {
-    const response = await fetch('/api/config', { cache: 'no-store' });
-    const { vapidPublicKey: key }: { vapidPublicKey: string } = await response.json();
+    const response = await fetch('/api/config', { cache: 'no-store', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`push configuration responded ${response.status}`);
+    const config: unknown = await response.json();
+    if (!isRecord(config) || typeof config.vapidPublicKey !== 'string')
+      throw new Error('push configuration has no key');
+    const key = config.vapidPublicKey;
     await set('vapidPublicKey', key);
     return key;
   } catch (error) {
@@ -62,7 +67,6 @@ export async function vapidPublicKey(): Promise<string> {
 
 const INSTALLER_TIMEOUT_MS = 120_000;
 
-/** This instance's Windows installer; the server builds it on demand, which takes a few seconds. */
 export async function windowsInstaller(): Promise<Blob> {
   const token = (await get('session'))?.token ?? '';
   try {

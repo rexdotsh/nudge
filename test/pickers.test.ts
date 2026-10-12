@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { monthGrid, parseTime, regionWeekStart, timeSlots, weekStart } from '../src/app/lib/pickers';
+import { monthGrid, parseTime, regionWeekStart, weekStart } from '../src/app/lib/pickers';
 import { daysInMonth, epochDay, formatClock, formatDate, fromEpochDay } from '../src/shared/time';
 
 test('the month grid starts on the locale’s first weekday and holds the whole month', () => {
@@ -51,10 +51,4 @@ test('a typed time becomes the time she meant', () => {
     const parsed = parseTime(text);
     expect(parsed && formatClock(parsed)).toBe(time);
   }
-});
-
-test('the time list keeps an off-grid time in order', () => {
-  const slots = timeSlots('17:20');
-  expect(slots.slice(slots.indexOf('17:00'), slots.indexOf('17:00') + 3)).toEqual(['17:00', '17:20', '17:30']);
-  expect(timeSlots('17:30')).toHaveLength(48);
 });

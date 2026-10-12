@@ -26,8 +26,6 @@ function isPushMessage(value: unknown): value is PushMessage {
   );
 }
 
-// The receipt goes out only once the notification is really on screen; a resend of a fire already shown is confirmed
-// again without alerting twice.
 async function present(notification: NotificationContent, shownByBrowser: boolean): Promise<void> {
   const { fire } = notification.data;
   if (shownByBrowser) {
@@ -48,8 +46,6 @@ async function present(notification: NotificationContent, shownByBrowser: boolea
   });
 }
 
-// Where the browser supports it, launches and hashed assets are answered straight from the cache without waiting for this
-// worker to start.
 const ROUTES: RouterRule[] = [
   { condition: { urlPattern: { pathname: '/', search: '' }, requestMode: 'navigate' }, source: { cacheName: CACHE } },
   { condition: { urlPattern: { pathname: '/assets/*' } }, source: { cacheName: CACHE } },
@@ -103,14 +99,12 @@ self.addEventListener('push', (event) => {
 async function drain(): Promise<void> {
   const local = (await get('local')) ?? EMPTY_LOCAL;
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
-  const response = await request('sync', { since: local.replica.version, zone: currentZone(), changes, theme: null });
-  const replica = new Replica(local.replica);
-  replica.receive(response);
-  const { pending } = await commit(replica.snapshot(), new Set(changes.map((change) => change.opId)));
+  const since = local.replica.version;
+  const response = await request('sync', { since, zone: currentZone(), changes, theme: null });
+  const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
   if (pending.length > 0) await drain();
 }
 
-// Done or Snooze from a notification changes what is late while the app may be closed, so the icon can't wait for it.
 async function recount(): Promise<void> {
   if (!('setAppBadge' in self.navigator)) return;
   const local = (await get('local')) ?? EMPTY_LOCAL;

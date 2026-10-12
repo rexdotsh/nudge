@@ -10,7 +10,6 @@ export function pushState(): PushState {
   return Notification.permission === 'granted' ? 'enabled' : 'prompt';
 }
 
-/** Once blocked, browsers never ask again: the person has to allow Nudge where the platform keeps the setting. */
 export const UNBLOCK_STEPS: Record<Platform, string> = {
   ios: 'Open the Settings app, tap Notifications, then Nudge, and turn on Allow Notifications.',
   mac: 'In Safari, open Settings → Websites → Notifications and allow Nudge; for the Dock app, use System Settings → Notifications → Nudge. In Chrome or Edge, click the icon left of the address and allow notifications.',
@@ -21,7 +20,6 @@ export const UNBLOCK_STEPS: Record<Platform, string> = {
   other: "Allow notifications for this site in your browser's site settings.",
 };
 
-/** Calls back when the notification permission changes outside the app, such as in site or system settings. */
 export function watchPermission(changed: () => void): void {
   navigator.permissions
     ?.query({ name: 'notifications' })
@@ -30,10 +28,14 @@ export function watchPermission(changed: () => void): void {
   window.addEventListener('focus', changed);
 }
 
-export async function syncSubscription(): Promise<void> {
-  if (pushState() !== 'enabled') return;
-  const registration = await navigator.serviceWorker.ready;
-  await subscribePush(registration, await registration.pushManager.getSubscription());
+let subscribing: Promise<void> | null = null;
+
+export function syncSubscription(): Promise<void> {
+  if (pushState() !== 'enabled') return Promise.resolve();
+  subscribing ??= navigator.serviceWorker.ready
+    .then(async (registration) => subscribePush(registration, await registration.pushManager.getSubscription()))
+    .finally(() => (subscribing = null));
+  return subscribing;
 }
 
 export async function enablePush(): Promise<PushState> {
@@ -41,5 +43,5 @@ export async function enablePush(): Promise<PushState> {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return permission === 'denied' ? 'denied' : 'prompt';
   await syncSubscription();
-  return 'enabled';
+  return pushState();
 }
