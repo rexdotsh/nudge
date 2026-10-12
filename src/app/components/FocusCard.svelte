@@ -15,12 +15,12 @@
 </script>
 
 {#if focus}
-  <section class="card" aria-label="Now">
+  <section class="surface card" aria-label="Now">
     <p class="when">
       <span class="chip hot">{focus.late ? 'late' : untilLabel(focus.at, now)}</span>
       {focus.late ? whenLabel(focus.at, now, zone) : timeLabel(focus.at, zone)}
     </p>
-    <button class="title" onclick={() => ui.edit(focus.reminder.id)}>{focus.reminder.title}</button>
+    <button class="heading title" onclick={() => ui.edit(focus.reminder.id)}>{focus.reminder.title}</button>
     <div class="acts">
       <button class="btn primary" onclick={() => void complete(focus.reminder)}>Done</button>
       {#if hour}<button class="btn" onclick={() => void snooze(focus.reminder, hour.at)}>+1 hour</button>{/if}
@@ -46,8 +46,8 @@
     {/each}
   </section>
 {:else}
-  <section class="card quiet" aria-label="Now">
-    <p><b>{summary.lead}</b> {summary.rest}</p>
+  <section class="surface card quiet" aria-label="Now">
+    <p class="heading"><b>{summary.lead}</b> {summary.rest}</p>
   </section>
 {/if}
 
@@ -55,8 +55,6 @@
   .card {
     padding: 16px;
     border-radius: 20px;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--edge);
     animation: rise 0.4s var(--ease) both;
   }
 
@@ -73,10 +71,6 @@
   .title {
     display: block;
     margin: 8px 0 14px;
-    font-size: 22px;
-    font-weight: 600;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
     text-align: left;
     overflow-wrap: anywhere;
   }
@@ -113,12 +107,7 @@
   }
 
   .quiet p {
-    margin: 0;
     color: var(--muted);
-    font-size: 21px;
-    font-weight: 600;
-    line-height: 1.25;
-    letter-spacing: -0.02em;
   }
 
   .quiet b {

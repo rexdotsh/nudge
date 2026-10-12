@@ -76,7 +76,7 @@ A test exists to catch a bug that would hurt someone. Before writing or keeping 
 
 ## Client UI
 
-- One calm look on every platform: a single dark theme on warm near-black, DM Sans only, and one coral accent that means "now" or "late" and nothing else. Tokens and shared primitives (`.btn`, `.group`, `.field`, `.chip`, `.picker`, `.toggle`) live in `src/app/styles.css`; components use them and add no new colours.
+- One calm look on every platform: a single dark theme on warm near-black, DM Sans only, and one coral accent that means attention and is never decoration: what is now or late, what the composer understood, errors, and destructive or primary text actions (Save, Delete, Undo). Pressed and "on" controls use ink, not coral. Tokens (including `--scrim` and `--shadow`) and shared primitives (`.page`, `.heading`, `.surface`, `.group`, `.field`, `.btn`, `.link`, `.chip`, `.bare`, `.picker`, `.toggle`, `.sr-only`) live in `src/app/styles.css`; components use them and add no new colours.
 - The home screen is triage: the reminder that matters now (with its actions), then the rest of today, then a quieter Later list. Rarely needed settings, like pinning a time zone, stay out of the way until they are relevant.
 - Fonts are self-hosted latin subsets (`src/app/fonts.css`), because the service worker precaches every built file.
 - Platforms differ in behaviour, not looks: the iOS install guide, safe areas, haptics, touch swipes, hover actions, keyboard shortcuts and where the composer sits.

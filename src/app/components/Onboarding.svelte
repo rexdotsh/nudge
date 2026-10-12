@@ -6,7 +6,7 @@
 
 <main class="onboarding">
   <img src="/icons/icon-192.png" alt="" width="64" height="64" />
-  <h1>{title}</h1>
+  <h1 class="heading large">{title}</h1>
   <p class="tagline">{tagline}</p>
   {@render children()}
 </main>
@@ -29,9 +29,6 @@
 
   h1 {
     margin: 22px 0 6px;
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
   }
 
   .tagline {

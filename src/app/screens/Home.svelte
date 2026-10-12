@@ -25,7 +25,7 @@
 
 <svelte:window onkeydown={shortcut} />
 
-<div class="home">
+<div class="page home">
   <header>
     <h1>{day.weekday} <span>{day.date}</span></h1>
     <div class="tools">
@@ -81,9 +81,7 @@
 
 <style>
   .home {
-    max-width: 560px;
-    margin: 0 auto;
-    padding: calc(env(safe-area-inset-top) + 16px) 18px calc(env(safe-area-inset-bottom) + 120px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 120px);
   }
 
   header {

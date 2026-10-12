@@ -73,13 +73,14 @@
 
 <svelte:window onkeydown={focusShortcut} />
 
-<form class="composer" style:--keyboard="{keyboard}px" onsubmit={submit}>
+<form class="surface composer" style:--keyboard="{keyboard}px" onsubmit={submit}>
   <div class="bar">
     <div class="entry">
       <div class="mirror" bind:this={mirror} aria-hidden="true">
         {#each segments as segment, index (index)}<span class={segment.kind ?? undefined}>{segment.text}</span>{/each}
       </div>
       <input
+        class="bare"
         bind:this={input}
         bind:value={text}
         onscroll={syncScroll}
@@ -114,18 +115,13 @@
     max-width: 536px;
     margin: 0 auto;
     border-radius: 18px;
-    background: var(--surface);
-    box-shadow:
-      inset 0 0 0 1px var(--edge),
-      0 -16px 32px 12px var(--bg);
+    --surface-lift: 0 -16px 32px 12px var(--bg);
     translate: 0 calc(-1 * var(--keyboard));
     transition: translate 0.25s var(--ease);
   }
 
   .composer:focus-within {
-    box-shadow:
-      inset 0 0 0 1px var(--faint),
-      0 -16px 32px 12px var(--bg);
+    --surface-edge: var(--faint);
   }
 
   .bar {
@@ -153,15 +149,8 @@
 
   .entry input {
     position: relative;
-    border: 0;
-    outline: 0;
-    background: transparent;
     color: transparent;
-    caret-color: var(--accent);
-  }
-
-  .entry input::placeholder {
-    color: var(--muted);
+    caret-color: var(--ink);
   }
 
   .mirror {
@@ -227,12 +216,8 @@
       position: static;
       max-width: none;
       margin: 0 0 18px;
-      box-shadow: inset 0 0 0 1px var(--edge);
+      --surface-lift: 0 0 transparent;
       translate: none;
-    }
-
-    .composer:focus-within {
-      box-shadow: inset 0 0 0 1px var(--faint);
     }
 
     kbd {

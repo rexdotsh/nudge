@@ -86,7 +86,7 @@
   }
 
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.55);
+    background: var(--scrim);
   }
 
   .dragging {

@@ -31,7 +31,7 @@
 </script>
 
 <Sheet label="Snooze {reminder.title}" onClose={() => ui.close()}>
-  <h2>Snooze</h2>
+  <h2 class="heading">Snooze</h2>
   <p class="what">{reminder.title}</p>
   <div class="group">
     {#each options as option (option.key)}
@@ -45,17 +45,14 @@
         <span>{customAt === null ? 'Pick a time' : whenLabel(customAt, app.now, app.zone)}</span>
         <input type="datetime-local" bind:value={custom} aria-label="Pick a time" />
       </label>
-      <button class="set" onclick={pickCustom} disabled={settable === null}>Set</button>
+      <button class="link" onclick={pickCustom} disabled={settable === null}>Set</button>
     </div>
   </div>
 </Sheet>
 
 <style>
   h2 {
-    margin: 2px 0 0;
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    margin-top: 2px;
   }
 
   .what {
@@ -64,14 +61,5 @@
     color: var(--muted);
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .set:disabled {
-    opacity: 0.4;
-  }
-
-  .set {
-    color: var(--accent);
-    font-weight: 600;
   }
 </style>

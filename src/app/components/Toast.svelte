@@ -7,7 +7,7 @@
   {#key toasts.current.id}
     <div class="toast" role="status" transition:fly={{ y: 16, duration: 260 }}>
       <span>{toasts.current.message}</span>
-      {#if toasts.current.undo}<button onclick={() => toasts.undo()}>Undo</button>{/if}
+      {#if toasts.current.undo}<button class="link" onclick={() => toasts.undo()}>Undo</button>{/if}
     </div>
   {/key}
 {/if}
@@ -29,7 +29,7 @@
     background: var(--raised);
     box-shadow:
       inset 0 0 0 1px var(--edge),
-      0 18px 40px -16px rgb(0 0 0 / 0.9);
+      var(--shadow);
     font-size: 14px;
     white-space: nowrap;
   }
@@ -37,11 +37,6 @@
   span {
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  button {
-    color: var(--accent);
-    font-weight: 600;
   }
 
   @media (min-width: 720px) {

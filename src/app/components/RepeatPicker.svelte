@@ -20,7 +20,7 @@
 {#if choice.selected === 'type'}
   <div class="field stacked">
     <input
-      class="phrase"
+      class="bare"
       {@attach (node) => node.focus()}
       bind:value={choice.phrase}
       placeholder="every other tue, 3 days after done…"
@@ -50,18 +50,5 @@
     border-radius: 4px;
     outline: 2px solid var(--faint);
     outline-offset: 3px;
-  }
-
-  .phrase {
-    width: 100%;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    font-size: 15px;
-  }
-
-  .phrase::placeholder {
-    color: var(--muted);
   }
 </style>
