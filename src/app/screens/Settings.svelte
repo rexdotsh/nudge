@@ -143,6 +143,18 @@
     {/if}
   </div>
 
+  {#if app.platform === 'windows'}
+    <h2 class="label">Windows app</h2>
+    <div class="group">
+      <a class="field action" href="/api/windows" download>
+        <span>
+          Download the Windows app
+          <small>Extract it and run “Install Nudge.cmd”. Needs Windows 11.</small>
+        </span>
+      </a>
+    </div>
+  {/if}
+
   <h2 class="label">Data</h2>
   <div class="group">
     <button class="field action" onclick={exportData}>Export reminders</button>
@@ -155,6 +167,10 @@
   .settings {
     min-height: 100dvh;
     animation: rise 0.4s var(--ease) both;
+  }
+
+  a.field {
+    text-decoration: none;
   }
 
   .back {

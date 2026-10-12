@@ -96,6 +96,7 @@ function harness() {
       }
       return { status: state.status(target, attempt), detail: '' };
     },
+    buildInstaller: async () => new Uint8Array(),
     alert: async (text) => {
       if (state.failAlerts) throw new Error('telegram down');
       state.alerts.push(text);

@@ -14,6 +14,7 @@ export interface Runtime {
   disconnect: (deviceId: string) => void;
   push: (target: PushKeys, json: string, subject: string, options: PushOptions) => Promise<PushResult>;
   alert: (text: string) => Promise<void>;
+  buildInstaller: (origin: string) => Promise<Uint8Array>;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
   secrets: { auth: string; setupCode: string };

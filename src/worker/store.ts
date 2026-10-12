@@ -14,11 +14,12 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS reminders_by_fire_at ON reminders (fire_at) WHERE fire_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS test_requests (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS installers (origin TEXT PRIMARY KEY, version TEXT NOT NULL, data TEXT NOT NULL)`,
   ...DEVICE_SCHEMA,
   ...DELIVERY_SCHEMA,
 ];
 
-const SCHEMA_VERSION = '1';
+const SCHEMA_VERSION = '2';
 
 export class Store {
   readonly devices: Devices;
@@ -42,6 +43,23 @@ export class Store {
       'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
       key,
       value,
+    );
+  }
+
+  installer(origin: string, version: string): Uint8Array | null {
+    const row = this.sql
+      .exec<{ data: string }>('SELECT data FROM installers WHERE origin = ? AND version = ?', origin, version)
+      .toArray()[0];
+    return row ? Uint8Array.fromBase64(row.data) : null;
+  }
+
+  saveInstaller(origin: string, version: string, data: Uint8Array): void {
+    this.sql.exec(
+      `INSERT INTO installers (origin, version, data) VALUES (?, ?, ?)
+       ON CONFLICT (origin) DO UPDATE SET version = excluded.version, data = excluded.data`,
+      origin,
+      version,
+      data.toBase64(),
     );
   }
 

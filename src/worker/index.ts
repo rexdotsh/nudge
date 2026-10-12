@@ -11,6 +11,7 @@ import { readJson } from './body';
 import { DEVICE_HEADER } from './nudge-do';
 import { verifyToken } from './tokens';
 import { vapidKeys } from './webpush';
+import { INSTALLER_FILENAME } from './windows';
 
 export { NudgeDO } from './nudge-do';
 
@@ -32,11 +33,30 @@ async function openSocket(request: Request, env: Env): Promise<Response> {
   return nudge(env).fetch(new Request(request.url, { headers }));
 }
 
+async function windowsInstaller(env: Env, origin: string): Promise<Response> {
+  try {
+    const data = await nudge(env).windowsInstaller(origin);
+    return new Response(data, {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${INSTALLER_FILENAME}"`,
+        'Cache-Control': 'no-cache',
+      },
+    });
+  } catch (error) {
+    console.error('could not build the Windows installer', error);
+    return new Response('The Windows installer could not be built right now. Try again in a minute.', {
+      status: 503,
+    });
+  }
+}
+
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/api/config') return Response.json({ vapidPublicKey: vapidKeys(env.VAPID_JWK).publicKey });
     if (url.pathname === '/api/socket') return openSocket(request, env);
+    if (url.pathname === '/api/windows') return windowsInstaller(env, url.origin);
 
     const route = url.pathname.slice('/api/'.length);
     const isPublic = isPublicRoute(route);

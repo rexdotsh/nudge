@@ -3,6 +3,7 @@ import { SOCKET_PROTOCOL, type Route } from '../shared/api';
 import { sendTelegram } from './alerts';
 import { Nudge, type Caller } from './nudge';
 import { sendPush, vapidKeys } from './webpush';
+import { buildInstaller } from './windows';
 
 export const DEVICE_HEADER = 'X-Nudge-Device';
 
@@ -30,6 +31,7 @@ export class NudgeDO extends DurableObject<Env> {
       },
       push: (target, json, subject, options) => sendPush(target, json, { keys, subject }, options),
       alert: (text) => sendTelegram(env, text),
+      buildInstaller: (origin) => buildInstaller(origin),
       sleep: (ms) => scheduler.wait(ms),
       now: () => Date.now(),
       secrets: { auth: env.AUTH_SECRET, setupCode: env.SETUP_CODE },
@@ -38,6 +40,10 @@ export class NudgeDO extends DurableObject<Env> {
 
   call(route: Route, caller: Caller, body: unknown) {
     return this.nudge.call(route, caller, body);
+  }
+
+  windowsInstaller(origin: string) {
+    return this.nudge.windowsInstaller(origin);
   }
 
   watchdog() {
