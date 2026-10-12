@@ -372,6 +372,20 @@ describe('delivery', () => {
     expect(health.devices.map((d) => d.push.enabled)).toEqual([true, true]);
   });
 
+  test('a push service outage that outlasts the quick retries is resent later, then escalated', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    h.state.status = () => 503;
+    await h.put(deviceId);
+    await h.runAlarm();
+    expect(h.state.alarm).toBe(DUE + RESEND_AFTER_MS);
+    await h.runAlarm();
+    expect(h.sentTo(1)).toBe(6);
+    await h.runAlarm();
+    expect(h.state.alerts).toHaveLength(2);
+    expect(h.state.alarm).toBeNull();
+  });
+
   test('test notifications are capped, go out on time, and replays return the original schedule', async () => {
     const { phone } = await h.pair();
     const [first = '', ...rest] = Array.from({ length: 5 }, () => ulid());

@@ -176,8 +176,9 @@ export class Scheduler {
     const gone = isGone(result.status);
     const now = this.runtime.now();
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
+    const nextAt = ok || isRetryable(result.status) ? now + followUp : null;
     const owned = this.runtime.transaction(() => {
-      if (!this.store.recordSend(row, result.status, ok ? now + followUp : null, now)) return false;
+      if (!this.store.recordSend(row, result.status, nextAt, now)) return false;
       if (gone) this.store.dropSubscription(target);
       return true;
     });

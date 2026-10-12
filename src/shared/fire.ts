@@ -16,21 +16,19 @@ export interface Notice {
 type Step = { at: number; alert: Alert } | { at: number; roll: string };
 
 function alertSteps(reminder: Reminder, due: number): Step[] {
-  const { snoozedUntil } = reminder;
-  const nagFrom = Math.max(due, snoozedUntil ?? due);
+  const quietUntil = reminder.snoozedUntil ?? -Infinity;
+  const comesUp = Math.max(due, quietUntil);
   const steps: Step[] = [
     ...reminder.alerts.map((minutes) => ({ at: due - minutes * MINUTE_MS, alert: 'early' as const })),
-    { at: due, alert: 'due' },
+    { at: comesUp, alert: comesUp > due ? 'snoozed' : 'due' },
     ...(reminder.important
       ? Array.from({ length: NAG_LIMIT }, (_, i) => ({
-          at: nagFrom + (i + 1) * NAG_INTERVAL_MS,
+          at: comesUp + (i + 1) * NAG_INTERVAL_MS,
           alert: 'nag' as const,
         }))
       : []),
   ];
-  const quiet = snoozedUntil === null ? steps : steps.filter((step) => step.at >= snoozedUntil);
-  const wake: Step[] = snoozedUntil === null ? [] : [{ at: snoozedUntil, alert: 'snoozed' }];
-  return [...quiet, ...wake].filter((step) => step.at > reminder.firedThrough);
+  return steps.filter((step) => step.at >= quietUntil && step.at > reminder.firedThrough);
 }
 
 function earliest(reminder: Reminder, zone: string): Step | null {

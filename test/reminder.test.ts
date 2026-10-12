@@ -280,6 +280,18 @@ describe('firing', () => {
     expect(woke.notice).toMatchObject({ alert: 'snoozed', due: '2026-10-13T09:00', missed: 1 });
   });
 
+  test('a snooze that ends before the due time never brings the reminder forward or fires it twice', () => {
+    const snoozed = apply(
+      create({ alerts: [60] }),
+      { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-12T08:30') },
+      '2026-10-12T07:00',
+    );
+    expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-12T09:00'));
+    const due = fire(snoozed, at('2026-10-12T09:00'), ZONE);
+    expect(due.notice?.alert).toBe('due');
+    expect(nextFireAt(due.reminder, ZONE)).toBeNull();
+  });
+
   test('when a snooze ends exactly at the next occurrence, the notice is for the new occurrence', () => {
     const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE).reminder;
     const snoozed = apply(

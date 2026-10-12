@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { HOUR_MS, formatLocal, parseLocal, toInstant, toLocal } from '../../shared/time';
   import type { Reminder } from '../../shared/reminder';
-  import { snooze, snoozeOptions } from '../lib/actions';
+  import { snooze, snoozeFrom, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
   import { ui } from '../lib/ui.svelte';
@@ -9,8 +10,9 @@
 
   let { reminder }: { reminder: Reminder } = $props();
 
-  const options = $derived(snoozeOptions(app.now, app.zone));
-  let custom = $state(formatLocal(toLocal(app.now + HOUR_MS, app.zone)));
+  const from = $derived(snoozeFrom(reminder, app.now, app.zone));
+  const options = $derived(snoozeOptions(reminder, app.now, app.zone));
+  let custom = $state(formatLocal(toLocal(untrack(() => from) + HOUR_MS, app.zone)));
 
   async function pick(at: number) {
     await snooze(reminder, at);
@@ -21,9 +23,10 @@
     const local = parseLocal(custom.slice(0, 16));
     return local ? toInstant(local, app.zone) : null;
   });
+  const settable = $derived(customAt !== null && customAt > from ? customAt : null);
 
   function pickCustom() {
-    if (customAt !== null) void pick(customAt);
+    if (settable !== null) void pick(settable);
   }
 </script>
 
@@ -42,7 +45,7 @@
         <span>{customAt === null ? 'Pick a time' : whenLabel(customAt, app.now, app.zone)}</span>
         <input type="datetime-local" bind:value={custom} aria-label="Pick a time" />
       </label>
-      <button class="set" onclick={pickCustom} disabled={customAt === null}>Set</button>
+      <button class="set" onclick={pickCustom} disabled={settable === null}>Set</button>
     </div>
   </div>
 </Sheet>

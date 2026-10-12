@@ -1,37 +1,31 @@
 import type { Op } from './ops';
 import type { ReminderFields, Repeat } from './reminder';
-import { RuleError, parseRule } from './rrule';
+import { RuleError, parseRule, type Rule } from './rrule';
 import { isTimeZone, parseLocal } from './time';
 import { isUlid } from './ulid';
 import { isInteger, isRecord, isText } from './validate';
 
-const LIMITS = {
+export const LIMITS = {
   title: 200,
   notes: 4000,
   alerts: 4,
   alertMinutes: 60 * 24 * 28,
 } as const;
 
-function parseRepeat(value: unknown): Repeat | null | undefined {
-  if (value === null) return null;
-  if (!isRecord(value) || !isText(value.rule, 500, 1)) return undefined;
+function countsFromCompletion(rule: Rule): boolean {
+  const parts = [rule.byMonth, rule.byMonthDay, rule.byDay, rule.byHour, rule.byMinute, rule.bySetPos];
+  return parts.every((part) => part.length === 0) && rule.count === null && rule.until === null;
+}
+
+export function isRepeat(value: unknown): value is Repeat {
+  if (!isRecord(value) || !isText(value.rule, 500, 1)) return false;
   const { rule: text, anchor } = value;
-  if (anchor !== 'schedule' && anchor !== 'completion') return undefined;
+  if (anchor !== 'schedule' && anchor !== 'completion') return false;
   try {
     const rule = parseRule(text);
-    const simple =
-      rule.byMonth.length +
-        rule.byMonthDay.length +
-        rule.byDay.length +
-        rule.byHour.length +
-        rule.byMinute.length +
-        rule.bySetPos.length ===
-        0 &&
-      rule.count === null &&
-      rule.until === null;
-    return anchor === 'completion' && !simple ? undefined : { rule: text, anchor };
+    return anchor === 'schedule' || countsFromCompletion(rule);
   } catch (error) {
-    if (error instanceof RuleError) return undefined;
+    if (error instanceof RuleError) return false;
     throw error;
   }
 }
@@ -47,8 +41,7 @@ function isAlerts(value: unknown): value is number[] {
 
 export function parseFields(value: unknown): ReminderFields | null {
   if (!isRecord(value)) return null;
-  const { title, notes, start, zone, important, alerts } = value;
-  const repeat = parseRepeat(value.repeat);
+  const { title, notes, start, zone, repeat, important, alerts } = value;
   if (
     !isText(title, LIMITS.title) ||
     title.trim() === '' ||
@@ -56,13 +49,21 @@ export function parseFields(value: unknown): ReminderFields | null {
     !isText(start, 16) ||
     !parseLocal(start) ||
     !(zone === null || (isText(zone, 64) && isTimeZone(zone))) ||
-    repeat === undefined ||
+    !(repeat === null || isRepeat(repeat)) ||
     typeof important !== 'boolean' ||
     !isAlerts(alerts)
   ) {
     return null;
   }
-  return { title: title.trim(), notes, start, zone, repeat, important, alerts: alerts.toSorted((a, b) => a - b) };
+  return {
+    title: title.trim(),
+    notes,
+    start,
+    zone,
+    repeat: repeat && { rule: repeat.rule, anchor: repeat.anchor },
+    important,
+    alerts: alerts.toSorted((a, b) => a - b),
+  };
 }
 
 export function parseOp(value: unknown): Op | null {

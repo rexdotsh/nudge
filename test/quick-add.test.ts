@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { describeRepeat } from '../src/shared/describe';
+import { parseFields } from '../src/shared/input';
 import { parseQuickAdd, suggestedStart } from '../src/shared/quick-add';
 import { parseLocal, toInstant } from '../src/shared/time';
 
@@ -95,11 +96,20 @@ describe('parseQuickAdd', () => {
       '2026-10-12T09:00',
       'FREQ=DAILY;UNTIL=20261025T182900Z',
     ],
+    [
+      'water plants every 3 days after done until dec 20',
+      'water plants until dec 20',
+      '2026-10-12T09:00',
+      'FREQ=DAILY;INTERVAL=3',
+    ],
+    ['pills every day after done at 8am and 8pm', 'pills at 8am and 8pm', '2026-10-12T09:00', 'FREQ=DAILY'],
   ])('%p', (text, title, start, rule) => {
     const parsed = parse(text);
     expect(parsed.title).toBe(title);
     expect(parsed.start).toBe(start);
     expect(parsed.repeat?.rule ?? null).toBe(rule);
+    const fields = { title, notes: '', start: start ?? '2026-10-12T09:00', zone: null, important: false, alerts: [] };
+    expect(parseFields({ ...fields, repeat: parsed.repeat })).not.toBeNull();
   });
 
   test('completion-anchored repeats start at the next free slot', () => {

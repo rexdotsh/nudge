@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isSnoozed } from '../../shared/reminder';
   import { HOUR_MS } from '../../shared/time';
-  import { complete, remove, snooze } from '../lib/actions';
+  import { complete, remove, snooze, snoozeFrom } from '../lib/actions';
   import { repeatLabel, shortWhen } from '../lib/format';
   import type { Entry } from '../lib/sections';
   import { swipe } from '../lib/swipe';
@@ -24,7 +24,7 @@
   let offset = $state(0);
 
   function snoozeHour() {
-    void snooze(reminder, Date.now() + HOUR_MS);
+    void snooze(reminder, snoozeFrom(reminder, Date.now(), zone) + HOUR_MS);
   }
 </script>
 

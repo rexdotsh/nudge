@@ -1,7 +1,7 @@
 import { SNOOZE_MINUTES } from '../../browser/notify';
 import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
 import { dueAt, firstDue, type Reminder, type ReminderFields } from '../../shared/reminder';
-import { DAY_MS, HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
+import { HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
 import { ulid } from '../../shared/ulid';
 import { app } from './app.svelte';
 import { whenLabel } from './format';
@@ -61,19 +61,24 @@ export interface SnoozeOption {
   at: number;
 }
 
-export function snoozeOptions(now: number, zone: string): SnoozeOption[] {
+export function snoozeFrom(reminder: Reminder, now: number, zone: string): number {
+  return Math.max(now, dueAt(reminder, zone) ?? now);
+}
+
+export function snoozeOptions(reminder: Reminder, now: number, zone: string): SnoozeOption[] {
+  const from = snoozeFrom(reminder, now, zone);
   const today = toLocal(now, zone);
   const at = (days: number, hour: number) => {
     const date = fromEpochDay(epochDay(today) + days);
     return toInstant({ ...date, hour, minute: 0 }, zone);
   };
   const options: SnoozeOption[] = [
-    { key: 'soon', label: `${SNOOZE_MINUTES} minutes`, at: now + SNOOZE_MINUTES * MINUTE_MS },
-    { key: 'hour', label: '1 hour', at: now + HOUR_MS },
+    { key: 'soon', label: `${SNOOZE_MINUTES} minutes`, at: from + SNOOZE_MINUTES * MINUTE_MS },
+    { key: 'hour', label: '1 hour', at: from + HOUR_MS },
   ];
   if (today.hour < 17) options.push({ key: 'evening', label: 'This evening', at: at(0, 18) });
   options.push({ key: 'morning', label: 'Tomorrow morning', at: at(1, 9) });
   const toMonday = (7 - weekday(epochDay(today))) % 7 || 7;
   options.push({ key: 'week', label: 'Next week', at: at(toMonday, 9) });
-  return options.filter((option) => option.at > now + MINUTE_MS && option.at - now < 8 * DAY_MS);
+  return options.filter((option) => option.at > from + MINUTE_MS);
 }

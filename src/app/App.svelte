@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
-  import { fallback } from './lib/fallback';
+  import { show } from '../browser/notify';
+  import { Fallback } from './lib/fallback';
   import { ui } from './lib/ui.svelte';
   import { isInstalled } from './lib/platform';
   import Enroll from './screens/Enroll.svelte';
@@ -17,8 +18,19 @@
   if (opening) ui.edit(opening);
   if (link.size > 0) history.replaceState(null, '', '/');
 
+  const fallback = new Fallback({
+    ready: () => navigator.serviceWorker.ready.then((registration) => (content) => show(registration, content)),
+    wait: (run, ms) => {
+      const timer = setTimeout(() => void run(), ms);
+      return () => clearTimeout(timer);
+    },
+    now: () => Date.now(),
+    origin: location.origin,
+    locale: navigator.language,
+  });
+
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled');
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.caughtUp);
   });
 </script>
 
