@@ -511,6 +511,15 @@ describe('delivery', () => {
     expect(h.state.alarm).toBe(h.state.now + RESEND_AFTER_MS);
   });
 
+  test('an endpoint taken over by a new enrollment is sent each notification once', async () => {
+    const { phone, laptop } = await h.pair();
+    await h.ok('subscribe', keys(1), laptop);
+    await h.ok('test', { id: ulid(), delay: 1 }, phone);
+    h.state.alarm = h.state.now + 1000;
+    await h.runAlarm();
+    expect(h.sentTo(1)).toBe(1);
+  });
+
   test('test notifications are capped, go out on time, and replays return the original schedule', async () => {
     const { phone } = await h.pair();
     const [first = '', ...rest] = Array.from({ length: 5 }, () => ulid());

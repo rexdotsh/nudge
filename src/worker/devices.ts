@@ -129,7 +129,16 @@ export class Devices {
     );
   }
 
+  /** A push endpoint belongs to one device: a reinstalled app that inherits it takes it from its old enrollment, which
+   * would otherwise be sent every notification a second time. */
   subscribe(id: string, keys: PushKeys | null): void {
+    if (keys) {
+      this.sql.exec(
+        'UPDATE devices SET endpoint = NULL, p256dh = NULL, auth = NULL WHERE endpoint = ? AND id != ?',
+        keys.endpoint,
+        id,
+      );
+    }
     this.sql.exec(
       'UPDATE devices SET endpoint = ?, p256dh = ?, auth = ? WHERE id = ?',
       keys?.endpoint ?? null,
