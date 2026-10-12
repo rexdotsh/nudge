@@ -45,12 +45,15 @@ class App {
   private pending: Change[] = [];
   private token: string | null = null;
   private connection: Connection | null = null;
+  private connected: () => void = () => {};
   private inflight: Promise<void> | null = null;
   private again = false;
   private healthRequests = 0;
   private readonly gate = new ForegroundGate(document.visibilityState === 'visible');
 
-  async start(): Promise<void> {
+  /** `connected` runs each time the live connection (re)opens, which is also how a deploy shows up. */
+  async start(connected: () => void): Promise<void> {
+    this.connected = connected;
     navigator.serviceWorker?.addEventListener('message', ({ data }) => {
       if (isWorkerMessage(data) && data.kind === 'changed') void this.reloadLocal().then(() => this.sync());
     });
@@ -190,7 +193,10 @@ class App {
       (version) => {
         if (version > this.replica.version) void this.sync();
       },
-      () => void this.sync(),
+      () => {
+        this.connected();
+        void this.sync();
+      },
     );
     this.connection.open();
     void this.sync();

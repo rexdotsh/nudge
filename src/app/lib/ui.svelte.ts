@@ -33,13 +33,14 @@ class Ui {
   }
 
   /** Nothing typed or open that a reload would lose. */
+  /** Nothing typed, unsaved or covering the screen that a reload would lose; a docked editor with no edits is fine. */
   get idle(): boolean {
     return (
-      this.editing === null &&
+      (this.editing === null || this.docked) &&
       this.snoozing === null &&
       this.menu === null &&
       !this.help &&
-      this.#drafts.size === 0 &&
+      ![...this.#drafts.values()].some((draft) => draft.dirty) &&
       this.composing.trim() === ''
     );
   }

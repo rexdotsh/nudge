@@ -28,6 +28,11 @@ export class Draft {
     alerts: this.alerts.toSorted((a, b) => a - b),
   }));
   readonly parsed = $derived.by(() => (this.repeat.understood ? parseFields(this.fields) : null));
+  /** Holds something a save would change, or something that can't be saved yet. */
+  get dirty(): boolean {
+    return this.parsed === null || this.changed;
+  }
+
   readonly changed = $derived.by(
     () => this.parsed !== null && JSON.stringify(this.parsed) !== JSON.stringify(fieldsOf(this.original)),
   );

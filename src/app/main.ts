@@ -1,7 +1,7 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
 import { app } from './lib/app.svelte';
-import { stayCurrent } from './lib/update.svelte';
+import { checkForUpdate, stayCurrent } from './lib/update.svelte';
 import './styles.css';
 
 const target = document.getElementById('app');
@@ -12,4 +12,4 @@ if ('serviceWorker' in navigator) {
   stayCurrent(navigator.serviceWorker);
 }
 mount(App, { target });
-void app.start();
+void app.start(checkForUpdate);
