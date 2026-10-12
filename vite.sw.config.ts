@@ -12,10 +12,11 @@ function files(dir: string): string[] {
   });
 }
 
-// index.html is cached as '/', and iOS fetches launch images only when the app is added to the Home Screen.
+// index.html is cached as '/', Workers reads _headers itself, and iOS fetches launch images only when the app is added
+// to the Home Screen.
 const precache = files(client)
   .map((path) => '/' + relative(client, path))
-  .filter((url) => !/^\/(\.vite\/|splash\/|index\.html$)/.test(url));
+  .filter((url) => !/^\/(\.vite\/|splash\/|index\.html$|_headers$)/.test(url));
 
 const hash = createHash('sha256');
 for (const url of [...precache, '/index.html']) hash.update(url).update(readFileSync(join(client, url)));

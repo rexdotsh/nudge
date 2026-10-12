@@ -45,12 +45,18 @@ async function present(notification: NotificationContent, shownByBrowser: boolea
   });
 }
 
+// Where the browser supports it, launches and hashed assets are answered straight from the cache without waiting for this
+// worker to start.
+const ROUTES: RouterRule[] = [
+  { condition: { urlPattern: { pathname: '/', search: '' }, requestMode: 'navigate' }, source: { cacheName: CACHE } },
+  { condition: { urlPattern: { pathname: '/assets/*' } }, source: { cacheName: CACHE } },
+];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(NUDGE_PRECACHE))
-      .then(() => self.skipWaiting()),
+    Promise.all([caches.open(CACHE).then((cache) => cache.addAll(NUDGE_PRECACHE)), event.addRoutes?.(ROUTES)]).then(
+      () => self.skipWaiting(),
+    ),
   );
 });
 
