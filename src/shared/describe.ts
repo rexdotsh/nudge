@@ -110,11 +110,13 @@ function pickedTimes(rule: Rule, start: LocalDateTime) {
   return picked.length > 0 ? picked : null;
 }
 
-function times(rule: Rule, start: LocalDateTime, names: Names): string | null {
+function times(rule: Rule, start: LocalDateTime, names: Names, withTime: boolean): string | null {
   if (rule.freq === 'HOURLY') return '';
   const picked = pickedTimes(rule, start);
   if (picked === null) return null;
-  return picked.length < 2 ? '' : ` at ${list(picked.map(({ hour, minute }) => names.time(hour, minute)))}`;
+  return picked.length < (withTime ? 1 : 2)
+    ? ''
+    : ` at ${list(picked.map(({ hour, minute }) => names.time(hour, minute)))}`;
 }
 
 function ending(rule: Rule, names: Names, zone: string): string {
@@ -124,7 +126,14 @@ function ending(rule: Rule, names: Names, zone: string): string {
   return `, until ${names.month(until.month, 'short')} ${until.day}`;
 }
 
-export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: string, zone: string): string {
+/** Names its times of day when it has several, or always `withTime`. */
+export function describeRepeat(
+  repeat: Repeat,
+  start: LocalDateTime,
+  locale: string,
+  zone: string,
+  { withTime = false } = {},
+): string {
   const rule = parseRule(repeat.rule);
   const names = namesFor(locale);
   if (repeat.anchor === 'completion') {
@@ -132,7 +141,7 @@ export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: str
     return `${rule.interval} ${unit}${rule.interval === 1 ? '' : 's'} after done`;
   }
   const phrase = cadence(rule, start, names);
-  const at = times(rule, start, names);
+  const at = times(rule, start, names, withTime);
   if (phrase === null || at === null) return 'Custom repeat';
   return `${phrase}${at}${ending(rule, names, zone)}`;
 }

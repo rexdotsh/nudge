@@ -2,38 +2,25 @@
   import { LIMITS } from '../../shared/input';
   import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
   import { local } from '../../shared/reminder';
-  import type { SpanKind } from '../../shared/scanner';
   import { toInstant } from '../../shared/time';
   import { add } from '../lib/actions';
   import { NEW_REMINDER, hint } from '../lib/shortcuts';
   import { app } from '../lib/app.svelte';
   import { repeatLabel, summaryWhen } from '../lib/format';
   import { ui } from '../lib/ui.svelte';
+  import HighlightedInput from './HighlightedInput.svelte';
   import Icon from './Icon.svelte';
 
   let { autofocus = false }: { autofocus?: boolean } = $props();
 
-  const PLACEHOLDER = 'Remind me to…';
   const LIFTED_TOP = 72;
   const SETTLE_MS = 900;
 
   let input: HTMLInputElement | undefined = $state();
-  let mirror: HTMLDivElement | undefined = $state();
   let visibleBottom = $state(window.innerHeight);
   let lift = $state(0);
 
   const parsed = $derived(ui.composing.trim() === '' ? null : parseQuickAdd(ui.composing, app.now, app.zone));
-  const segments = $derived.by(() => {
-    const parts: { text: string; kind: SpanKind | null }[] = [];
-    let cursor = 0;
-    for (const span of parsed?.spans ?? []) {
-      if (span.start > cursor) parts.push({ text: ui.composing.slice(cursor, span.start), kind: null });
-      parts.push({ text: ui.composing.slice(span.start, span.end), kind: span.kind });
-      cursor = span.end;
-    }
-    parts.push({ text: ui.composing.slice(cursor), kind: null });
-    return parts;
-  });
   const start = $derived(parsed ? (parsed.start ?? suggestedStart(app.now, app.zone)) : null);
   const when = $derived(start ? summaryWhen(toInstant(local(start), app.zone), app.now, app.zone) : '');
   const cadence = $derived(parsed?.repeat && start ? repeatLabel(parsed.repeat, start, app.zone) : null);
@@ -70,10 +57,6 @@
     event.preventDefault();
     if (await add(ui.composing)) ui.composing = '';
     input?.focus();
-  }
-
-  function syncScroll() {
-    if (mirror && input) mirror.scrollLeft = input.scrollLeft;
   }
 
   // iOS never shrinks the layout for the keyboard; it pans the page up to reveal the focused field. The composer is
@@ -134,26 +117,16 @@
       onpointercancel={settle}
       onclick={focusLifted}
     >
-      <!-- The mirror keeps whitespace, so nothing may sit between its tags. -->
-      <div class="mirror" bind:this={mirror} aria-hidden="true">
-        {#if lift !== 0 && ui.composing === ''}<span class="hint">{PLACEHOLDER}</span
-          >{/if}{#each segments as segment, index (index)}<span class={segment.kind ?? undefined}>{segment.text}</span
-          >{/each}
-      </div>
-      <input
-        class="bare"
+      <HighlightedInput
         id="composer"
-        bind:this={input}
+        bind:input
         bind:value={ui.composing}
-        class:lifted={lift !== 0}
-        style:translate={lift === 0 ? undefined : `0 ${-lift}px`}
+        spans={parsed?.spans ?? []}
+        {lift}
         onblur={settle}
-        onscroll={syncScroll}
-        oninput={syncScroll}
-        placeholder={PLACEHOLDER}
+        placeholder="Remind me to…"
         maxlength={LIMITS.title}
         aria-label="New reminder"
-        autocomplete="off"
         enterkeyhint="done"
         spellcheck="true"
       />
@@ -228,43 +201,6 @@
     position: relative;
     flex: 1;
     min-width: 0;
-  }
-
-  .entry input,
-  .mirror {
-    width: 100%;
-    padding: 0;
-    font: 400 16px/22px var(--font);
-    letter-spacing: normal;
-    white-space: pre;
-  }
-
-  .entry input {
-    position: relative;
-    color: transparent;
-    caret-color: var(--ink);
-  }
-
-  .entry input.lifted {
-    opacity: 0;
-  }
-
-  .mirror .hint {
-    color: var(--muted);
-  }
-
-  .mirror {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    color: var(--ink);
-    pointer-events: none;
-  }
-
-  .mirror span.when,
-  .mirror span.repeat,
-  .mirror span.flag {
-    color: var(--accent);
   }
 
   .summary {

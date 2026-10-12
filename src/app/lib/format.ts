@@ -95,6 +95,6 @@ export function zoneLabel(zone: string, now: number): string {
   return parts.find((part) => part.type === 'timeZoneName')?.value ?? zone;
 }
 
-export function repeatLabel(repeat: Repeat, start: string, zone: string): string {
-  return describeRepeat(repeat, local(start), locale, zone);
+export function repeatLabel(repeat: Repeat, start: string, zone: string, options?: { withTime: boolean }): string {
+  return describeRepeat(repeat, local(start), locale, zone, options);
 }

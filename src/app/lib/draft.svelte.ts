@@ -21,7 +21,7 @@ export class Draft {
   readonly fields = $derived.by<ReminderFields>(() => ({
     title: this.title.trim(),
     notes: this.notes,
-    start: `${this.date}T${this.time}`,
+    start: `${this.date}T${this.repeat.time ?? this.time}`,
     zone: this.pinned ? (this.original.zone ?? app.zone) : null,
     repeat: this.repeat.repeat,
     important: this.important,
@@ -54,6 +54,12 @@ export class Draft {
     this.alerts = this.alerts.includes(minutes)
       ? this.alerts.filter((value) => value !== minutes)
       : [...this.alerts, minutes];
+  }
+
+  /** Settles on the typed repeat and the time of day it names. */
+  applyRepeat(): void {
+    this.time = this.repeat.time ?? this.time;
+    this.repeat.apply();
   }
 
   async persist(): Promise<void> {

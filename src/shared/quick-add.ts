@@ -45,6 +45,8 @@ export interface QuickAdd {
   start: string | null;
   repeat: Repeat | null;
   important: boolean;
+  /** The text named or implied a time of day, rather than leaving the start to the default. */
+  timed: boolean;
   spans: Span[];
 }
 
@@ -245,14 +247,18 @@ function resolveBareHour(hour: number, date: LocalDate | null, now: number, zone
   return toInstant({ ...today, ...morning }, zone) > now ? morning : afternoon;
 }
 
-function startOf(draft: Draft, now: number, zone: string): string | null {
-  if (draft.offset !== null) return formatLocal(wallAtOrAfter(now + draft.offset, zone));
+function timeOf(draft: Draft, now: number, zone: string): Time | null {
   const today = toLocal(now, zone);
   const bare =
     draft.bareHour === null
       ? null
       : resolveBareHour(draft.bareHour, draft.date ?? (draft.repeat ? today : null), now, zone);
-  const time = draft.listedTime ?? draft.time ?? bare ?? draft.defaultTime;
+  return draft.listedTime ?? draft.time ?? bare ?? draft.defaultTime;
+}
+
+function startOf(draft: Draft, time: Time | null, now: number, zone: string): string | null {
+  if (draft.offset !== null) return formatLocal(wallAtOrAfter(now + draft.offset, zone));
+  const today = toLocal(now, zone);
   if (draft.offsetDays !== null) {
     if (!time) return formatLocal(wallAtOrAfter(now + draft.offsetDays * DAY_MS, zone));
     draft.date = fromEpochDay(epochDay(today) + draft.offsetDays);
@@ -322,7 +328,8 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
   draft.tentative = implied && !ended;
   scanWhen(scanner, draft, today);
   if (draft.tentative && draft.listedTime === null) draft.repeat = null;
-  const start = startOf(draft, now, zone);
+  const time = timeOf(draft, now, zone);
+  const start = startOf(draft, time, now, zone);
   applyDuration(draft, start, now, zone);
   const repeat = draft.repeat && { rule: formatRule(draft.repeat.rule), anchor: draft.repeat.anchor };
   return {
@@ -330,6 +337,7 @@ export function parseQuickAdd(text: string, now: number, zone: string): QuickAdd
     start,
     repeat: isRepeat(repeat) ? repeat : null,
     important,
+    timed: time !== null,
     spans: scanner.spans.toSorted((a, b) => a.start - b.start),
   };
 }

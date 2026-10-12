@@ -226,6 +226,11 @@ describe('parseQuickAdd', () => {
       title: 'meds',
       repeat: { rule: 'FREQ=DAILY;INTERVAL=2', anchor: 'completion' },
     });
+    expect(parse('descale 3 days after done')).toMatchObject({
+      title: 'descale',
+      repeat: { rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' },
+    });
+    expect(parse('apply 2 days after finishing the course').repeat).toBeNull();
   });
 
   test('exclamation marks flag a reminder as important', () => {
@@ -245,6 +250,18 @@ describe('parseQuickAdd', () => {
       ['tomorrow', 'when'],
       ['6pm', 'when'],
     ]);
+  });
+
+  test.each([
+    ['every day at 9am and 9pm', true],
+    ['every tue at 5', true],
+    ['every morning', true],
+    ['twice a day', true],
+    ['every day', false],
+    ['every other tue', false],
+    ['3 days after done', false],
+  ])('a typed repeat %p names a time of day: %p', (text, timed) => {
+    expect(parse(`x ${text}`).timed).toBe(timed);
   });
 
   test('words that only look like dates stay in the title', () => {

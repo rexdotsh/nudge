@@ -70,7 +70,7 @@
       <span>When</span>
       <When bind:date={draft.date} bind:time={draft.time} {zone} />
     </div>
-    <RepeatPicker choice={draft.repeat} start={draft.fields.start} />
+    <RepeatPicker {draft} />
     <div class="field stacked">
       <span id="alerts-label">Also remind me before</span>
       <div class="alerts" role="group" aria-labelledby="alerts-label">

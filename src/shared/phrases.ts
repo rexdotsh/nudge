@@ -150,11 +150,15 @@ const monthly = (list: string) => {
     : scheduled(rule('MONTHLY', { byMonthDay: [...new Set(days)].toSorted((a, b) => a - b) }));
 };
 
+const AFTER = `(hour|day|week|month|year)s?\\s+after\\s+`;
+
 export const REPEATS: [pattern: string, build: (match: RegExpExecArray) => RepeatMatch | null][] = [
   [
-    `every\\s+(?:(other|\\d+)\\s+)?(hour|day|week|month|year)s?\\s+after\\s+(?:i(?:'m|\\s+am)?\\s+)?(?:done|complet(?:e|ed|ion|ing)|finish(?:ed|ing)?|do(?:ing)?\\s+it)`,
+    // Without "every", only the words the app shows for it ("3 days after done"), so "2 days after finishing the
+    // course" stays in the title.
+    `every\\s+(?:(other|\\d+)\\s+)?${AFTER}(?:i(?:'m|\\s+am)?\\s+)?(?:done|complet(?:e|ed|ion|ing)|finish(?:ed|ing)?|do(?:ing)?\\s+it)|(\\d+)\\s+${AFTER}done`,
     (m) => {
-      const found = everyUnits(m[2], count(m[1]));
+      const found = everyUnits(m[2] ?? m[4], count(m[1] ?? m[3]));
       return found && { rule: found, anchor: 'completion', defaultTime: null };
     },
   ],
