@@ -21,7 +21,7 @@ const TRAVEL_WINDOW_MS = 7 * DAY_MS;
 
 class App {
   phase = $state<Phase>('loading');
-  reminders = $state<Reminder[]>([]);
+  reminders = $state.raw<Reminder[]>([]);
   online = $state(true);
   now = $state(Date.now());
   zone = $state(currentZone());

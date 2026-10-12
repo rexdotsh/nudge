@@ -1,4 +1,5 @@
 import type { Repeat } from './reminder';
+import { memoize } from './memoize';
 import { parseRule, type ByDay, type Rule } from './rrule';
 import { epochDay, toLocal, weekday, type LocalDateTime } from './time';
 
@@ -21,25 +22,21 @@ function every(interval: number, unit: string): string {
   return `Every ${interval} ${unit}s`;
 }
 
-class Names {
-  constructor(private readonly locale: string) {}
+const namesFor = memoize((locale) => {
+  const style = (options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' });
+  const days = { long: style({ weekday: 'long' }), short: style({ weekday: 'short' }) };
+  const months = { long: style({ month: 'long' }), short: style({ month: 'short' }) };
+  const hours = style({ hour: 'numeric' });
+  const minutes = style({ hour: 'numeric', minute: '2-digit' });
+  return {
+    weekday: (index: number, width: 'long' | 'short') => days[width].format(Date.UTC(2024, 0, 1 + index)),
+    month: (month: number, width: 'long' | 'short') => months[width].format(Date.UTC(2024, month - 1, 1)),
+    time: (hour: number, minute: number) => (minute === 0 ? hours : minutes).format(Date.UTC(2024, 0, 1, hour, minute)),
+  };
+});
 
-  weekday(index: number, width: 'long' | 'short'): string {
-    return new Intl.DateTimeFormat(this.locale, { weekday: width, timeZone: 'UTC' }).format(
-      Date.UTC(2024, 0, 1 + index),
-    );
-  }
-
-  month(month: number, width: 'long' | 'short'): string {
-    return new Intl.DateTimeFormat(this.locale, { month: width, timeZone: 'UTC' }).format(Date.UTC(2024, month - 1, 1));
-  }
-
-  time(hour: number, minute: number): string {
-    const options: Intl.DateTimeFormatOptions = { hour: 'numeric', timeZone: 'UTC' };
-    if (minute !== 0) options.minute = '2-digit';
-    return new Intl.DateTimeFormat(this.locale, options).format(Date.UTC(2024, 0, 1, hour, minute));
-  }
-}
+type Names = ReturnType<typeof namesFor>;
 
 const isSet = (days: ByDay[], wanted: number[]) =>
   days.length === wanted.length && days.every((day) => day.nth === 0 && wanted.includes(day.weekday));
@@ -119,7 +116,7 @@ function ending(rule: Rule, names: Names, zone: string): string {
 
 export function describeRepeat(repeat: Repeat, start: LocalDateTime, locale: string, zone: string): string {
   const rule = parseRule(repeat.rule);
-  const names = new Names(locale);
+  const names = namesFor(locale);
   if (repeat.anchor === 'completion') {
     const unit = UNITS[rule.freq];
     return `${rule.interval} ${unit}${rule.interval === 1 ? '' : 's'} after done`;
