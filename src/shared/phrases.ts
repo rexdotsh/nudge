@@ -13,8 +13,8 @@ const ORDINAL = '(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)';
 export const SUFFIX = '(?:st|nd|rd|th)?';
 const OF_MONTH = '(?:\\s+of)?\\s+(?:the\\s+|every\\s+|each\\s+)?month';
 const MERIDIEM = '(am|pm|a\\.m\\.|p\\.m\\.)';
-export const TIME = `(\\d{1,2})(?::(\\d{2}))?\\s*${MERIDIEM}?`;
-export const MERIDIEM_TIME = `(\\d{1,2})(?::(\\d{2}))?\\s*${MERIDIEM}`;
+export const TIME = `(\\d{1,2})(?:[:.](\\d{2}))?\\s*${MERIDIEM}?`;
+export const MERIDIEM_TIME = `(\\d{1,2})(?:[:.](\\d{2}))?\\s*${MERIDIEM}`;
 
 const NTH: Record<string, number> = {
   first: 1,

@@ -187,6 +187,10 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
   scanner.take(`(?:at\\s+|@\\s*)?([01]?\\d|2[0-3]):([0-5]\\d)`, 'when', (m) =>
     setTime(clock(m[1] ?? '', m[2], undefined)),
   );
+  // A dot also separates hours and minutes, but without am/pm only after "at", since "4.50" alone is more likely a price.
+  scanner.take(`(?:at\\s+|@\\s*)([01]?\\d|2[0-3])\\.([0-5]\\d)`, 'when', (m) =>
+    setTime(clock(m[1] ?? '', m[2], undefined)),
+  );
   scanner.take(`(?:at|@)\\s*(\\d{1,2})`, 'when', (m) => {
     const hour = Number(m[1]);
     if (hour < 1 || hour > 12) return setTime(clock(m[1] ?? '', undefined, undefined));
