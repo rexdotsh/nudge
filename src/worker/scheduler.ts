@@ -123,7 +123,15 @@ export class Scheduler {
     else if (stalled) await this.rearm();
     this.runtime.transaction(() => {
       this.store.deliveries.purge(now - DELIVERY_RETENTION_MS);
-      this.store.purgeAlertMarks(now - DAY_MS);
+      // An occurrence alerts once for as long as it lasts, however long it is snoozed.
+      const live = this.store
+        .reminders()
+        .flatMap((reminder) =>
+          reminder.deleted || reminder.due === null
+            ? []
+            : [`alert:${occurrenceAlertKey('unconfirmed', { topic: occurrenceTopic(reminder.id, reminder.due) })}`],
+        );
+      this.store.purgeAlertMarks(now - DAY_MS, 'alert:unconfirmed:', new Set(live));
     });
     if (late > 0) await this.alertOnce('late', `${late} notification(s) were late, sent them now.`);
     if (stalled) await this.alertOnce('stalled', 'The scheduler had no alarm set while work was pending, re-armed it.');

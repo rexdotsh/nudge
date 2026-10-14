@@ -560,6 +560,20 @@ describe('delivery', () => {
     },
   );
 
+  test('an occurrence forgets its alert once it is over, so nothing is kept forever', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId);
+    await h.runAlarmsThrough(DUE + HOUR_MS);
+    const marks = () => h.db.query("SELECT key FROM meta WHERE key LIKE 'alert:unconfirmed:%'").all();
+    expect([h.state.alerts.length, marks().length]).toEqual([1, 1]);
+    await h.nudge.watchdog();
+    expect(marks()).toHaveLength(1);
+    await h.sync(deviceId, [{ type: 'complete', id, due: '2026-10-12T09:00' }]);
+    await h.nudge.watchdog();
+    expect(marks()).toHaveLength(0);
+  });
+
   const receipts: [string, 'due' | 'early' | 'nag' | 'unknown', string[]][] = [
     ['a nag confirms the earlier pushes of its occurrence', 'nag', ['due', 'nag']],
     ['the due push confirms only itself', 'due', ['due']],
