@@ -2,7 +2,7 @@ import { Unreachable, request } from '../browser/api';
 import { get } from '../browser/kv';
 import { openInPlace, type WorkerMessage } from '../browser/messages';
 import { SNOOZE_MINUTES, showUnlessOnScreen } from '../browser/notify';
-import { isShown } from '../browser/shown';
+import { dismissSettled, isShown } from '../browser/shown';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
@@ -91,11 +91,15 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(caches.match(key, { cacheName: CACHE }).then((hit) => hit ?? fetch(incoming)));
 });
 
+// iOS shows a declarative notification only once its push event settles, so the work around it gets a deadline.
+const SHOW_WITHIN_MS = 3000;
+
 self.addEventListener('push', (event) => {
   // Safari shows a declarative message itself and hands the worker only the notification it made, with no `data`.
   const shown: unknown = event.notification?.data;
   if (isPushData(shown)) {
-    event.waitUntil(present(shown.fire));
+    const deadline = new Promise((resolve) => setTimeout(resolve, SHOW_WITHIN_MS));
+    event.waitUntil(Promise.race([Promise.all([present(shown.fire), tidy()]), deadline]));
     return;
   }
   const message: unknown = event.data?.json();
@@ -105,6 +109,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     Promise.all([
       present(notification.data.fire, () => showUnlessOnScreen(self.registration, notification)),
+      tidy(),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
     ]),
   );
@@ -118,6 +123,17 @@ async function drain(): Promise<void> {
   const response = await request('sync', { since, zone: currentZone(), changes, theme: null });
   const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
   if (pending.length > 0) await drain();
+}
+
+// A phone with Nudge closed runs nothing but this worker, so each push is its chance to drop notifications for
+// reminders settled on another device since.
+async function tidy(): Promise<void> {
+  await drain().catch((error: unknown) => {
+    if (!(error instanceof Unreachable)) throw error;
+  });
+  const local = (await get('local')) ?? EMPTY_LOCAL;
+  const reminders = new Replica(local.replica).view(local.pending, currentZone());
+  await dismissSettled(self.registration, () => reminders, Date.now);
 }
 
 async function recount(): Promise<void> {
