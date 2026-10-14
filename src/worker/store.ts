@@ -104,8 +104,15 @@ export class Store {
     );
   }
 
-  purgeAlertMarks(before: number): void {
-    this.sql.exec("DELETE FROM meta WHERE key LIKE 'alert:%' AND CAST(value AS INTEGER) < ?", before);
+  /** Marks under `lasting` are kept while they are `live` rather than for a fixed time. */
+  purgeAlertMarks(before: number, lasting: string, live: ReadonlySet<string>): void {
+    this.sql.exec(
+      "DELETE FROM meta WHERE key LIKE 'alert:%' AND key NOT LIKE ? AND CAST(value AS INTEGER) < ?",
+      `${lasting}%`,
+      before,
+    );
+    const marks = this.sql.exec<{ key: string }>('SELECT key FROM meta WHERE key LIKE ?', `${lasting}%`).toArray();
+    for (const { key } of marks) if (!live.has(key)) this.sql.exec('DELETE FROM meta WHERE key = ?', key);
   }
 
   applied(opId: string): boolean {

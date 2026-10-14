@@ -29,8 +29,9 @@ const device = (label: string, key = crypto.randomUUID().replaceAll('-', '')): D
   locale: 'en-IN',
 });
 
-const keys = (seed: number) => ({
-  endpoint: `https://web.push.apple.com/device-${seed}`,
+type PushService = 'apple' | 'fcm';
+const keys = (seed: number, service: PushService = 'fcm') => ({
+  endpoint: `https://${service === 'apple' ? 'web.push.apple.com' : 'fcm.googleapis.com'}/device-${seed}`,
   p256dh: new Uint8Array(65).fill(seed).toBase64(BASE64URL),
   auth: new Uint8Array(16).fill(seed).toBase64(BASE64URL),
 });
@@ -146,23 +147,19 @@ function harness() {
     await runAlarmsThrough(until, arrived);
   }
 
-  async function pair() {
+  async function pair(firstService: PushService = 'fcm', secondService: PushService = 'fcm') {
     const first = await ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     const { code } = await ok('pair', null, first.deviceId);
     const second = await ok('join', { code, device: device('Windows PC') });
-    await ok('subscribe', keys(1), first.deviceId);
-    await ok('subscribe', keys(2), second.deviceId);
-    confirmedBefore(first.deviceId, second.deviceId);
+    await ok('subscribe', keys(1, firstService), first.deviceId);
+    await ok('subscribe', keys(2, secondService), second.deviceId);
     return { phone: first.deviceId, laptop: second.deviceId };
   }
 
-  function confirmedBefore(...deviceIds: string[]) {
-    for (const id of deviceIds) db.query('UPDATE devices SET receipt_at = 1 WHERE id = ?').run(id);
-  }
+  const sentTo = (seed: number, service: PushService = 'fcm') =>
+    state.pushes.filter((push) => push.endpoint === keys(seed, service).endpoint).length;
 
-  const sentTo = (seed: number) => state.pushes.filter((push) => push.endpoint === keys(seed).endpoint).length;
-
-  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, confirmedBefore, sentTo };
+  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, sentTo };
 }
 
 let h: ReturnType<typeof harness>;
@@ -314,7 +311,7 @@ describe('sync', () => {
 
   test('moving zones preserves the millisecond separating an upcoming early alert from the current due notice', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
-    await h.ok('subscribe', keys(1), deviceId);
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
     await h.put(deviceId, { repeat: daily, alerts: [1440] });
     await h.runAlarmsThrough(DUE + 1);
     await h.sync(deviceId, [], 'America/New_York');
@@ -435,45 +432,146 @@ describe('delivery', () => {
     expect(h.state.pushes[0]?.topic.length).toBeLessThanOrEqual(32);
   });
 
-  test('receipts stop resends; a silent device gets one resend, then an alert', async () => {
-    const { phone } = await h.pair();
-    await h.put(phone);
-    await h.runAlarm();
-    await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, phone);
-    expect(h.state.alarm).toBe(DUE + RESEND_AFTER_MS);
-    await h.runAlarm();
-    expect([h.sentTo(1), h.sentTo(2)]).toEqual([1, 2]);
-    expect(h.state.alarm).toBe(h.state.now + ESCALATE_AFTER_MS);
-    await h.runAlarm();
-    expect(h.state.alerts).toHaveLength(1);
-    expect(h.state.alarm).toBeNull();
+  test.each(['phone', 'laptop'] as const)(
+    'a receipt from the %s stops occurrence escalation, not the other device’s resend',
+    async (confirmed) => {
+      const devices = await h.pair();
+      const { phone } = devices;
+      await h.put(phone);
+      await h.runAlarm();
+      await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, devices[confirmed]);
+      expect(h.state.alarm).toBe(DUE + RESEND_AFTER_MS);
+      await h.runAlarm();
+      expect([h.sentTo(1), h.sentTo(2)]).toEqual(confirmed === 'phone' ? [1, 2] : [2, 1]);
+      expect(h.state.alarm).toBe(h.state.now + ESCALATE_AFTER_MS);
+      await h.runAlarm();
+      expect(h.state.alerts).toHaveLength(0);
+      expect(h.state.alarm).toBeNull();
+    },
+  );
+
+  test.each([false, true])('an Apple device gets each fire once, with prior receipt: %s', async (priorReceipt) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    if (priorReceipt) {
+      await h.ok('test', { id: ulid(), delay: 1 }, deviceId);
+      await h.runAlarm();
+      await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, deviceId);
+    }
+    const before = (await h.ok('health', null, deviceId)).devices[0]?.push.receiptAt;
+    const offset = h.state.pushes.length;
+    await h.put(deviceId, { important: true });
+    await h.runAlarmsThrough(DUE + HOUR_MS);
+    const fires = h.state.pushes.slice(offset).map((push) => push.message.notification.data.fire);
+    expect(fires.length).toBeGreaterThan(1);
+    expect(new Set(fires).size).toBe(fires.length);
+    expect(h.state.alerts).toHaveLength(0);
+    expect((await h.ok('health', null, deviceId)).devices[0]?.push.receiptAt).toBe(before);
+    expect(h.db.query('SELECT fire FROM deliveries WHERE receipt_at IS NULL OR next_at IS NOT NULL').all()).toEqual([]);
   });
 
-  test('a device that has never confirmed gets each notification once and raises no alert', async () => {
-    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
-    await h.ok('subscribe', keys(1), deviceId);
-    await h.put(deviceId);
-    await h.runAlarmsThrough(DUE + HOUR_MS);
-    expect(h.sentTo(1)).toBe(1);
-    expect(h.state.alerts).toHaveLength(0);
+  test.each([
+    ['FCM only', 'fcm', 'fcm', 201, 201, 1, [2, 2], false],
+    ['Apple accepted, PC silent', 'apple', 'fcm', 201, 201, 0, [1, 2], false],
+    ['Apple previously confirmed, PC silent', 'apple', 'fcm', 201, 201, 0, [1, 2], true],
+    ['Apple failing, PC silent', 'apple', 'fcm', 503, 201, 1, [6, 2], false],
+    ['Both push services failing', 'apple', 'fcm', 503, 503, 1, [6, 6], false],
+  ] as const)(
+    '%s: retries per device, escalation once per occurrence',
+    async (_, first, second, status, otherStatus, alerts, sends, priorReceipt) => {
+      const { phone, laptop } = await h.pair(first, second);
+      if (priorReceipt) {
+        await h.ok('test', { id: ulid(), delay: 1 }, phone);
+        await h.runAlarm();
+        const fire = h.state.pushes[0]?.message.notification.data.fire;
+        await Promise.all([phone, laptop].map((id) => h.ok('receipt', { fire }, id)));
+        h.state.pushes.length = 0;
+      }
+      h.state.status = (target) => (target.endpoint === keys(1, first).endpoint ? status : otherStatus);
+      await h.put(phone);
+      await h.runAlarmsThrough(DUE + HOUR_MS);
+      const escalations = h.state.alerts.filter((text) => !text.includes('Push to'));
+      expect(escalations).toHaveLength(alerts);
+      expect([h.sentTo(1, first), h.sentTo(2, second)]).toEqual([...sends]);
+      if (alerts) {
+        expect(escalations[0]).toContain('iPhone');
+        expect(escalations[0]).toContain('Windows PC');
+      }
+      expect(h.state.alerts.filter((text) => text.includes('Push to'))).toHaveLength(
+        Number(status === 503) + Number(otherStatus === 503),
+      );
+      expect(h.state.alarm).toBeNull();
+    },
+  );
+
+  test.each([1, 2])(
+    'an accepted Apple delivery queued by the old policy with %d sends is settled, not resent',
+    async (sends) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      await h.ok('subscribe', keys(1, 'apple'), deviceId);
+      await h.put(deviceId);
+      await h.runAlarm();
+      h.db.query('UPDATE deliveries SET receipt_at = NULL, sends = ?, next_at = ?').run(sends, DUE + RESEND_AFTER_MS);
+      h.state.now = DUE + RESEND_AFTER_MS;
+      await h.nudge.alarm();
+      expect(h.sentTo(1, 'apple')).toBe(1);
+      expect(h.state.alerts).toHaveLength(0);
+      expect(h.state.alarm).toBeNull();
+      expect((await h.ok('health', null, deviceId)).devices[0]?.push.receiptAt).toBeNull();
+      expect(h.db.query('SELECT sends, receipt_at FROM deliveries').all()).toEqual([{ sends, receipt_at: DUE }]);
+    },
+  );
+
+  test('Apple acceptance of a later fire suppresses an earlier escalation claimed in the same run', async () => {
+    const { phone } = await h.pair('apple', 'fcm');
+    h.state.status = (target) => (target.endpoint === keys(1, 'apple').endpoint ? 503 : 201);
+    await h.put(phone, { important: true });
+    await h.runAlarm();
+    await h.runAlarm();
+    h.state.status = () => 201;
+    h.state.now = DUE + 3 * NAG_INTERVAL_MS;
+    await h.nudge.alarm();
+    expect(h.state.alerts.filter((text) => !text.includes('Push to'))).toHaveLength(0);
+    expect(h.sentTo(1, 'apple')).toBe(7);
   });
 
   test.each([
     ['answers from the first nag on', 0, DUE + NAG_INTERVAL_MS],
     ['never answers', 1, Infinity],
-  ])('an important reminder on a device that %s raises %d alert(s) in its first hour', async (_, alerts, onlineAt) => {
+  ])(
+    'an important reminder on a device that %s raises %d alert(s), even after retention and snoozing',
+    async (_, alerts, onlineAt) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      await h.ok('subscribe', keys(1), deviceId);
+      const id = await h.put(deviceId, { important: true });
+      const confirmArrivals = (arrived: Pushed[]) =>
+        Promise.all(
+          arrived
+            .filter(() => h.state.now >= onlineAt)
+            .map((push) => h.ok('receipt', { fire: push.message.notification.data.fire }, deviceId)),
+        );
+      await h.runAlarmsThrough(DUE + 3 * HOUR_MS, confirmArrivals);
+      h.state.now = DUE + 15 * 24 * HOUR_MS;
+      await h.nudge.watchdog();
+      const until = h.state.now + MINUTE_MS;
+      await h.sync(deviceId, [{ type: 'snooze', id, due: '2026-10-12T09:00', until }]);
+      await h.runAlarmsThrough(until + 3 * HOUR_MS, confirmArrivals);
+      expect(h.state.alerts).toHaveLength(alerts);
+    },
+  );
+
+  test('an occurrence forgets its alert once it is over, so nothing is kept forever', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
-    h.confirmedBefore(deviceId);
-    await h.put(deviceId, { important: true });
-    await h.runAlarmsThrough(DUE + HOUR_MS, (arrived) =>
-      Promise.all(
-        arrived
-          .filter(() => h.state.now >= onlineAt)
-          .map((push) => h.ok('receipt', { fire: push.message.notification.data.fire }, deviceId)),
-      ),
-    );
-    expect(h.state.alerts).toHaveLength(alerts);
+    const id = await h.put(deviceId);
+    await h.runAlarmsThrough(DUE + HOUR_MS);
+    const marks = () => h.db.query("SELECT key FROM meta WHERE key LIKE 'alert:unconfirmed:%'").all();
+    expect([h.state.alerts.length, marks().length]).toEqual([1, 1]);
+    await h.nudge.watchdog();
+    expect(marks()).toHaveLength(1);
+    await h.sync(deviceId, [{ type: 'complete', id, due: '2026-10-12T09:00' }]);
+    await h.nudge.watchdog();
+    expect(marks()).toHaveLength(0);
   });
 
   const receipts: [string, 'due' | 'early' | 'nag' | 'unknown', string[]][] = [
@@ -515,7 +613,6 @@ describe('delivery', () => {
   test('an escalation whose alert could not be delivered is retried until it is', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
-    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     await h.runAlarm();
     await h.runAlarm();
@@ -532,7 +629,6 @@ describe('delivery', () => {
   test('a receipt that lands while an escalation alert is failing ends the work', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
-    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     await h.runAlarm();
     await h.runAlarm();
@@ -544,23 +640,25 @@ describe('delivery', () => {
     expect(h.state.alarm).toBeNull();
   });
 
-  test('a push that outlives its lease cannot undo the retry that replaced it', async () => {
-    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
-    await h.ok('subscribe', keys(1), deviceId);
-    h.confirmedBefore(deviceId);
-    await h.put(deviceId);
-    h.state.holdNext = true;
-    h.state.now = DUE;
-    const stalled = h.nudge.alarm();
-    h.state.now = DUE + LEASE_MS + MINUTE_MS;
-    await h.nudge.watchdog();
-    expect(h.sentTo(1)).toBe(2);
-    h.state.held?.(410);
-    await stalled;
-    const health = await h.ok('health', null, deviceId);
-    expect(health.devices[0]?.push.enabled).toBe(true);
-    expect(h.state.alarm).toBe(DUE + LEASE_MS + MINUTE_MS + RESEND_AFTER_MS);
-  });
+  test.each(['apple', 'fcm'] as const)(
+    'a %s push outliving its lease cannot undo the retry that replaced it',
+    async (service) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      await h.ok('subscribe', keys(1, service), deviceId);
+      await h.put(deviceId);
+      h.state.holdNext = true;
+      h.state.now = DUE;
+      const stalled = h.nudge.alarm();
+      h.state.now = DUE + LEASE_MS + MINUTE_MS;
+      await h.nudge.watchdog();
+      expect(h.sentTo(1, service)).toBe(2);
+      h.state.held?.(410);
+      await stalled;
+      const health = await h.ok('health', null, deviceId);
+      expect(health.devices[0]?.push.enabled).toBe(true);
+      expect(h.state.alarm).toBe(service === 'apple' ? null : DUE + LEASE_MS + MINUTE_MS + RESEND_AFTER_MS);
+    },
+  );
 
   test('a crash after claiming a delivery resends it once the lease runs out', async () => {
     const { phone } = await h.pair();
@@ -596,7 +694,6 @@ describe('delivery', () => {
     async (end) => {
       const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
       await h.ok('subscribe', keys(1), deviceId);
-      h.confirmedBefore(deviceId);
       const id = await h.put(deviceId);
       h.state.holdNext = true;
       const pushed = new Promise<void>((resolve) => (h.state.onPush = () => resolve()));
@@ -615,19 +712,41 @@ describe('delivery', () => {
     },
   );
 
-  test('a push service outage that outlasts the quick retries is resent later, then escalated', async () => {
-    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
-    await h.ok('subscribe', keys(1), deviceId);
-    h.state.status = () => 503;
-    await h.put(deviceId);
-    await h.runAlarm();
-    expect(h.state.alarm).toBe(DUE + RESEND_AFTER_MS);
-    await h.runAlarm();
-    expect(h.sentTo(1)).toBe(6);
-    await h.runAlarm();
-    expect(h.state.alerts).toHaveLength(2);
-    expect(h.state.alarm).toBeNull();
-  });
+  test.each([503, 429, 0])(
+    'a push outage (%d) outlasting quick retries is resent later, then escalated',
+    async (status) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      await h.ok('subscribe', keys(1), deviceId);
+      h.state.status = () => {
+        if (status === 0) throw new Error('network unavailable');
+        return status;
+      };
+      await h.put(deviceId);
+      await h.runAlarm();
+      expect(h.state.alarm).toBe(DUE + RESEND_AFTER_MS);
+      await h.runAlarm();
+      expect(h.sentTo(1)).toBe(6);
+      await h.runAlarm();
+      expect(h.state.alerts).toHaveLength(2);
+      expect(h.state.alarm).toBeNull();
+    },
+  );
+
+  test.each([404, 410, 403])(
+    'a permanent push failure (%d) still alerts when Apple reached the occurrence',
+    async (status) => {
+      const { phone } = await h.pair('fcm', 'apple');
+      h.state.status = (target) => (target.endpoint === keys(1).endpoint ? status : 201);
+      await h.put(phone);
+      await h.runAlarmsThrough(DUE + HOUR_MS);
+      expect([h.sentTo(1), h.sentTo(2, 'apple')]).toEqual([1, 1]);
+      expect(h.state.alerts).toHaveLength(1);
+      expect((await h.ok('health', null, phone)).devices.find((d) => d.id === phone)?.push.enabled).toBe(
+        status === 403,
+      );
+      expect(h.state.alarm).toBeNull();
+    },
+  );
 
   test('completing a reminder cancels the resends of its notification', async () => {
     const { phone } = await h.pair();
@@ -639,17 +758,20 @@ describe('delivery', () => {
     expect([h.sentTo(1), h.sentTo(2)]).toEqual([1, 1]);
   });
 
-  test('every unconfirmed reminder escalates on its own, even within the alert cooldown', async () => {
-    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
-    await h.ok('subscribe', keys(1), deviceId);
-    h.confirmedBefore(deviceId);
-    await h.put(deviceId, { title: 'First' });
-    await h.put(deviceId, { title: 'Second' });
-    await h.runAlarm();
-    await h.runAlarm();
-    await h.runAlarm();
-    expect(h.state.alerts).toHaveLength(2);
-  });
+  test.each([false, true])(
+    'occurrence escalation stays independent within the cooldown, first confirmed: %s',
+    async (confirmed) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      await h.ok('subscribe', keys(1), deviceId);
+      const first = await h.put(deviceId, { title: 'First' });
+      await h.put(deviceId, { title: 'Second' });
+      await h.runAlarm();
+      if (confirmed) await h.ok('receipt', { fire: fireId(first, DUE) }, deviceId);
+      await h.runAlarm();
+      await h.runAlarm();
+      expect(h.state.alerts).toHaveLength(confirmed ? 1 : 2);
+    },
+  );
 
   test('a due reminder with no device to notify raises an alert', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
@@ -669,7 +791,6 @@ describe('delivery', () => {
   test('a subscription that expired while being replaced is retried on its replacement', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
-    h.confirmedBefore(deviceId);
     await h.put(deviceId);
     h.state.status = (target) => (target.endpoint === keys(1).endpoint ? 410 : 201);
     h.state.onPush = (target) => {

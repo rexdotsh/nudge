@@ -44,8 +44,6 @@ export type DeviceRow = {
 export interface Target extends PushKeys {
   deviceId: string;
   label: string;
-  /** Only a device that has confirmed before is resent to, since its silence is the only silence that means a loss. */
-  confirms: boolean;
 }
 
 function target(row: DeviceRow): Target | undefined {
@@ -56,7 +54,6 @@ function target(row: DeviceRow): Target | undefined {
         endpoint: row.endpoint,
         p256dh: row.p256dh,
         auth: row.auth,
-        confirms: row.receipt_at !== null,
       }
     : undefined;
 }
