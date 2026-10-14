@@ -4,6 +4,7 @@ import { createECDH } from 'node:crypto';
 import { BASE64URL, utf8 } from '../src/shared/encoding';
 import {
   MAX_PUSH_PLAINTEXT,
+  canReplace,
   encrypt,
   isPushServiceEndpoint,
   sendPush,
@@ -111,6 +112,19 @@ test('isPushServiceEndpoint only accepts https endpoints of known push services'
   expect(isPushServiceEndpoint('https://web.push.apple.com:8443/abc')).toBe(false);
   expect(isPushServiceEndpoint('https://user:pass@web.push.apple.com/abc')).toBe(false);
   expect(isPushServiceEndpoint('not a url')).toBe(false);
+});
+
+test.each([
+  ['https://push.apple.com/abc', false],
+  ['https://web.push.apple.com/abc', false],
+  ['https://other.push.apple.com/abc', false],
+  ['https://fcm.googleapis.com/fcm/send/abc', true],
+  ['https://wns2-par02p.notify.windows.com/w/?token=abc', true],
+  ['https://updates.push.services.mozilla.com/wpush/v2/abc', true],
+  ['https://evil.example/fcm.googleapis.com', false],
+  ['https://fcm.googleapis.com:8443/abc', false],
+] as const)('canReplace follows the validated push service for %s', (endpoint, replaceable) => {
+  expect(canReplace(endpoint)).toBe(replaceable);
 });
 
 test('sendPush never contacts endpoints outside the allowlist', async () => {

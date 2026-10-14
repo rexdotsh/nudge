@@ -26,22 +26,26 @@ export interface PushResult {
   detail: string;
 }
 
-const PUSH_SERVICE_HOSTS = [
-  /(^|\.)push\.apple\.com$/,
-  /^fcm\.googleapis\.com$/,
-  /\.notify\.windows\.com$/,
-  /(^|\.)push\.services\.mozilla\.com$/,
+const PUSH_SERVICES = [
+  // Safari ignores notification tags (WebKit 258922), so an accepted push must not be resent.
+  { host: /(^|\.)push\.apple\.com$/, canReplace: false },
+  { host: /^fcm\.googleapis\.com$/, canReplace: true },
+  { host: /\.notify\.windows\.com$/, canReplace: true },
+  { host: /(^|\.)push\.services\.mozilla\.com$/, canReplace: true },
 ];
 
-export function isPushServiceEndpoint(endpoint: string): boolean {
+function pushService(endpoint: string) {
   const url = URL.parse(endpoint);
-  return (
-    url?.protocol === 'https:' &&
-    url.port === '' &&
-    url.username === '' &&
-    url.password === '' &&
-    PUSH_SERVICE_HOSTS.some((host) => host.test(url.hostname))
-  );
+  if (url?.protocol !== 'https:' || url.port !== '' || url.username !== '' || url.password !== '') return undefined;
+  return PUSH_SERVICES.find(({ host }) => host.test(url.hostname));
+}
+
+export function isPushServiceEndpoint(endpoint: string): boolean {
+  return pushService(endpoint) !== undefined;
+}
+
+export function canReplace(endpoint: string): boolean {
+  return pushService(endpoint)?.canReplace ?? false;
 }
 
 interface PrivateEcJwk {

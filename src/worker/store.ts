@@ -105,7 +105,11 @@ export class Store {
   }
 
   purgeAlertMarks(before: number): void {
-    this.sql.exec("DELETE FROM meta WHERE key LIKE 'alert:%' AND CAST(value AS INTEGER) < ?", before);
+    this.sql.exec(
+      `DELETE FROM meta WHERE key LIKE 'alert:%' AND CAST(value AS INTEGER) < ?
+       AND key NOT LIKE 'alert:unconfirmed:%'`,
+      before,
+    );
   }
 
   applied(opId: string): boolean {

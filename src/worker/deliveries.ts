@@ -76,15 +76,19 @@ export class Deliveries {
       .toArray();
   }
 
-  recordSend(row: DeliveryRow, status: number, nextAt: number | null, now: number): boolean {
+  recordSend(row: DeliveryRow, status: number, nextAt: number | null, now: number, settled: boolean): boolean {
+    const settledAt = settled ? now : null;
     return (
       this.sql
         .exec<{ fire: string }>(
           `UPDATE deliveries SET sends = sends + 1, status = ?, sent_at = ?, lease = NULL,
-             next_at = CASE WHEN receipt_at IS NULL THEN ? ELSE NULL END
+              receipt_at = COALESCE(receipt_at, ?),
+              next_at = CASE WHEN COALESCE(receipt_at, ?) IS NULL THEN ? ELSE NULL END
            WHERE fire = ? AND device_id = ? AND lease = ? RETURNING fire`,
           status,
           now,
+          settledAt,
+          settledAt,
           nextAt,
           row.fire,
           row.device_id,
@@ -92,6 +96,33 @@ export class Deliveries {
         )
         .toArray().length > 0
     );
+  }
+
+  reached(topic: string): boolean {
+    return (
+      count(this.sql, 'SELECT COUNT(*) AS count FROM deliveries WHERE topic = ? AND receipt_at IS NOT NULL', topic) > 0
+    );
+  }
+
+  settle(row: DeliveryRow, now: number): void {
+    this.sql.exec(
+      `UPDATE deliveries SET receipt_at = COALESCE(receipt_at, ?), next_at = NULL, lease = NULL
+       WHERE fire = ? AND device_id = ? AND lease = ?`,
+      now,
+      row.fire,
+      row.device_id,
+      row.lease,
+    );
+  }
+
+  silentDevices(topic: string): string[] {
+    return this.sql
+      .exec<{ device_id: string }>(
+        'SELECT DISTINCT device_id FROM deliveries WHERE topic = ? AND receipt_at IS NULL',
+        topic,
+      )
+      .toArray()
+      .map((row) => row.device_id);
   }
 
   owns(row: DeliveryRow): boolean {

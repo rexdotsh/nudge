@@ -13,7 +13,7 @@ import type { DeliveryRow, Outgoing } from './deliveries';
 import type { Target } from './devices';
 import type { Runtime } from './runtime';
 import type { Store } from './store';
-import type { PushResult } from './webpush';
+import { canReplace, type PushResult } from './webpush';
 
 export const DEAD_MAN_MS = MINUTE_MS;
 export const LEASE_MS = 90_000;
@@ -35,7 +35,6 @@ function outgoing(id: string, title: string, topic: string, message: PushMessage
   return { fire: id, title, topic, payload: JSON.stringify(message) };
 }
 
-// Fires replace each other on screen, so alert once per occurrence rather than once per nag.
 function occurrenceAlertKey(problem: string, delivery: Pick<Outgoing, 'topic'>): string {
   return `${problem}:${delivery.topic}`;
 }
@@ -176,18 +175,32 @@ export class Scheduler {
 
     const lease = crypto.randomUUID();
     const claimed = this.runtime.transaction(() => this.store.deliveries.claim(now, LEASE_MS, lease));
-    await Promise.all(claimed.map((row) => (row.sends >= 2 ? this.escalate(row) : this.send(row))));
+    const pending = claimed.filter((row) => {
+      const endpoint = this.store.devices.target(row.device_id)?.endpoint;
+      if (row.sends > 0 && isOk(row.status) && endpoint !== undefined && !canReplace(endpoint)) {
+        this.store.deliveries.settle(row, row.sent_at ?? now);
+        return false;
+      }
+      return true;
+    });
+    await Promise.all(pending.filter((row) => row.sends < 2).map((row) => this.send(row)));
+    await Promise.all(pending.filter((row) => row.sends >= 2).map((row) => this.escalate(row)));
   }
 
   private async escalate(row: DeliveryRow): Promise<void> {
-    const device = this.store.devices.get(row.device_id);
-    if (!device) {
+    if (!this.store.deliveries.owns(row)) return;
+    if (this.store.deliveries.reached(row.topic) || !this.store.devices.get(row.device_id)) {
       this.store.deliveries.release(row, null);
       return;
     }
+    const silent = this.store.deliveries
+      .silentDevices(row.topic)
+      .flatMap((id) => this.store.devices.get(id)?.label ?? [])
+      .map((label) => `"${label}"`);
     const delivered = await this.alertOnce(
-      occurrenceAlertKey(`unconfirmed:${row.device_id}`, row),
-      `"${device.label}" has not confirmed "${row.title}" after a resend.`,
+      occurrenceAlertKey('unconfirmed', row),
+      `No device confirmed "${row.title}" after a resend. Silent devices: ${silent.join(', ')}.`,
+      Infinity,
     );
     this.store.deliveries.release(row, delivered ? null : this.runtime.now() + ALERT_RETRY_MS);
   }
@@ -208,9 +221,10 @@ export class Scheduler {
       return;
     }
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
-    const nextAt = (ok && target.confirms) || isRetryable(result.status) ? now + followUp : null;
+    const settled = ok && !canReplace(target.endpoint);
+    const nextAt = (ok && !settled) || isRetryable(result.status) ? now + followUp : null;
     const owned = this.runtime.transaction(() => {
-      if (!this.store.deliveries.recordSend(row, result.status, nextAt, now)) return false;
+      if (!this.store.deliveries.recordSend(row, result.status, nextAt, now, settled)) return false;
       if (gone) this.store.devices.dropSubscription(target);
       return true;
     });
@@ -253,19 +267,20 @@ export class Scheduler {
 
   private readonly alerting = new Map<string, Promise<boolean>>();
 
-  private alertOnce(key: string, text: string): Promise<boolean> {
+  private alertOnce(key: string, text: string, cooldown = ALERT_COOLDOWN_MS): Promise<boolean> {
     let pending = this.alerting.get(key);
     if (!pending) {
-      pending = this.deliverAlert(key, text).finally(() => this.alerting.delete(key));
+      pending = this.deliverAlert(key, text, cooldown).finally(() => this.alerting.delete(key));
       this.alerting.set(key, pending);
     }
     return pending;
   }
 
-  private async deliverAlert(key: string, text: string): Promise<boolean> {
+  private async deliverAlert(key: string, text: string, cooldown: number): Promise<boolean> {
     const now = this.runtime.now();
     const metaKey = `alert:${key}`;
-    if (now - Number(this.store.meta(metaKey) ?? 0) < ALERT_COOLDOWN_MS) return true;
+    const previous = this.store.meta(metaKey);
+    if (previous !== null && now - Number(previous) < cooldown) return true;
     const host = URL.parse(this.origin())?.host ?? 'nudge';
     try {
       await this.runtime.alert(`⚠️ ${host}: ${text}`);
