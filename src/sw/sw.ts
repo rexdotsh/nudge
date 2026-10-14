@@ -11,7 +11,7 @@ import { EMPTY_LOCAL } from '../browser/schema';
 import { claim, isSeen, settle } from '../browser/seen';
 import { MAX_REQUEST_BYTES } from '../shared/api';
 import { lateCount } from '../shared/reminder';
-import type { NotificationContent, PushMessage } from '../shared/notification';
+import type { PushData, PushMessage } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { isRecord } from '../shared/validate';
@@ -20,18 +20,21 @@ declare const self: ServiceWorkerGlobalScope;
 
 const CACHE_PREFIX = 'nudge-';
 const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
+function isPushData(value: unknown): value is PushData {
+  return isRecord(value) && typeof value.fire === 'string';
+}
+
 function isPushMessage(value: unknown): value is PushMessage {
   return (
-    isRecord(value) && value.web_push === 8030 && isRecord(value.notification) && isRecord(value.notification.data)
+    isRecord(value) && value.web_push === 8030 && isRecord(value.notification) && isPushData(value.notification.data)
   );
 }
 
-async function present(notification: NotificationContent, shownByBrowser: boolean): Promise<void> {
-  const { fire } = notification.data;
-  if (shownByBrowser) {
+async function present(fire: string, show?: () => Promise<void>): Promise<void> {
+  if (!show) {
     await settle(fire, true);
   } else if ((await claim(fire, Date.now())) === 'won') {
-    await showUnlessOnScreen(self.registration, notification).then(
+    await show().then(
       () => settle(fire, true),
       async (error: unknown) => {
         await settle(fire, false);
@@ -81,15 +84,19 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('push', (event) => {
+  // Safari shows a declarative message itself and hands the worker only the notification it made, with no `data`.
+  const shown: unknown = event.notification?.data;
+  if (isPushData(shown)) {
+    event.waitUntil(present(shown.fire));
+    return;
+  }
   const message: unknown = event.data?.json();
   if (!isPushMessage(message)) return;
   const { notification } = message;
-  // Safari shows declarative messages itself and exposes them as event.notification; other browsers need us to.
-  const handledByBrowser = 'notification' in event;
   const badge = Number(notification.app_badge);
   event.waitUntil(
     Promise.all([
-      present(notification, handledByBrowser),
+      present(notification.data.fire, () => showUnlessOnScreen(self.registration, notification)),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
     ]),
   );
