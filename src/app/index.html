@@ -30,6 +30,29 @@
         }
       }
     </script>
+    <script>
+      // A launch page kept offline can outlive the files it names when deploys come in quick succession; then drop the
+      // offline copy and load fresh, once per session.
+      addEventListener(
+        'error',
+        (event) => {
+          if (!(event.target instanceof HTMLScriptElement || event.target instanceof HTMLLinkElement)) return;
+          try {
+            if (sessionStorage.getItem('recovered')) return;
+            sessionStorage.setItem('recovered', '1');
+          } catch {
+            return;
+          }
+          caches
+            .keys()
+            .then((keys) =>
+              Promise.all(keys.filter((key) => key.startsWith('nudge-')).map((key) => caches.delete(key))),
+            )
+            .finally(() => location.reload());
+        },
+        true,
+      );
+    </script>
     <meta name="apple-mobile-web-app-title" content="Nudge" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />

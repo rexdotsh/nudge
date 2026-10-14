@@ -54,12 +54,20 @@ const ROUTES: RouterRule[] = [
   { condition: { urlPattern: { pathname: '/assets/*' } }, source: { cacheName: CACHE } },
 ];
 
+// The server may already run a newer build, whose launch page would point at files this one never cached; caching
+// that mix would launch nothing, so this build only installs when the page it fetched is its own.
+async function precache(): Promise<void> {
+  const responses = await Promise.all(NUDGE_PRECACHE.map((url) => fetch(url, { cache: 'no-cache' })));
+  const [page] = responses;
+  if (!page || responses.some((response) => !response.ok)) throw new Error('a precached file is missing');
+  const linked = (await page.clone().text()).match(/\/assets\/[^"'\s)]+/g) ?? [];
+  if (linked.some((url) => !NUDGE_PRECACHE.includes(url))) throw new Error('the server runs another build');
+  const cache = await caches.open(CACHE);
+  await Promise.all(NUDGE_PRECACHE.map((url, i) => cache.put(url, responses[i] ?? page)));
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    Promise.all([caches.open(CACHE).then((cache) => cache.addAll(NUDGE_PRECACHE)), event.addRoutes?.(ROUTES)]).then(
-      () => self.skipWaiting(),
-    ),
-  );
+  event.waitUntil(Promise.all([precache(), event.addRoutes?.(ROUTES)]).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
