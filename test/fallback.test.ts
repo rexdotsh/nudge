@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { Fallback } from '../src/app/lib/fallback';
+import { fire as fireReminder, nextFireAt } from '../src/shared/fire';
 import { fireId, type NotificationContent } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
 import { MINUTE_MS } from '../src/shared/time';
@@ -24,8 +25,9 @@ function lateReminder() {
   return created;
 }
 
-function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Promise.resolve()) {
+function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Promise.resolve(), now = NOW) {
   const shown: string[] = [];
+  const shownFires: string[] = [];
   const seen = new Set(alreadySeen);
   const claimed = new Set<string>(busy);
   const claimingStarted = Promise.withResolvers<void>();
@@ -37,6 +39,7 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
         readiness.push(() =>
           resolve(async (content: NotificationContent) => {
             shown.push(content.title);
+            shownFires.push(content.data.fire);
           }),
         );
       }),
@@ -56,7 +59,7 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
       timers.add(run);
       return () => timers.delete(run);
     },
-    now: () => NOW,
+    now: () => now,
     origin: 'https://nudge.example',
     locale: 'en',
   });
@@ -69,7 +72,7 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
     for (const release of readiness.splice(0)) release();
     await Promise.all(checks);
   };
-  return { fallback, shown, timers, claimed, fire, ready, claimingStarted: claimingStarted.promise };
+  return { fallback, shown, shownFires, timers, claimed, fire, ready, claimingStarted: claimingStarted.promise };
 }
 
 test('the server having planned a push does not stop the fallback; only this device having shown it does', async () => {
@@ -79,7 +82,7 @@ test('the server having planned a push does not stop the fallback; only this dev
   await ready(fire());
   expect(shown).toEqual(['Pay rent']);
 
-  const again = harness([fireId(planned.id, DUE)]);
+  const again = harness([fireId(planned.id, { at: DUE, due: '2026-10-12T09:20' })]);
   again.fallback.schedule([planned], ZONE, true);
   await again.ready(again.fire());
   expect(again.shown).toEqual([]);
@@ -105,7 +108,7 @@ test.each([
 
 test('a fire another context is still showing is not consumed, and is retried', async () => {
   const reminder = lateReminder();
-  const key = fireId(reminder.id, DUE);
+  const key = fireId(reminder.id, { at: DUE, due: '2026-10-12T09:20' });
   const { fallback, shown, timers, claimed, fire, ready } = harness([], [key]);
   fallback.schedule([reminder], ZONE, true);
   await ready(fire());
@@ -128,4 +131,41 @@ test('settling a reminder while its fallback is claiming it does not show a stal
   await showing;
   expect(shown).toEqual([]);
   expect(claimed.size).toBe(0);
+});
+
+const ROLL = Date.UTC(2026, 9, 29, 10, 0);
+
+// The server warns for 10:00 and 11:00 together at 09:30; after 10:00 rolls in, the fallback rebuilds that instant from
+// the 10:00 occurrence instead, and must still agree with the server on which warning is which.
+test.each([
+  ['shows nothing the device already received', 'early-10', []],
+  ['shows the warning the device missed', 'early-11', ['early-11']],
+])('after a roll, a fallback rebuilding the earlier warnings %s', async (_, missed, shown) => {
+  const fields = {
+    title: 'Stand up',
+    notes: '',
+    start: '2026-10-29T09:00',
+    zone: null,
+    repeat: { rule: 'FREQ=HOURLY', anchor: 'schedule' as const },
+    important: false,
+    alerts: [30, 90],
+  };
+  const start = Date.UTC(2026, 9, 29, 9, 0);
+  const created = applyOp(undefined, { type: 'put', id: ulid(start), fields }, { now: start, zone: 'UTC' });
+  if (!created) throw new Error('create failed');
+  let server = created;
+  const sent = new Map<string, string>();
+  for (let next = nextFireAt(server, 'UTC'); next !== null && next <= ROLL; next = nextFireAt(server, 'UTC')) {
+    const fired = fireReminder(server, next, 'UTC');
+    for (const notice of fired.notices)
+      sent.set(`${notice.alert}-${notice.due.slice(11, 13)}`, fireId(server.id, notice));
+    server = fired.reminder;
+  }
+  const seen = [...sent].filter(([label]) => label !== missed).map(([, id]) => id);
+  const device = harness(seen, [], Promise.resolve(), ROLL + MINUTE_MS);
+  device.fallback.schedule([server], 'UTC', true);
+  await device.ready(device.fire());
+  expect([...sent.keys()]).toEqual(['early-10', 'early-11', 'due-10']);
+  const labels = new Map([...sent].map(([label, id]) => [id, label]));
+  expect(device.shownFires.map((id) => labels.get(id))).toEqual(shown);
 });

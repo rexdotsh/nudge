@@ -1,5 +1,5 @@
 import { fire, nextFireAt } from '../../shared/fire';
-import { noticeFireId, reminderMessage, type NotificationContent } from '../../shared/notification';
+import { fireId, reminderMessage, type NotificationContent } from '../../shared/notification';
 import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
@@ -112,7 +112,7 @@ export class Fallback {
     for (const reminder of reminders) {
       const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
       const shown = notices.map((notice) => {
-        const key = noticeFireId(reminder.id, notice);
+        const key = fireId(reminder.id, notice);
         return this.showOnce(key, reminderMessage(advanced, notice, view).notification, display, generation).catch(
           (error: unknown) => {
             console.error(`could not record ${key}`, error);
