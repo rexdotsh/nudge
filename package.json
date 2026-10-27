@@ -16,7 +16,7 @@
     "secrets": "bun scripts/secrets.ts"
   },
   "dependencies": {
-    "declarative-web-push": "https://github.com/rexdotsh/declarative-web-push/releases/download/v0.1.0/declarative-web-push-0.1.0.tgz"
+    "declarative-web-push": "^0.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261011.1",
