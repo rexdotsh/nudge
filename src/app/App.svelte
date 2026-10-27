@@ -1,9 +1,10 @@
 <script lang="ts">
   import { app } from './lib/app.svelte';
   import { OPENED, isWorkerMessage } from '../browser/messages';
-  import { showUnlessOnScreen } from '../browser/notify';
+  import { clearNotifications } from 'declarative-web-push/client';
+  import { showNudge } from '../browser/notify';
   import { claim, settle } from '../browser/seen';
-  import { dismissSettled } from '../browser/shown';
+  import { isSettledTag } from '../shared/notification';
   import { lateCount } from '../shared/reminder';
   import Onboarding from './components/Onboarding.svelte';
   import TitleBar from './components/TitleBar.svelte';
@@ -47,8 +48,7 @@
   }
 
   const fallback = new Fallback({
-    ready: () =>
-      navigator.serviceWorker.ready.then((registration) => (content) => showUnlessOnScreen(registration, content)),
+    ready: () => navigator.serviceWorker.ready.then((registration) => (content) => showNudge(registration, content)),
     claim: (fire) => claim(fire, Date.now()),
     settle,
     wait: (run, ms) => {
@@ -60,9 +60,6 @@
     locale: navigator.language,
   });
 
-  // iOS ignores close() on a notification younger than this.
-  const CLOSABLE_AFTER_MS = 31_000;
-
   const late = $derived(lateCount(app.reminders, app.now, app.zone));
 
   // Pushes badge the icon as they arrive; only a replica synced in this foreground knows better than the latest push.
@@ -70,16 +67,14 @@
     if (app.freshness !== 'synced') return;
     if ('setAppBadge' in navigator) void navigator.setAppBadge(late);
     const { reminders } = app;
-    const current = () => (app.reminders === reminders && app.freshness === 'synced' ? reminders : null);
-    const dismiss = () =>
-      void navigator.serviceWorker.ready.then((registration) => dismissSettled(registration, current, Date.now));
-    dismiss();
-    const again = setTimeout(dismiss, CLOSABLE_AFTER_MS);
-    return () => clearTimeout(again);
+    return clearNotifications(
+      navigator.serviceWorker.ready,
+      (tag) => app.reminders === reminders && app.freshness === 'synced' && isSettledTag(tag, reminders, Date.now()),
+    );
   });
 
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.freshness !== 'catching-up');
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'granted' && app.freshness !== 'catching-up');
   });
 </script>
 

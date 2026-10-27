@@ -1,6 +1,6 @@
 import type { PushKeys, ServerMessage } from '../shared/api';
 import type { Sql } from './sql';
-import type { PushOptions, PushResult } from './webpush';
+import type { SendOptions, SendResult } from 'declarative-web-push/server';
 
 export interface Runtime {
   sql: Sql;
@@ -12,7 +12,7 @@ export interface Runtime {
   };
   broadcast: (message: ServerMessage, except?: string) => void;
   disconnect: (deviceId: string) => void;
-  push: (target: PushKeys, json: string, subject: string, options: PushOptions) => Promise<PushResult>;
+  push: (target: PushKeys, json: string, subject: string, options: SendOptions) => Promise<SendResult>;
   alert: (text: string) => Promise<void>;
   sleep: (ms: number) => Promise<void>;
   now: () => number;

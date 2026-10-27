@@ -13,7 +13,8 @@ import { DAY_MS } from '../../shared/time';
 import { Connection } from './connection';
 import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
-import { enablePush, pushState, syncSubscription, watchPermission, type PushState } from './push';
+import { pushPermission, type PushPermission } from 'declarative-web-push/client';
+import { enablePush, syncSubscription, watchPermission } from './push';
 import { appearance } from './theme.svelte';
 
 type Phase = 'loading' | 'enroll' | 'ready' | 'failed';
@@ -31,7 +32,7 @@ class App {
   zone = $state(currentZone());
   travelling = $state(false);
   zoneControls = $state(false);
-  notifications = $state<PushState>(pushState());
+  notifications = $state<PushPermission>(pushPermission());
   freshness = $state<Freshness>('catching-up');
   health = $state.raw<Health | null>(null);
   deviceId = $state<string | null>(null);
@@ -224,21 +225,21 @@ class App {
   }
 
   private async permissionChanged(): Promise<void> {
-    const state = pushState();
-    if (state !== 'enabled' || this.phase !== 'ready') {
+    const state = pushPermission();
+    if (state !== 'granted' || this.phase !== 'ready') {
       this.notifications = state;
       return;
     }
-    const enabled = this.notifications === 'enabled';
+    const enabled = this.notifications === 'granted';
     try {
       await syncSubscription();
     } catch (error) {
       console.warn('subscribing needs a tap on this browser', error);
-      this.notifications = pushState() === 'enabled' ? 'prompt' : pushState();
+      this.notifications = pushPermission() === 'granted' ? 'prompt' : pushPermission();
       return;
     }
-    this.notifications = pushState();
-    if (!enabled && this.notifications === 'enabled') this.refreshDevices();
+    this.notifications = pushPermission();
+    if (!enabled && this.notifications === 'granted') this.refreshDevices();
   }
 
   async showZoneControls(on: boolean): Promise<void> {
@@ -246,9 +247,9 @@ class App {
     await set('zoneControls', on);
   }
 
-  async enableNotifications(): Promise<PushState> {
+  async enableNotifications(): Promise<PushPermission> {
     this.notifications = await enablePush();
-    if (this.notifications === 'enabled') this.refreshDevices();
+    if (this.notifications === 'granted') this.refreshDevices();
     return this.notifications;
   }
 

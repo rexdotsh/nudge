@@ -1,4 +1,5 @@
 import { $ } from 'bun';
+import { generateVapidKeys } from 'declarative-web-push/server';
 import { existsSync, writeFileSync } from 'node:fs';
 import { BASE64URL } from '../src/shared/encoding';
 
@@ -13,11 +14,10 @@ function setupCode(): string {
 }
 
 async function generated(): Promise<Record<string, string>> {
-  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
   return {
     AUTH_SECRET: crypto.getRandomValues(new Uint8Array(32)).toBase64(BASE64URL),
     SETUP_CODE: setupCode(),
-    VAPID_JWK: JSON.stringify(await crypto.subtle.exportKey('jwk', pair.privateKey)),
+    VAPID_JWK: await generateVapidKeys(),
   };
 }
 

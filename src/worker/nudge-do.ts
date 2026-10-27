@@ -1,8 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
+import { send, vapidKeys } from 'declarative-web-push/server';
 import { SOCKET_PROTOCOL, type Route } from '../shared/api';
 import { sendTelegram } from './alerts';
 import { Nudge, type Caller } from './nudge';
-import { sendPush, vapidKeys } from './webpush';
 
 export const DEVICE_HEADER = 'X-Nudge-Device';
 
@@ -28,7 +28,7 @@ export class NudgeDO extends DurableObject<Env> {
       disconnect: (deviceId) => {
         for (const socket of ctx.getWebSockets(deviceId)) socket.close(4001, 'device revoked');
       },
-      push: (target, json, subject, options) => sendPush(target, json, { keys, subject }, options),
+      push: (target, json, subject, options) => send(target, json, { keys, subject }, options),
       alert: (text) => sendTelegram(env, text),
       sleep: (ms) => scheduler.wait(ms),
       now: () => Date.now(),

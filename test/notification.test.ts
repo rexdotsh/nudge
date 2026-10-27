@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
 import { OPENED, isWorkerMessage, openInPlace } from '../src/browser/messages';
-import { dismissSettled } from '../src/browser/shown';
 import { isSettled, reminderMessage, taggedOccurrence } from '../src/shared/notification';
 import { applyOp, type Op } from '../src/shared/ops';
 import type { Reminder } from '../src/shared/reminder';
@@ -49,35 +48,9 @@ test.each([
 test('a reminder notification names its occurrence in its tag, which iOS keeps when it drops the data', () => {
   const notice = { at: NOW, due: DUE, alert: 'due' as const, missed: 0 };
   const view = { origin: 'https://nudge.example', zone: ZONE, locale: 'en', badge: 0 };
-  const { tag } = reminderMessage(reminder(false), notice, view).notification;
+  const { tag = '' } = reminderMessage(reminder(false), notice, view).notification;
   expect(taggedOccurrence(tag)).toEqual({ id: ID, due: DUE });
   expect(taggedOccurrence('test')).toBeNull();
-});
-
-function tray() {
-  const shown = { tag: `${ID}:${DUE}`, closed: false, close: () => (shown.closed = true) };
-  const listing = Promise.withResolvers<(typeof shown)[]>();
-  return { shown, list: () => listing.resolve([shown]), getNotifications: () => listing.promise };
-}
-
-test.each([
-  ['the reminder stays done', [done, NOW], [[done], NOW], true],
-  ['the reminder was reopened meanwhile', [done, NOW], [[reminder(false)], NOW], false],
-  ['a newer run took over meanwhile', [done, NOW], [null, NOW], false],
-  ['its snooze ran out meanwhile', [snoozed, NOW], [[snoozed], SNOOZE_ENDS], false],
-] as const)('dismissal decides on the state once notifications are listed: %s', async (_, before, after, closed) => {
-  const notifications = tray();
-  let current: readonly Reminder[] | null = [before[0]];
-  let now: number = before[1];
-  const dismissing = dismissSettled(
-    notifications,
-    () => current,
-    () => now,
-  );
-  [current, now] = after;
-  notifications.list();
-  await dismissing;
-  expect(notifications.shown.closed).toBe(closed);
 });
 
 test('a notification tap opens in place only where the window answers, so an older page is navigated instead', async () => {

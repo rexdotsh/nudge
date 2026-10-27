@@ -10,7 +10,7 @@
   async function enable() {
     busy = true;
     try {
-      if ((await app.enableNotifications()) === 'enabled') onDone();
+      if ((await app.enableNotifications()) === 'granted') onDone();
     } finally {
       busy = false;
     }

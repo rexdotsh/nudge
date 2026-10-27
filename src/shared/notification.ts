@@ -1,3 +1,4 @@
+import { declarativeMessage, type DeclarativeMessage, type DeclarativeNotification } from 'declarative-web-push';
 import type { Notice } from './fire';
 import { dueAt, isSnoozed, local, type Reminder } from './reminder';
 import { MINUTE_MS, wallMs } from './time';
@@ -7,26 +8,12 @@ export interface PushData {
   reminder: { id: string; due: string } | null;
 }
 
-export interface NotificationContent {
-  title: string;
-  body: string;
-  navigate: string;
-  tag: string;
-  silent: false;
-  renotify: true;
-  requireInteraction: boolean;
-  app_badge?: string;
-  data: PushData;
-}
+export type NotificationContent = DeclarativeNotification<PushData> & { data: PushData };
 
-function declarative(notification: Omit<NotificationContent, 'silent' | 'renotify'>): PushMessage {
-  return { web_push: 8030, mutable: true, notification: { ...notification, silent: false, renotify: true } };
-}
+export type PushMessage = DeclarativeMessage<NotificationContent>;
 
-export interface PushMessage {
-  web_push: 8030;
-  mutable: true;
-  notification: NotificationContent;
+function declarative(notification: NotificationContent, appBadge?: number): PushMessage {
+  return declarativeMessage({ ...notification, silent: false, renotify: true }, { mutable: true, appBadge });
 }
 
 export interface Presentation {
@@ -86,21 +73,33 @@ export function isSettled(shown: Occurrence, reminder: Reminder | undefined, now
   return shown.due === reminder.due ? isSnoozed(reminder, now) : shown.due < reminder.due;
 }
 
+export function isSettledTag(tag: string, reminders: readonly Reminder[], now: number): boolean {
+  const shown = taggedOccurrence(tag);
+  if (!shown) return false;
+  return isSettled(
+    shown,
+    reminders.find((reminder) => reminder.id === shown.id),
+    now,
+  );
+}
+
 export function occurrenceTopic(reminderId: string, due: string): string {
   return `${reminderId}${(wallMs(local(due)) / MINUTE_MS).toString(36)}`;
 }
 
 export function reminderMessage(reminder: Reminder, notice: Notice, view: Presentation): PushMessage {
   const due = dueAt({ ...reminder, due: notice.due }, view.zone) ?? notice.at;
-  return declarative({
-    title: reminder.title,
-    body: bodyFor(reminder, notice, due, view),
-    navigate: `${view.origin}/?open=${reminder.id}`,
-    tag: occurrenceTag({ id: reminder.id, due: notice.due }),
-    requireInteraction: reminder.important && notice.alert !== 'early',
-    app_badge: String(view.badge),
-    data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
-  });
+  return declarative(
+    {
+      title: reminder.title,
+      body: bodyFor(reminder, notice, due, view),
+      navigate: `${view.origin}/?open=${reminder.id}`,
+      tag: occurrenceTag({ id: reminder.id, due: notice.due }),
+      requireInteraction: reminder.important && notice.alert !== 'early',
+      data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
+    },
+    view.badge,
+  );
 }
 
 export function testMessage(fire: string, view: Presentation): PushMessage {
