@@ -5,7 +5,7 @@
     "": {
       "name": "nudge",
       "dependencies": {
-        "declarative-web-push": "https://github.com/rexdotsh/declarative-web-push/releases/download/v0.1.0/declarative-web-push-0.1.0.tgz",
+        "declarative-web-push": "^0.1.0",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20261011.1",
@@ -451,7 +451,7 @@
 
     "cookie": ["cookie@1.1.1", "", {}, "sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ=="],
 
-    "declarative-web-push": ["declarative-web-push@https://github.com/rexdotsh/declarative-web-push/releases/download/v0.1.0/declarative-web-push-0.1.0.tgz", {}, "sha512-hGXwOJgrft9wSySS73HtxesV6ZHyJHTXmf0wLVim9kkGQcRiZbDPPWBAIgaFmyQd3ZishnaPnWg0wdbBwCxcIg=="],
+    "declarative-web-push": ["declarative-web-push@0.1.0", "", {}, "sha512-Q1xU6vy84Yh83SRAM464PzeK+CTcfeDNkXqa+gdVdeH/ozfpAKZhcxftcOALQ1Aw2Q4cFxeD0qV3cVb0MYfLbg=="],
 
     "deepmerge": ["deepmerge@4.3.1", "", {}, "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A=="],
 
