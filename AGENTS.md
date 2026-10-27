@@ -36,6 +36,8 @@ test         bun tests
 
 Code that runs in more than one runtime belongs in `src/shared`; code shared only by the app and the service worker belongs in `src/browser`. Nothing in `src/shared` may import from another `src` folder, and `src/browser` may import only from `src/shared`.
 
+Web Push mechanics come from [declarative-web-push](https://github.com/rexdotsh/declarative-web-push), extracted from this repo: the message format and builder (`declarative-web-push`, used in `src/shared`), VAPID, encryption and the push service allowlist (`/server`, in `src/worker`), reading pushes and closing notifications (`/worker`, in `src/sw` and `src/browser`), and subscribing, permission and clearing (`/client`, in `src/app` and `src/browser`).
+
 ## Architecture invariants
 
 - The Durable Object is the single source of truth. Each API request is exactly one RPC into it, through `NudgeDO.call`.
@@ -44,6 +46,7 @@ Code that runs in more than one runtime belongs in `src/shared`; code shared onl
 - Static assets are served without running the Worker. Only `/api/*` reaches Worker code.
 - `/api/windows` is the one route the Worker answers itself: after `NudgeDO.isEnrolled` confirms the device, the Worker has the PWABuilder packaging service build this instance's Windows installer, checks it and returns it. Nothing is stored.
 - No KV, D1, R2 or Queues. One Worker, one Durable Object class.
+- declarative-web-push provides mechanisms and Nudge keeps the policy: what a tag means (`<id>:<due>`), when a notification is settled, resends and escalation, receipts and the outbox. A fix to how pushes are sent, read or cleared, or a new iOS finding, goes to the library first, with its tests.
 - Every write path must be safe to retry. Pushes use `tag = <reminder id>:<due>` so a resend replaces instead of stacking.
 - The client renders from local state first and never blocks first paint on the network.
 
@@ -63,14 +66,14 @@ The bar is the [thermo-nuclear code quality review](https://github.com/cursor/pl
 - **Small focused files.** Treat 300 lines as a prompt to split, and never let a file pass 1000 lines.
 - **Parallel and atomic.** Run independent async work concurrently. Keep related writes in one transaction so state is never half-applied.
 - **Fail loudly.** No silent catch-and-continue. Expected failures are typed results. Unexpected ones surface (and alert, on the server).
-- **Few dependencies.** Prefer platform APIs (WebCrypto, Intl, IndexedDB). Every new dependency needs a reason in the PR description.
+- **Few dependencies.** Prefer platform APIs (WebCrypto, Intl, IndexedDB). Every new dependency needs a reason in the PR description. The one runtime library besides Svelte is declarative-web-push: it is this app's own push code, published so the iOS findings it encodes are shared and tested in one place, and it has no dependencies of its own.
 
 ## Testing
 
 A test exists to catch a bug that would hurt someone. Before writing or keeping one, ask: if this broke in production, who would be hurt, and would nothing else catch it (types, lint, a look at the app)? If nobody, or something else would, don't write it.
 
-- **Write one for:** reminders that could fire late, twice or never (recurrence, time zones and DST, fire planning, scheduling, retries, receipts, leases, crash recovery); replays and idempotency (ops, the outbox, enrollment, op ids); security boundaries (tokens, enrollment, the push endpoint allowlist, input validation); data integrity (sync, migrations, tombstones); spec interop (Web Push encryption against the reference implementation); the quick-add parser, because what she types must become the reminder she meant.
-- **Never write one that:** pins a value (a label, copy, a CSS class, a colour, a pixel); restates the code; covers what types or lint guarantee; repeats another layer's test of the same rule (pick the cheapest layer that catches it); guards a cosmetic detail (layout, spacing, wording, order); tests UI components; or depends on timing or global state it doesn't control.
+- **Write one for:** reminders that could fire late, twice or never (recurrence, time zones and DST, fire planning, scheduling, retries, receipts, leases, crash recovery); replays and idempotency (ops, the outbox, enrollment, op ids); security boundaries (tokens, enrollment, input validation); data integrity (sync, migrations, tombstones); the quick-add parser, because what she types must become the reminder she meant.
+- **Never write one that:** tests what declarative-web-push tests (encryption interop, VAPID, the push endpoint allowlist, reading pushes, the clearing retry); pins a value (a label, copy, a CSS class, a colour, a pixel); restates the code; covers what types or lint guarantee; repeats another layer's test of the same rule (pick the cheapest layer that catches it); guards a cosmetic detail (layout, spacing, wording, order); tests UI components; or depends on timing or global state it doesn't control.
 - **When a test fails on a legitimate change, the test is usually wrong:** delete or rewrite it, don't patch in the new value.
 - **Bug fixes:** add a test only if the bug could hurt someone and could come back. It must fail without the fix, but failing without the fix doesn't earn it a place on its own.
 - **Prefer one table-driven test over many small ones.** A test file longer than the code it covers is a smell.
