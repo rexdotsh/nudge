@@ -20,6 +20,7 @@ const ZONE = 'Asia/Kolkata';
 const SETUP_CODE = 'CORRECT-HORSE';
 const AUTH = 'auth-secret';
 const DUE = Date.UTC(2026, 9, 12, 3, 30);
+const TODAY = '2026-10-12T09:00';
 const daily = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
 
 const device = (label: string, key = crypto.randomUUID().replaceAll('-', '')): DeviceInput => ({
@@ -590,12 +591,12 @@ describe('delivery', () => {
     const other = await h.put(phone, { title: 'Call the bank' });
     await h.runAlarmsThrough(DUE + 2 * NAG_INTERVAL_MS);
     const fires = {
-      due: fireId(series, DUE),
-      early: fireId(series, DUE + 1),
-      nag: fireId(series, DUE + NAG_INTERVAL_MS),
-      later: fireId(series, DUE + 2 * NAG_INTERVAL_MS),
-      other: fireId(other, DUE),
-      unknown: fireId(series, DUE + HOUR_MS),
+      due: fireId(series, { at: DUE, due: TODAY }),
+      early: fireId(series, { at: DUE, due: '2026-10-13T09:00' }),
+      nag: fireId(series, { at: DUE + NAG_INTERVAL_MS, due: TODAY }),
+      later: fireId(series, { at: DUE + 2 * NAG_INTERVAL_MS, due: TODAY }),
+      other: fireId(other, { at: DUE, due: TODAY }),
+      unknown: fireId(series, { at: DUE + HOUR_MS, due: TODAY }),
     };
     await h.ok('receipt', { fire: fires[receipted] }, phone);
     const rows = h.db
@@ -704,7 +705,7 @@ describe('delivery', () => {
       h.state.now = DUE;
       const sending = h.nudge.alarm();
       await pushed;
-      if (end === 'receipt') await h.ok('receipt', { fire: fireId(id, DUE) }, deviceId);
+      if (end === 'receipt') await h.ok('receipt', { fire: fireId(id, { at: DUE, due: TODAY }) }, deviceId);
       if (end === 'complete') await h.sync(deviceId, [{ type: 'complete', id, due: '2026-10-12T09:00' }]);
       if (end === 'lease') {
         h.state.now += LEASE_MS;
@@ -770,7 +771,7 @@ describe('delivery', () => {
       const first = await h.put(deviceId, { title: 'First' });
       await h.put(deviceId, { title: 'Second' });
       await h.runAlarm();
-      if (confirmed) await h.ok('receipt', { fire: fireId(first, DUE) }, deviceId);
+      if (confirmed) await h.ok('receipt', { fire: fireId(first, { at: DUE, due: TODAY }) }, deviceId);
       await h.runAlarm();
       await h.runAlarm();
       expect(h.state.alerts).toHaveLength(confirmed ? 1 : 2);

@@ -8,7 +8,7 @@ import { isInteger, isRecord, isText } from './validate';
 export const LIMITS = {
   title: 200,
   notes: 4000,
-  alerts: 4,
+  alerts: 5,
   alertMinutes: 60 * 24 * 28,
 } as const;
 

@@ -21,6 +21,8 @@ const MERIDIEM = '(am|pm|a\\.m\\.|p\\.m\\.)';
 const CLOCK = `(\\d{1,2})(?:[:.](\\d{2}))?\\s*`;
 export const TIME = `${CLOCK}${MERIDIEM}?`;
 export const MERIDIEM_TIME = `${CLOCK}${MERIDIEM}`;
+export const DURATION = `(an?|half\\s+an|\\d+(?:\\.\\d+)?)\\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)`;
+const UNIT_MINUTES: Record<string, number> = { m: 1, h: 60, d: 24 * 60, w: 7 * 24 * 60 };
 
 const NTH: Record<string, number> = {
   first: 1,
@@ -96,6 +98,19 @@ const byDays = (list: string) =>
     .map((day) => ({ weekday: day, nth: 0 }));
 const numbers = (text: string) => (text.match(/\d{1,2}/g) ?? []).map(Number);
 const MONTH_DAYS = `(?:the\\s+)?(\\d{1,2})${SUFFIX}((?:${LIST}(?:the\\s+)?\\d{1,2}${SUFFIX})*)`;
+
+/** The minutes a DURATION match spans, from its amount and unit groups. */
+export function durationMinutes(amount: string, unit: string): number {
+  const value = amount.startsWith('half') ? 0.5 : /^\d/.test(amount) ? Number(amount) : 1;
+  return value * (UNIT_MINUTES[unit.charAt(0)] ?? 1);
+}
+
+/** How long before a reminder an early alert is typed to go off, as in "30 min" or "2 days before". */
+export function leadMinutes(text: string): number | null {
+  const match = new RegExp(`^${DURATION}(?:\\s+(?:before|early|ahead))?$`).exec(text.trim().toLowerCase());
+  const minutes = match ? durationMinutes(match[1] ?? '', match[2] ?? '') : 0;
+  return Number.isInteger(minutes) && minutes > 0 ? minutes : null;
+}
 
 export const partsOfDay = (text: string) =>
   (text.match(new RegExp(PART_OF_DAY, 'g')) ?? []).flatMap((part) => PARTS_OF_DAY[part] ?? []);

@@ -4,9 +4,8 @@
   import type { Draft } from '../lib/draft.svelte';
   import { repeatLabel } from '../lib/format';
   import { PRESETS, isPreset } from '../lib/repeat-choice.svelte';
-  import { composing } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
-  import HighlightedInput from './HighlightedInput.svelte';
+  import PhraseField from './PhraseField.svelte';
   import Select from './Select.svelte';
 
   let { draft }: { draft: Draft } = $props();
@@ -31,18 +30,6 @@
     change();
     if (ui.fine) row?.querySelector<HTMLElement>('[role="combobox"]')?.focus();
   }
-
-  function apply(event: SubmitEvent) {
-    event.preventDefault();
-    if (choice.typed) settle(() => draft.applyRepeat());
-  }
-
-  function escape(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || composing(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    settle(() => choice.cancel());
-  }
 </script>
 
 <div class="field" bind:this={row}>
@@ -50,36 +37,15 @@
   <Select value={choice.selected} {options} labelledby={id} onSelect={(value) => choice.select(value)} />
 </div>
 {#if choice.selected === 'type'}
-  <form class="field stacked" onsubmit={apply}>
-    <div class="typed">
-      <HighlightedInput
-        {@attach (node) => node.focus()}
-        bind:value={choice.phrase}
-        spans={choice.spans}
-        placeholder="every other tue, 3 days after done…"
-        aria-label="Repeat in words"
-        aria-describedby="{id}-result"
-        enterkeyhint="done"
-        onkeydown={escape}
-      />
-      <button class="link" type="submit" disabled={!choice.typed}>Apply</button>
-    </div>
-    <small id="{id}-result" aria-live="polite" hidden={choice.phrase.trim() === ''}>
-      {#if result}<span class="result">{result}</span>{:else if choice.phrase.trim() !== ''}Try “every other tue” or “on
-        the 1st and 15th”.{/if}
-    </small>
-  </form>
+  <PhraseField
+    bind:value={choice.phrase}
+    spans={choice.spans}
+    placeholder="every other tue, 3 days after done…"
+    label="Repeat in words"
+    action="Apply"
+    {result}
+    hint="Try “every other tue” or “on the 1st and 15th”."
+    onApply={() => settle(() => draft.applyRepeat())}
+    onCancel={() => settle(() => choice.cancel())}
+  />
 {/if}
-
-<style>
-  .typed {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .result {
-    color: var(--ink-2);
-  }
-</style>

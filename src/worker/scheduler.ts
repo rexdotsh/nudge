@@ -137,7 +137,7 @@ export class Scheduler {
 
   private noticeFor(reminder: Reminder, notice: Notice, view: Presentation): Outgoing {
     return outgoing(
-      fireId(reminder.id, notice.at),
+      fireId(reminder.id, notice),
       reminder.title,
       occurrenceTopic(reminder.id, notice.due),
       reminderMessage(reminder, notice, view),

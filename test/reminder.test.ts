@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt } from '../src/shared/fire';
-import { parseFields, parseOp } from '../src/shared/input';
+import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt, type Notice } from '../src/shared/fire';
+import { fireId } from '../src/shared/notification';
+import { LIMITS, parseFields, parseOp } from '../src/shared/input';
 import { applyOp, type Clock, type Op } from '../src/shared/ops';
-import { dueAt, isLate, type Reminder, type ReminderFields } from '../src/shared/reminder';
+import { dueAt, isLate, type Reminder, type ReminderFields, type Repeat } from '../src/shared/reminder';
 import { MINUTE_MS, toInstant, parseLocal } from '../src/shared/time';
 
 const ZONE = 'Asia/Kolkata';
@@ -39,6 +40,18 @@ function create(overrides: Partial<ReminderFields> = {}, now = '2026-10-11T20:00
 }
 
 const daily = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
+const days = (count: number) => count * 24 * 60;
+
+function fireThrough(reminder: Reminder, until: number, zone = ZONE): { reminder: Reminder; notices: Notice[] } {
+  const notices: Notice[] = [];
+  let current = reminder;
+  for (let next = nextFireAt(current, zone); next !== null && next <= until; next = nextFireAt(current, zone)) {
+    const fired = fire(current, next, zone);
+    notices.push(...fired.notices);
+    current = fired.reminder;
+  }
+  return { reminder: current, notices };
+}
 
 describe('put', () => {
   test('a one-off is due at its start, even in the past', () => {
@@ -266,16 +279,104 @@ describe('firing', () => {
       ['due', 'nag', 'early'],
     ],
   ])('%s that land in the same minute both go out', (_, overrides, expected) => {
-    let reminder = create({ repeat: daily, ...overrides }, '2026-10-12T08:59');
-    const alerts: string[] = [];
-    for (let i = 0; i < expected.length; i++) {
-      const next = nextFireAt(reminder, ZONE);
-      if (next === null) throw new Error('nothing planned');
-      const fired = fire(reminder, next, ZONE);
-      alerts.push(...fired.notices.map(({ alert }) => alert));
+    const { notices } = fireThrough(
+      create({ repeat: daily, ...overrides }, '2026-10-12T08:59'),
+      at('2026-10-12T09:05'),
+    );
+    const alerts: string[] = notices.map(({ alert }) => alert);
+    expect(alerts).toEqual(expected);
+  });
+
+  test.each<[string, Repeat, number[], [string, number][]]>([
+    [
+      'a three-day alert on a daily reminder',
+      daily,
+      [days(3)],
+      ['2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02'].map((day) => [`${day}T09:00`, days(3)]),
+    ],
+    [
+      'the longest alert on a weekly reminder',
+      { rule: 'FREQ=WEEKLY', anchor: 'schedule' },
+      [LIMITS.alertMinutes],
+      ['2026-11-19', '2026-11-26', '2026-12-03'].map((day) => [`${day}T09:00`, LIMITS.alertMinutes]),
+    ],
+    [
+      'one- and two-day alerts on a daily reminder, which come due together',
+      daily,
+      [days(1), days(2)],
+      [
+        ['2026-10-29T09:00', days(1)],
+        ['2026-10-29T09:00', days(2)],
+        ['2026-10-30T09:00', days(1)],
+        ['2026-10-30T09:00', days(2)],
+        ['2026-10-31T09:00', days(1)],
+        ['2026-10-31T09:00', days(2)],
+        ['2026-11-01T09:00', days(1)],
+        ['2026-11-01T09:00', days(2)],
+      ],
+    ],
+  ])('%s warns each occurrence once per alert, that far ahead, across a DST change', (_, repeat, alerts, expected) => {
+    const ny = 'America/New_York';
+    let reminder = applyOp(
+      undefined,
+      { type: 'put', id: ID, fields: fields({ start: '2026-10-29T09:00', repeat, alerts }) },
+      { now: Date.UTC(2026, 9, 20), zone: ny },
+    );
+    const warned: [string, number][] = [];
+    const ids = new Set<string>();
+    for (let step = 0; reminder && warned.length < expected.length; step++) {
+      const next = nextFireAt(reminder, ny);
+      if (next === null || step > 50) throw new Error('nothing planned');
+      const fired = fire(reminder, next, ny);
+      for (const notice of fired.notices) {
+        const ahead = (dueAt({ ...fired.reminder, due: notice.due }, ny) ?? Number.NaN) - notice.at;
+        if (notice.alert !== 'early') continue;
+        warned.push([notice.due, Math.round(ahead / MINUTE_MS)]);
+        ids.add(fireId(ID, notice));
+      }
       reminder = fired.reminder;
     }
-    expect(alerts).toEqual(expected);
+    const first = warned.slice(0, expected.length);
+    expect(first.toSorted(([a, x], [b, y]) => a.localeCompare(b) || x - y)).toEqual(expected);
+    expect(ids.size).toBe(warned.length);
+  });
+
+  test('editing alerts after an early alert went out does not send it again', () => {
+    const series = create({ start: '2026-10-29T09:00', repeat: daily, alerts: [days(1)] }, '2026-10-28T08:00');
+    const before = fireThrough(series, at('2026-10-29T09:05'));
+    expect(before.notices.map(({ alert, due }) => [alert, due])).toEqual([
+      ['early', '2026-10-29T09:00'],
+      ['due', '2026-10-29T09:00'],
+      ['early', '2026-10-30T09:00'],
+    ]);
+    const edited = apply(
+      before.reminder,
+      { type: 'put', id: ID, fields: fields({ start: '2026-10-29T09:00', repeat: daily, alerts: [60, days(1)] }) },
+      '2026-10-29T09:10',
+    );
+    const after = fireThrough(edited, at('2026-10-30T08:59'));
+    expect(after.notices.map(({ alert, due, at: sent }) => [alert, due, sent])).toEqual([
+      ['early', '2026-10-30T09:00', at('2026-10-30T08:00')],
+    ]);
+  });
+
+  test('a snooze and its nag go out together with the early alerts that share their instants, each its own delivery', () => {
+    const series = create(
+      { start: '2026-10-29T09:00', repeat: daily, important: true, alerts: [1425, 1430, 2865, 2870] },
+      '2026-10-28T08:00',
+    );
+    const due = fireThrough(series, at('2026-10-29T09:00')).reminder;
+    const snooze = { type: 'snooze', id: ID, due: '2026-10-29T09:00', until: at('2026-10-29T09:10') } as const;
+    const { notices } = fireThrough(apply(due, snooze, '2026-10-29T09:01'), at('2026-10-29T09:16'));
+    expect(notices.map(({ alert, due: occurrence, at: sent }) => [alert, occurrence, sent])).toEqual([
+      ['snoozed', '2026-10-29T09:00', at('2026-10-29T09:10')],
+      ['early', '2026-10-30T09:00', at('2026-10-29T09:10')],
+      ['early', '2026-10-31T09:00', at('2026-10-29T09:10')],
+      ['nag', '2026-10-29T09:00', at('2026-10-29T09:15')],
+      ['early', '2026-10-30T09:00', at('2026-10-29T09:15')],
+      ['early', '2026-10-31T09:00', at('2026-10-29T09:15')],
+    ]);
+    expect(new Set(notices.map((notice) => fireId(ID, notice))).size).toBe(notices.length);
   });
 
   test("one late run that catches a due notice and the next occurrence's early alert sends both", () => {
@@ -423,9 +524,11 @@ describe('time zones', () => {
 
 describe('input validation', () => {
   test('accepts well-formed fields and normalizes them', () => {
-    expect(parseFields({ ...fields(), title: '  Call mom  ', alerts: [1440, 60] })).toMatchObject({
+    expect(
+      parseFields({ ...fields(), title: '  Call mom  ', alerts: [LIMITS.alertMinutes, 1440, 60, 15, 5] }),
+    ).toMatchObject({
       title: 'Call mom',
-      alerts: [60, 1440],
+      alerts: [5, 15, 60, 1440, LIMITS.alertMinutes],
     });
   });
 
@@ -438,6 +541,8 @@ describe('input validation', () => {
       { ...fields(), zone: 'Mars/Base' },
       { ...fields(), alerts: [60, 60] },
       { ...fields(), alerts: [0] },
+      { ...fields(), alerts: [LIMITS.alertMinutes + 1] },
+      { ...fields(), alerts: Array.from({ length: LIMITS.alerts + 1 }, (_, i) => i + 1) },
       { ...fields(), repeat: { rule: 'FREQ=MINUTELY', anchor: 'schedule' } },
       { ...fields(), repeat: { rule: 'FREQ=WEEKLY;BYDAY=MO', anchor: 'completion' } },
       { ...fields(), important: 'yes' },

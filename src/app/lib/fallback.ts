@@ -112,7 +112,7 @@ export class Fallback {
     for (const reminder of reminders) {
       const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
       const shown = notices.map((notice) => {
-        const key = fireId(reminder.id, notice.at);
+        const key = fireId(reminder.id, notice);
         return this.showOnce(key, reminderMessage(advanced, notice, view).notification, display, generation).catch(
           (error: unknown) => {
             console.error(`could not record ${key}`, error);

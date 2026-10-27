@@ -50,8 +50,9 @@ function bodyFor(reminder: Reminder, notice: Notice, due: number, view: Presenta
   }
 }
 
-export function fireId(reminderId: string, at: number): string {
-  return `${reminderId}@${at}`;
+// Notices for different occurrences can share an instant, but one occurrence never has two at the same instant.
+export function fireId(reminderId: string, { at, due }: Pick<Notice, 'at' | 'due'>): string {
+  return `${reminderId}@${at}/${due}`;
 }
 
 type Occurrence = NonNullable<PushData['reminder']>;
@@ -96,7 +97,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
       navigate: `${view.origin}/?open=${reminder.id}`,
       tag: occurrenceTag({ id: reminder.id, due: notice.due }),
       requireInteraction: reminder.important && notice.alert !== 'early',
-      data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
+      data: { fire: fireId(reminder.id, notice), reminder: { id: reminder.id, due: notice.due } },
     },
     view.badge,
   );

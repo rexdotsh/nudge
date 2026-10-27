@@ -59,6 +59,20 @@ export function untilLabel(instant: number, now: number): string {
   return minutes < 60 ? `in ${minutes} min` : `in ${Math.floor(minutes / 60)} h`;
 }
 
+const LEAD_UNITS = [
+  [7 * 24 * 60, 'week'],
+  [24 * 60, 'day'],
+  [60, 'hour'],
+] as const;
+
+const counted = (count: number, unit: string) => `${count} ${unit}${count === 1 ? '' : 's'}`;
+
+export function alertLabel(minutes: number): string {
+  const unit = LEAD_UNITS.find(([size]) => minutes % size === 0);
+  if (unit) return counted(minutes / unit[0], unit[1]);
+  return minutes < 60 ? `${minutes} min` : `${counted(Math.floor(minutes / 60), 'hour')} ${minutes % 60} min`;
+}
+
 export function whenLabel(instant: number, now: number, zone: string): string {
   const minutes = Math.round((instant - now) / MINUTE_MS);
   if (minutes > 0 && minutes < 60) return untilLabel(instant, now);

@@ -1,5 +1,6 @@
 import { parseFields } from '../../shared/input';
 import { fieldsOf, type Reminder, type ReminderFields } from '../../shared/reminder';
+import { AlertChoice } from './alert-choice.svelte';
 import { app } from './app.svelte';
 import { RepeatChoice } from './repeat-choice.svelte';
 import { toasts } from './toasts.svelte';
@@ -7,12 +8,12 @@ import { toasts } from './toasts.svelte';
 export class Draft {
   original: Reminder;
   readonly repeat: RepeatChoice;
+  readonly alerts: AlertChoice;
   title = $state('');
   notes = $state('');
   date = $state('');
   time = $state('');
   important = $state(false);
-  alerts = $state<number[]>([]);
   pinned = $state(false);
   showZone = $state(false);
 
@@ -23,9 +24,11 @@ export class Draft {
     zone: this.pinned ? (this.original.zone ?? app.zone) : null,
     repeat: this.repeat.repeat,
     important: this.important,
-    alerts: this.alerts.toSorted((a, b) => a - b),
+    alerts: this.alerts.minutes,
   }));
-  readonly parsed = $derived.by(() => (this.repeat.understood ? parseFields(this.fields) : null));
+  readonly parsed = $derived.by(() =>
+    this.repeat.understood && this.alerts.understood ? parseFields(this.fields) : null,
+  );
   get dirty(): boolean {
     return this.parsed === null || this.changed;
   }
@@ -43,19 +46,13 @@ export class Draft {
     this.date = original.start.slice(0, 10);
     this.time = original.start.slice(11, 16);
     this.important = original.important;
-    this.alerts = [...original.alerts];
+    this.alerts = new AlertChoice(original.alerts);
     this.pinned = original.zone !== null;
     this.showZone = original.zone !== null || app.travelling || app.zoneControls;
   }
 
   get id(): string {
     return this.original.id;
-  }
-
-  toggleAlert(minutes: number): void {
-    this.alerts = this.alerts.includes(minutes)
-      ? this.alerts.filter((value) => value !== minutes)
-      : [...this.alerts, minutes];
   }
 
   applyRepeat(): void {
