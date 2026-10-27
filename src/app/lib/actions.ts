@@ -4,7 +4,7 @@ import { dueAt, firstDue, type Reminder, type ReminderFields } from '../../share
 import { HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
 import { ulid } from '../../shared/ulid';
 import { app } from './app.svelte';
-import { whenLabel } from './format';
+import { summaryWhen, whenLabel } from './format';
 import { tick } from './haptics';
 import { toasts } from './toasts.svelte';
 
@@ -26,7 +26,7 @@ export async function add(text: string): Promise<boolean> {
   const created = await app.apply({ type: 'put', id, fields: { ...fields, start } });
   const due = created ? dueAt(created, app.zone) : null;
   toasts.show(
-    due === null ? 'Added' : `Added for ${whenLabel(due, now, app.zone)}`,
+    due === null ? 'Added' : `Added for ${summaryWhen(due, now, app.zone)}`,
     () => void app.apply({ type: 'delete', id }),
   );
   return true;

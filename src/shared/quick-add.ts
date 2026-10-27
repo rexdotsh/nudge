@@ -196,7 +196,8 @@ function timeOf(draft: Draft, now: number, zone: string): Time | null {
 }
 
 function startOf(draft: Draft, time: Time | null, now: number, zone: string): string | null {
-  if (draft.offset !== null) return formatLocal(wallAtOrAfter(now + draft.offset, zone));
+  // Reminders keep whole minutes; "in 1 min" means the nearest one, not the next, which could be almost two away.
+  if (draft.offset !== null) return formatLocal(wallAtOrAfter(now + draft.offset - MINUTE_MS / 2, zone));
   const today = toLocal(now, zone);
   if (draft.offsetDays !== null) {
     if (!time) return formatLocal(wallAtOrAfter(now + draft.offsetDays * DAY_MS, zone));

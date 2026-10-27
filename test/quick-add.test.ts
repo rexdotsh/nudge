@@ -12,6 +12,14 @@ const at = (wall: string) => {
 const NOW = at('2026-10-11T19:43');
 const parse = (text: string) => parseQuickAdd(text, NOW, ZONE);
 
+test.each([
+  [5, '2026-10-11T19:44'],
+  [25, '2026-10-11T19:44'],
+  [35, '2026-10-11T19:45'],
+])('"in 1 min" typed %i s into a minute lands on the nearest whole minute', (seconds, start) => {
+  expect(parseQuickAdd('stretch in 1 min', NOW + seconds * 1000, ZONE).start).toBe(start);
+});
+
 describe('parseQuickAdd', () => {
   test.each([
     ['call mom tomorrow 6pm', 'call mom', '2026-10-12T18:00', null],
@@ -19,6 +27,7 @@ describe('parseQuickAdd', () => {
     ['dinner fri 7pm', 'dinner', '2026-10-16T19:00', null],
     ['dentist oct 20 at 3:30pm', 'dentist', '2026-10-20T15:30', null],
     ['ask about the song 4.15pm', 'ask about the song', '2026-10-12T16:15', null],
+    ['call naik 7.10pm', 'call naik', '2026-10-12T19:10', null],
     ['call at 16.30', 'call', '2026-10-12T16:30', null],
     ['pay rent 4.50', 'pay rent 4.50', null, null],
     ['anniversary march 3', 'anniversary', '2027-03-03T09:00', null],
