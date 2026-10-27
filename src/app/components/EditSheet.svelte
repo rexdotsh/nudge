@@ -12,19 +12,13 @@
   import { CLOSE, SAVE, tip } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
   import { ui } from '../lib/ui.svelte';
+  import AlertPicker from './AlertPicker.svelte';
   import Icon from './Icon.svelte';
   import RepeatPicker from './RepeatPicker.svelte';
   import Sheet from './Sheet.svelte';
   import When from './When.svelte';
 
   let { reminder }: { reminder: Reminder } = $props();
-
-  const ALERTS = [
-    { minutes: 5, label: '5 min' },
-    { minutes: 15, label: '15 min' },
-    { minutes: 60, label: '1 hour' },
-    { minutes: 1440, label: '1 day' },
-  ];
 
   const draft = untrack(() => ui.draftFor(reminder));
   const zone = $derived(draft.fields.zone ?? app.zone);
@@ -73,20 +67,7 @@
       <When bind:date={draft.date} bind:time={draft.time} {zone} />
     </div>
     <RepeatPicker {draft} />
-    <div class="field stacked">
-      <span id="alerts-label">Also remind me before</span>
-      <div class="alerts" role="group" aria-labelledby="alerts-label">
-        {#each ALERTS as alert (alert.minutes)}
-          <button
-            class="press"
-            aria-pressed={draft.alerts.includes(alert.minutes)}
-            onclick={() => draft.toggleAlert(alert.minutes)}
-          >
-            {alert.label}
-          </button>
-        {/each}
-      </div>
-    </div>
+    <AlertPicker choice={draft.alerts} />
   </div>
 
   <div class="group">
@@ -167,30 +148,6 @@
 
   .group + .group {
     margin-top: 12px;
-  }
-
-  .alerts {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 2px;
-    padding: 2px;
-    border-radius: 10px;
-    background: var(--bg);
-    box-shadow: inset 0 0 0 1px var(--edge);
-  }
-
-  .alerts button {
-    height: 32px;
-    border-radius: 8px;
-    color: var(--ink-2);
-    font-size: 13.5px;
-    font-weight: 500;
-  }
-
-  .alerts button[aria-pressed='true'] {
-    background: var(--on);
-    color: var(--on-ink);
-    font-weight: 600;
   }
 
   .acts {

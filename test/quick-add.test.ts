@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { parseFields } from '../src/shared/input';
+import { leadMinutes } from '../src/shared/phrases';
 import { parseQuickAdd, suggestedStart } from '../src/shared/quick-add';
 import { parseLocal, toInstant } from '../src/shared/time';
 
@@ -292,4 +293,22 @@ test('suggestedStart rounds up from an hour ahead, or picks tomorrow morning lat
   expect(suggestedStart(NOW, ZONE)).toBe('2026-10-11T21:00');
   expect(suggestedStart(at('2026-10-11T09:10'), ZONE)).toBe('2026-10-11T10:30');
   expect(suggestedStart(at('2026-10-11T21:10'), ZONE)).toBe('2026-10-12T09:00');
+});
+
+test.each([
+  ['30 min', 30],
+  ['90m', 90],
+  ['2h', 120],
+  ['1.5 hours', 90],
+  ['half an hour', 30],
+  ['An hour before', 60],
+  ['3 days', 3 * 24 * 60],
+  ['a week early', 7 * 24 * 60],
+  ['0 min', null],
+  ['1.5 min', null],
+  ['30', null],
+  ['in 30 min', null],
+  ['30 min after', null],
+])('an early alert typed as %p is %p minutes ahead', (text, minutes) => {
+  expect(leadMinutes(text)).toBe(minutes);
 });

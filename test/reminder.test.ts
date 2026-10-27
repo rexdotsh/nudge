@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt } from '../src/shared/fire';
-import { parseFields, parseOp } from '../src/shared/input';
+import { LIMITS, parseFields, parseOp } from '../src/shared/input';
 import { applyOp, type Clock, type Op } from '../src/shared/ops';
 import { dueAt, isLate, type Reminder, type ReminderFields } from '../src/shared/reminder';
 import { MINUTE_MS, toInstant, parseLocal } from '../src/shared/time';
@@ -278,6 +278,40 @@ describe('firing', () => {
     expect(alerts).toEqual(expected);
   });
 
+  test.each([
+    [
+      'a three-day alert on a daily reminder',
+      daily,
+      3 * 24 * 60,
+      ['2026-10-29T09:00', '2026-10-30T09:00', '2026-10-31T09:00', '2026-11-01T09:00', '2026-11-02T09:00'],
+    ],
+    [
+      'the longest alert on a weekly reminder',
+      { rule: 'FREQ=WEEKLY', anchor: 'schedule' } as const,
+      LIMITS.alertMinutes,
+      ['2026-11-19T09:00', '2026-11-26T09:00', '2026-12-03T09:00'],
+    ],
+  ])('%s warns each occurrence once, exactly that far ahead, across a DST change', (_, repeat, lead, expected) => {
+    const ny = 'America/New_York';
+    let reminder = applyOp(
+      undefined,
+      { type: 'put', id: ID, fields: fields({ start: '2026-10-29T09:00', repeat, alerts: [lead] }) },
+      { now: Date.UTC(2026, 9, 20), zone: ny },
+    );
+    const warned: [string, number][] = [];
+    for (let step = 0; reminder && warned.length < expected.length; step++) {
+      const next = nextFireAt(reminder, ny);
+      if (next === null || step > 50) throw new Error('nothing planned');
+      const fired = fire(reminder, next, ny);
+      for (const { alert, due, at: sent } of fired.notices) {
+        const ahead = (dueAt({ ...fired.reminder, due }, ny) ?? Number.NaN) - sent;
+        if (alert === 'early') warned.push([due, Math.round(ahead / MINUTE_MS)]);
+      }
+      reminder = fired.reminder;
+    }
+    expect(warned).toEqual(expected.map((due) => [due, lead]));
+  });
+
   test("one late run that catches a due notice and the next occurrence's early alert sends both", () => {
     const reminder = create({ repeat: daily, alerts: [1440] }, '2026-10-12T08:59');
     const late = fire(reminder, at('2026-10-12T09:00') + MINUTE_MS, ZONE);
@@ -423,9 +457,11 @@ describe('time zones', () => {
 
 describe('input validation', () => {
   test('accepts well-formed fields and normalizes them', () => {
-    expect(parseFields({ ...fields(), title: '  Call mom  ', alerts: [1440, 60] })).toMatchObject({
+    expect(
+      parseFields({ ...fields(), title: '  Call mom  ', alerts: [LIMITS.alertMinutes, 1440, 60, 15, 5] }),
+    ).toMatchObject({
       title: 'Call mom',
-      alerts: [60, 1440],
+      alerts: [5, 15, 60, 1440, LIMITS.alertMinutes],
     });
   });
 
@@ -438,6 +474,8 @@ describe('input validation', () => {
       { ...fields(), zone: 'Mars/Base' },
       { ...fields(), alerts: [60, 60] },
       { ...fields(), alerts: [0] },
+      { ...fields(), alerts: [LIMITS.alertMinutes + 1] },
+      { ...fields(), alerts: Array.from({ length: LIMITS.alerts + 1 }, (_, i) => i + 1) },
       { ...fields(), repeat: { rule: 'FREQ=MINUTELY', anchor: 'schedule' } },
       { ...fields(), repeat: { rule: 'FREQ=WEEKLY;BYDAY=MO', anchor: 'completion' } },
       { ...fields(), important: 'yes' },

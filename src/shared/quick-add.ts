@@ -2,6 +2,7 @@ import { isRepeat } from './input';
 import {
   DAY,
   DATE,
+  DURATION,
   LIST,
   MERIDIEM_TIME,
   PARTS_OF_DAY,
@@ -13,6 +14,7 @@ import {
   dateInPhrase,
   dayIndex,
   distinctTimes,
+  durationMinutes,
   partsOfDay,
   scheduled,
   type RepeatMatch,
@@ -77,21 +79,13 @@ function scanWhen(scanner: Scanner, draft: Draft, today: LocalDate): void {
     if (isRealDate(date)) draft.date = date;
     return isRealDate(date);
   };
-  scanner.take(
-    `in\\s+(an?|half\\s+an|\\d+(?:\\.\\d+)?)\\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)`,
-    'when',
-    (m) => {
-      const amount = m[1] === 'half an' ? 0.5 : /^\d/.test(m[1] ?? '') ? Number(m[1]) : 1;
-      const unit = m[2]?.[0] ?? 'm';
-      const days = unit === 'w' ? amount * 7 : amount;
-      if (unit === 'd' || unit === 'w') {
-        if (Number.isInteger(days)) draft.offsetDays = days;
-        else draft.offset = days * DAY_MS;
-      } else {
-        draft.offset = amount * (unit === 'h' ? 60 * MINUTE_MS : MINUTE_MS);
-      }
-    },
-  );
+  scanner.take(`in\\s+${DURATION}`, 'when', (m) => {
+    const unit = m[2] ?? '';
+    const minutes = durationMinutes(m[1] ?? '', unit);
+    const days = (minutes * MINUTE_MS) / DAY_MS;
+    if (/^[dw]/.test(unit) && Number.isInteger(days)) draft.offsetDays = days;
+    else draft.offset = minutes * MINUTE_MS;
+  });
   scanner.take(`(?:the\\s+)?day\\s+after\\s+tomorrow`, 'when', () => setDate(fromEpochDay(epochDay(today) + 2)));
   scanner.take(`today`, 'when', () => setDate(today));
   scanner.take(`tonight`, 'when', () => {
