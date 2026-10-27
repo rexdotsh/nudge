@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { beforeEach, describe, expect, test } from 'bun:test';
+import { pushOutcome } from 'declarative-web-push/server';
 import type { DeviceInput, PushKeys, Route, ServerMessage } from '../src/shared/api';
 import { BASE64URL } from '../src/shared/encoding';
 import { NAG_INTERVAL_MS } from '../src/shared/fire';
@@ -47,7 +48,7 @@ const fields = (overrides: Partial<ReminderFields> = {}): ReminderFields => ({
   ...overrides,
 });
 
-type Pushed = { endpoint: string; message: PushMessage; topic: string };
+type Pushed = { endpoint: string; message: PushMessage; topic: string | undefined };
 
 function harness() {
   const db = new Database(':memory:');
@@ -101,9 +102,11 @@ function harness() {
       state.pushes.push({ endpoint: target.endpoint, message, topic: options.topic });
       if (state.holdNext) {
         state.holdNext = false;
-        return { status: await new Promise<number>((resolve) => (state.held = resolve)), detail: '' };
+        const status = await new Promise<number>((resolve) => (state.held = resolve));
+        return { status, outcome: pushOutcome(status), detail: '' };
       }
-      return { status: state.status(target, attempt), detail: '' };
+      const status = state.status(target, attempt);
+      return { status, outcome: pushOutcome(status), detail: '' };
     },
     alert: async (text) => {
       if (state.failAlerts) throw new Error('telegram down');
@@ -430,7 +433,7 @@ describe('delivery', () => {
       app_badge: '1',
       notification: { tag: `${id}:2026-10-12T09:00`, navigate: `${ORIGIN}/?open=${id}` },
     });
-    expect(h.state.pushes[0]?.topic.length).toBeLessThanOrEqual(32);
+    expect(h.state.pushes[0]?.topic?.length).toBeLessThanOrEqual(32);
   });
 
   test.each(['phone', 'laptop'] as const)(

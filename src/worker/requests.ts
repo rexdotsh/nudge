@@ -1,3 +1,4 @@
+import { isPushServiceEndpoint } from 'declarative-web-push/server';
 import {
   MAX_CHANGES,
   PLATFORMS,
@@ -18,7 +19,6 @@ import { parseOp } from '../shared/input';
 import { isTimeZone } from '../shared/time';
 import { isUlid } from '../shared/ulid';
 import { isInteger, isRecord, isText } from '../shared/validate';
-import { isPushServiceEndpoint } from './webpush';
 
 export class ApiFailure extends Error {
   constructor(readonly code: ApiError) {

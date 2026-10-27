@@ -1,3 +1,4 @@
+import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import { fire, nextFireAt, type Notice } from '../shared/fire';
 import {
   fireId,
@@ -13,7 +14,6 @@ import type { DeliveryRow, Outgoing } from './deliveries';
 import type { Target } from './devices';
 import type { Runtime } from './runtime';
 import type { Store } from './store';
-import { canReplace, type PushResult } from './webpush';
 
 export const DEAD_MAN_MS = MINUTE_MS;
 export const LEASE_MS = 90_000;
@@ -26,9 +26,6 @@ const PUSH_TTL_SECONDS = 24 * 3600;
 const DELIVERY_RETENTION_MS = 14 * DAY_MS;
 const ALERT_RETRY_MS = 5 * MINUTE_MS;
 
-const isOk = (status: number) => status >= 200 && status < 300;
-const isRetryable = (status: number) => status === 0 || status === 429 || status >= 500;
-const isGone = (status: number) => status === 404 || status === 410;
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 function outgoing(id: string, title: string, topic: string, message: PushMessage): Outgoing {
@@ -185,7 +182,7 @@ export class Scheduler {
     const claimed = this.runtime.transaction(() => this.store.deliveries.claim(now, LEASE_MS, lease));
     const pending = claimed.filter((row) => {
       const endpoint = this.store.devices.target(row.device_id)?.endpoint;
-      if (row.sends > 0 && isOk(row.status) && endpoint !== undefined && !canReplace(endpoint)) {
+      if (row.sends > 0 && pushOutcome(row.status) === 'sent' && endpoint !== undefined && !canReplace(endpoint)) {
         this.store.deliveries.settle(row, row.sent_at ?? now);
         return false;
       }
@@ -220,8 +217,8 @@ export class Scheduler {
       return;
     }
     const result = await this.pushWithRetry(target, row);
-    const ok = isOk(result.status);
-    const gone = isGone(result.status);
+    const ok = result.outcome === 'sent';
+    const gone = result.outcome === 'gone';
     const now = this.runtime.now();
     const current = this.store.devices.target(row.device_id);
     if (gone && current !== undefined && current.endpoint !== target.endpoint) {
@@ -230,7 +227,7 @@ export class Scheduler {
     }
     const followUp = row.sends === 0 ? RESEND_AFTER_MS : ESCALATE_AFTER_MS;
     const settled = ok && !canReplace(target.endpoint);
-    const nextAt = (ok && !settled) || isRetryable(result.status) ? now + followUp : null;
+    const nextAt = (ok && !settled) || result.outcome === 'retry' ? now + followUp : null;
     const owned = this.runtime.transaction(() => {
       if (!this.store.deliveries.recordSend(row, result.status, nextAt, now, settled)) return false;
       if (gone) this.store.devices.dropSubscription(target);
@@ -250,10 +247,10 @@ export class Scheduler {
     }
   }
 
-  private async pushWithRetry(target: Target, row: DeliveryRow, delays = RETRY_DELAYS_MS): Promise<PushResult> {
+  private async pushWithRetry(target: Target, row: DeliveryRow, delays = RETRY_DELAYS_MS): Promise<SendResult> {
     const result = await this.attempt(target, row);
     const [delay, ...later] = delays;
-    if (delay === undefined || !isRetryable(result.status)) return result;
+    if (delay === undefined || result.outcome !== 'retry') return result;
     await this.runtime.sleep(delay);
     if (!this.store.deliveries.owns(row) || this.store.devices.target(target.deviceId)?.endpoint !== target.endpoint) {
       return result;
@@ -261,7 +258,7 @@ export class Scheduler {
     return this.pushWithRetry(target, row, later);
   }
 
-  private async attempt(target: Target, row: DeliveryRow): Promise<PushResult> {
+  private async attempt(target: Target, row: DeliveryRow): Promise<SendResult> {
     try {
       return await this.runtime.push(target, row.payload, this.origin(), {
         ttl: PUSH_TTL_SECONDS,
@@ -269,7 +266,7 @@ export class Scheduler {
         topic: row.topic,
       });
     } catch (error) {
-      return { status: 0, detail: describe(error) };
+      return { status: 0, outcome: 'retry', detail: describe(error) };
     }
   }
 
