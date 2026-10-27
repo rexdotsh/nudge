@@ -10,7 +10,8 @@
   import { whenLabel, zoneLabel } from '../lib/format';
   import { closeOnBack } from '../lib/close';
   import { installer, type Prompted } from '../lib/install.svelte';
-  import { UNBLOCK_STEPS, type PushState } from '../lib/push';
+  import type { PushPermission } from 'declarative-web-push/client';
+  import { UNBLOCK_STEPS } from '../lib/push';
   import { composing } from '../lib/shortcuts';
   import { toasts } from '../lib/toasts.svelte';
 
@@ -28,8 +29,8 @@
     },
   };
 
-  const PUSH_LABELS: Record<PushState, string> = {
-    enabled: 'On',
+  const PUSH_LABELS: Record<PushPermission, string> = {
+    granted: 'On',
     prompt: 'Off',
     denied: 'Blocked',
     unsupported: 'Not supported here',
@@ -138,7 +139,7 @@
       <button class="field action" onclick={turnOn}>Turn on notifications</button>
     {:else if app.notifications === 'denied'}
       <div class="field"><small>{UNBLOCK_STEPS[app.platform]}</small></div>
-    {:else if app.notifications === 'enabled'}
+    {:else if app.notifications === 'granted'}
       <button class="field action" onclick={test}>Send a test notification</button>
     {/if}
   </div>

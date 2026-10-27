@@ -74,7 +74,7 @@
   });
 
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'enabled' && app.freshness !== 'catching-up');
+    fallback.schedule(app.reminders, app.zone, app.notifications === 'granted' && app.freshness !== 'catching-up');
   });
 </script>
 
