@@ -39,14 +39,14 @@ function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
   return eligible;
 }
 
-// Later occurrences need their early alerts before the current one rolls over. The millisecond offset keeps a shared
-// minute (today's due and tomorrow's 24-hour alert) from being swallowed by the single firedThrough watermark.
-const UPCOMING_OFFSET_MS = 1;
-
+// Later occurrences need their early alerts before the current one rolls over. Each alert is offset by its own
+// millisecond so no two steps share an instant: the single firedThrough watermark would swallow all but one, and the
+// instant names the delivery. Today's due and tomorrow's one-day alert, or tomorrow's one-day and the next day's
+// two-day alert, otherwise land together.
 function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Step[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
-  return reminder.alerts.flatMap((minutes) => {
-    const lead = minutes * MINUTE_MS - UPCOMING_OFFSET_MS;
+  return reminder.alerts.flatMap((minutes, index) => {
+    const lead = minutes * MINUTE_MS - (index + 1);
     const wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + lead), zone);
     if (wall === null) return [];
     const at = instantOf(reminder, wall, zone) - lead;

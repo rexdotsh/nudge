@@ -53,7 +53,7 @@
       enterkeyhint="done"
       onkeydown={escape}
     />
-    <button class="link" type="submit" disabled={result === null}>{action}</button>
+    <button class="link" type="submit" disabled={result === null} onkeydown={escape}>{action}</button>
   </div>
   <small id="{id}-result" aria-live="polite" hidden={value.trim() === ''}>
     {#if result !== null}<span class="result">{result}</span>{:else}{hint}{/if}

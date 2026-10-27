@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt } from '../src/shared/fire';
 import { LIMITS, parseFields, parseOp } from '../src/shared/input';
 import { applyOp, type Clock, type Op } from '../src/shared/ops';
-import { dueAt, isLate, type Reminder, type ReminderFields } from '../src/shared/reminder';
+import { dueAt, isLate, type Reminder, type ReminderFields, type Repeat } from '../src/shared/reminder';
 import { MINUTE_MS, toInstant, parseLocal } from '../src/shared/time';
 
 const ZONE = 'Asia/Kolkata';
@@ -39,6 +39,7 @@ function create(overrides: Partial<ReminderFields> = {}, now = '2026-10-11T20:00
 }
 
 const daily = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
+const days = (count: number) => count * 24 * 60;
 
 describe('put', () => {
   test('a one-off is due at its start, even in the past', () => {
@@ -278,38 +279,57 @@ describe('firing', () => {
     expect(alerts).toEqual(expected);
   });
 
-  test.each([
+  test.each<[string, Repeat, number[], [string, number][]]>([
     [
       'a three-day alert on a daily reminder',
       daily,
-      3 * 24 * 60,
-      ['2026-10-29T09:00', '2026-10-30T09:00', '2026-10-31T09:00', '2026-11-01T09:00', '2026-11-02T09:00'],
+      [days(3)],
+      ['2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02'].map((day) => [`${day}T09:00`, days(3)]),
     ],
     [
       'the longest alert on a weekly reminder',
-      { rule: 'FREQ=WEEKLY', anchor: 'schedule' } as const,
-      LIMITS.alertMinutes,
-      ['2026-11-19T09:00', '2026-11-26T09:00', '2026-12-03T09:00'],
+      { rule: 'FREQ=WEEKLY', anchor: 'schedule' },
+      [LIMITS.alertMinutes],
+      ['2026-11-19', '2026-11-26', '2026-12-03'].map((day) => [`${day}T09:00`, LIMITS.alertMinutes]),
     ],
-  ])('%s warns each occurrence once, exactly that far ahead, across a DST change', (_, repeat, lead, expected) => {
+    [
+      'one- and two-day alerts on a daily reminder, which come due together',
+      daily,
+      [days(1), days(2)],
+      [
+        ['2026-10-29T09:00', days(1)],
+        ['2026-10-29T09:00', days(2)],
+        ['2026-10-30T09:00', days(1)],
+        ['2026-10-30T09:00', days(2)],
+        ['2026-10-31T09:00', days(1)],
+        ['2026-10-31T09:00', days(2)],
+        ['2026-11-01T09:00', days(1)],
+        ['2026-11-01T09:00', days(2)],
+      ],
+    ],
+  ])('%s warns each occurrence once per alert, that far ahead, across a DST change', (_, repeat, alerts, expected) => {
     const ny = 'America/New_York';
     let reminder = applyOp(
       undefined,
-      { type: 'put', id: ID, fields: fields({ start: '2026-10-29T09:00', repeat, alerts: [lead] }) },
+      { type: 'put', id: ID, fields: fields({ start: '2026-10-29T09:00', repeat, alerts }) },
       { now: Date.UTC(2026, 9, 20), zone: ny },
     );
     const warned: [string, number][] = [];
+    const sentAt = new Set<number>();
     for (let step = 0; reminder && warned.length < expected.length; step++) {
       const next = nextFireAt(reminder, ny);
       if (next === null || step > 50) throw new Error('nothing planned');
       const fired = fire(reminder, next, ny);
       for (const { alert, due, at: sent } of fired.notices) {
         const ahead = (dueAt({ ...fired.reminder, due }, ny) ?? Number.NaN) - sent;
-        if (alert === 'early') warned.push([due, Math.round(ahead / MINUTE_MS)]);
+        if (alert !== 'early') continue;
+        warned.push([due, Math.round(ahead / MINUTE_MS)]);
+        sentAt.add(sent);
       }
       reminder = fired.reminder;
     }
-    expect(warned).toEqual(expected.map((due) => [due, lead]));
+    expect(warned.toSorted(([a, x], [b, y]) => a.localeCompare(b) || x - y)).toEqual(expected);
+    expect(sentAt.size).toBe(warned.length);
   });
 
   test("one late run that catches a due notice and the next occurrence's early alert sends both", () => {
