@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { OPENED, isWorkerMessage, openInPlace } from '../src/browser/messages';
-import { dismissSettled, type Shown } from '../src/browser/shown';
-import { isSettled } from '../src/shared/notification';
+import { dismissSettled } from '../src/browser/shown';
+import { isSettled, reminderMessage, taggedOccurrence } from '../src/shared/notification';
 import { applyOp, type Op } from '../src/shared/ops';
 import type { Reminder } from '../src/shared/reminder';
 import { HOUR_MS } from '../src/shared/time';
@@ -46,9 +46,16 @@ test.each([
   expect(isSettled({ id: ID, due }, current, at)).toBe(settled);
 });
 
+test('a reminder notification names its occurrence in its tag, which iOS keeps when it drops the data', () => {
+  const notice = { at: NOW, due: DUE, alert: 'due' as const, missed: 0 };
+  const view = { origin: 'https://nudge.example', zone: ZONE, locale: 'en', badge: 0 };
+  const { tag } = reminderMessage(reminder(false), notice, view).notification;
+  expect(taggedOccurrence(tag)).toEqual({ id: ID, due: DUE });
+  expect(taggedOccurrence('test')).toBeNull();
+});
+
 function tray() {
-  const data: Shown = { fire: `${ID}@1`, navigate: '/', reminder: { id: ID, due: DUE } };
-  const shown = { data, closed: false, close: () => (shown.closed = true) };
+  const shown = { tag: `${ID}:${DUE}`, closed: false, close: () => (shown.closed = true) };
   const listing = Promise.withResolvers<(typeof shown)[]>();
   return { shown, list: () => listing.resolve([shown]), getNotifications: () => listing.promise };
 }

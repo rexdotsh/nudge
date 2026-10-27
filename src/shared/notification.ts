@@ -69,6 +69,16 @@ export function fireId(reminderId: string, at: number): string {
 
 type Occurrence = NonNullable<PushData['reminder']>;
 
+function occurrenceTag({ id, due }: Occurrence): string {
+  return `${id}:${due}`;
+}
+
+/** The occurrence a notification is for, read from its tag: iOS keeps a notification's tag but drops its data. */
+export function taggedOccurrence(tag: string): Occurrence | null {
+  const at = tag.indexOf(':');
+  return at > 0 ? { id: tag.slice(0, at), due: tag.slice(at + 1) } : null;
+}
+
 // Unknown reminders and upcoming occurrences keep their notifications.
 export function isSettled(shown: Occurrence, reminder: Reminder | undefined, now: number): boolean {
   if (!reminder) return false;
@@ -86,7 +96,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
     title: reminder.title,
     body: bodyFor(reminder, notice, due, view),
     navigate: `${view.origin}/?open=${reminder.id}`,
-    tag: `${reminder.id}:${notice.due}`,
+    tag: occurrenceTag({ id: reminder.id, due: notice.due }),
     requireInteraction: reminder.important && notice.alert !== 'early',
     app_badge: String(view.badge),
     data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },

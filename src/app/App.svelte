@@ -60,6 +60,9 @@
     locale: navigator.language,
   });
 
+  // iOS ignores close() on a notification younger than this.
+  const CLOSABLE_AFTER_MS = 31_000;
+
   const late = $derived(lateCount(app.reminders, app.now, app.zone));
 
   // Pushes badge the icon as they arrive; only a replica synced in this foreground knows better than the latest push.
@@ -68,7 +71,11 @@
     if ('setAppBadge' in navigator) void navigator.setAppBadge(late);
     const { reminders } = app;
     const current = () => (app.reminders === reminders && app.freshness === 'synced' ? reminders : null);
-    void navigator.serviceWorker.ready.then((registration) => dismissSettled(registration, current, Date.now));
+    const dismiss = () =>
+      void navigator.serviceWorker.ready.then((registration) => dismissSettled(registration, current, Date.now));
+    dismiss();
+    const again = setTimeout(dismiss, CLOSABLE_AFTER_MS);
+    return () => clearTimeout(again);
   });
 
   $effect(() => {

@@ -99,7 +99,7 @@ self.addEventListener('push', (event) => {
   const shown: unknown = event.notification?.data;
   if (isPushData(shown)) {
     const deadline = new Promise((resolve) => setTimeout(resolve, SHOW_WITHIN_MS));
-    event.waitUntil(Promise.race([present(shown.fire), deadline]));
+    event.waitUntil(Promise.race([Promise.all([present(shown.fire), tidy()]), deadline]));
     return;
   }
   const message: unknown = event.data?.json();
@@ -126,7 +126,7 @@ async function drain(): Promise<void> {
 }
 
 // A device with Nudge closed runs nothing but this worker, so each push is its chance to drop notifications for
-// reminders settled elsewhere since. Safari ignores close(), so its declarative pushes skip this.
+// reminders settled elsewhere since.
 async function tidy(): Promise<void> {
   await drain().catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
