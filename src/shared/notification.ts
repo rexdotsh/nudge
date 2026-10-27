@@ -15,18 +15,24 @@ export interface NotificationContent {
   silent: false;
   renotify: true;
   requireInteraction: boolean;
-  app_badge?: string;
   data: PushData;
 }
 
-function declarative(notification: Omit<NotificationContent, 'silent' | 'renotify'>): PushMessage {
-  return { web_push: 8030, mutable: true, notification: { ...notification, silent: false, renotify: true } };
+function declarative(notification: Omit<NotificationContent, 'silent' | 'renotify'>, badge?: number): PushMessage {
+  return {
+    web_push: 8030,
+    mutable: true,
+    notification: { ...notification, silent: false, renotify: true },
+    ...(badge !== undefined && { app_badge: String(badge) }),
+  };
 }
 
+// WebKit reads app_badge beside the notification, not in it.
 export interface PushMessage {
   web_push: 8030;
   mutable: true;
   notification: NotificationContent;
+  app_badge?: string;
 }
 
 export interface Presentation {
@@ -92,15 +98,17 @@ export function occurrenceTopic(reminderId: string, due: string): string {
 
 export function reminderMessage(reminder: Reminder, notice: Notice, view: Presentation): PushMessage {
   const due = dueAt({ ...reminder, due: notice.due }, view.zone) ?? notice.at;
-  return declarative({
-    title: reminder.title,
-    body: bodyFor(reminder, notice, due, view),
-    navigate: `${view.origin}/?open=${reminder.id}`,
-    tag: occurrenceTag({ id: reminder.id, due: notice.due }),
-    requireInteraction: reminder.important && notice.alert !== 'early',
-    app_badge: String(view.badge),
-    data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
-  });
+  return declarative(
+    {
+      title: reminder.title,
+      body: bodyFor(reminder, notice, due, view),
+      navigate: `${view.origin}/?open=${reminder.id}`,
+      tag: occurrenceTag({ id: reminder.id, due: notice.due }),
+      requireInteraction: reminder.important && notice.alert !== 'early',
+      data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
+    },
+    view.badge,
+  );
 }
 
 export function testMessage(fire: string, view: Presentation): PushMessage {

@@ -105,7 +105,7 @@ self.addEventListener('push', (event) => {
   const message: unknown = event.data?.json();
   if (!isPushMessage(message)) return;
   const { notification } = message;
-  const badge = Number(notification.app_badge);
+  const badge = Number(message.app_badge);
   event.waitUntil(
     Promise.all([
       present(notification.data.fire, () => showUnlessOnScreen(self.registration, notification)),

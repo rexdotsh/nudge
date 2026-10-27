@@ -427,7 +427,8 @@ describe('delivery', () => {
     expect(h.state.pushes[0]?.message).toMatchObject({
       web_push: 8030,
       mutable: true,
-      notification: { tag: `${id}:2026-10-12T09:00`, navigate: `${ORIGIN}/?open=${id}`, app_badge: '1' },
+      app_badge: '1',
+      notification: { tag: `${id}:2026-10-12T09:00`, navigate: `${ORIGIN}/?open=${id}` },
     });
     expect(h.state.pushes[0]?.topic.length).toBeLessThanOrEqual(32);
   });
