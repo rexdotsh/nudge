@@ -54,6 +54,11 @@ export function fireId(reminderId: string, at: number): string {
   return `${reminderId}@${at}`;
 }
 
+/** Notices sharing an instant would share a fire id, so all but the earliest occurrence's also name their own. */
+export function noticeFireId(reminderId: string, { at, due, alongside }: Notice): string {
+  return alongside ? `${fireId(reminderId, at)}/${due}` : fireId(reminderId, at);
+}
+
 type Occurrence = NonNullable<PushData['reminder']>;
 
 function occurrenceTag({ id, due }: Occurrence): string {
@@ -96,7 +101,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
       navigate: `${view.origin}/?open=${reminder.id}`,
       tag: occurrenceTag({ id: reminder.id, due: notice.due }),
       requireInteraction: reminder.important && notice.alert !== 'early',
-      data: { fire: fireId(reminder.id, notice.at), reminder: { id: reminder.id, due: notice.due } },
+      data: { fire: noticeFireId(reminder.id, notice), reminder: { id: reminder.id, due: notice.due } },
     },
     view.badge,
   );

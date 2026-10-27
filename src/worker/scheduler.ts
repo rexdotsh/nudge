@@ -1,7 +1,7 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import { fire, nextFireAt, type Notice } from '../shared/fire';
 import {
-  fireId,
+  noticeFireId,
   occurrenceTopic,
   reminderMessage,
   testMessage,
@@ -137,7 +137,7 @@ export class Scheduler {
 
   private noticeFor(reminder: Reminder, notice: Notice, view: Presentation): Outgoing {
     return outgoing(
-      fireId(reminder.id, notice.at),
+      noticeFireId(reminder.id, notice),
       reminder.title,
       occurrenceTopic(reminder.id, notice.due),
       reminderMessage(reminder, notice, view),

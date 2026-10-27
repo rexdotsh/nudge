@@ -11,15 +11,23 @@ export interface Notice {
   at: number;
   due: string;
   missed: number;
+  /** Shares its instant with a notice for an earlier occurrence, which keeps the plain fire id. */
+  alongside: boolean;
 }
 
-type Step = { at: number; alert: Alert; due: string } | { at: number; roll: string };
+interface AlertStep {
+  at: number;
+  alert: Alert;
+  due: string;
+}
 
-function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
+type Step = { at: number; roll: string } | { at: number; alerts: AlertStep[] };
+
+function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   const comesUp = Math.max(due, quietUntil);
-  const steps: Step[] = [
-    ...reminder.alerts.map((minutes): Step => ({ at: due - minutes * MINUTE_MS, alert: 'early', due: wall })),
+  const steps: AlertStep[] = [
+    ...reminder.alerts.map((minutes): AlertStep => ({ at: due - minutes * MINUTE_MS, alert: 'early', due: wall })),
     { at: comesUp, alert: comesUp > due ? 'snoozed' : 'due', due: wall },
     ...(reminder.important
       ? Array.from({ length: NAG_LIMIT }, (_, i) => ({
@@ -39,14 +47,14 @@ function alertSteps(reminder: Reminder, due: number, wall: string): Step[] {
   return eligible;
 }
 
-// Later occurrences need their early alerts before the current one rolls over. Each alert is offset by its own
-// millisecond so no two steps share an instant: the single firedThrough watermark would swallow all but one, and the
-// instant names the delivery. Today's due and tomorrow's one-day alert, or tomorrow's one-day and the next day's
-// two-day alert, otherwise land together.
-function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Step[] {
+// Later occurrences need their early alerts before the current one rolls over. The millisecond offset keeps a shared
+// minute (today's due and tomorrow's 24-hour alert) from being swallowed by the single firedThrough watermark.
+const UPCOMING_OFFSET_MS = 1;
+
+function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
-  return reminder.alerts.flatMap((minutes, index) => {
-    const lead = minutes * MINUTE_MS - (index + 1);
+  return reminder.alerts.flatMap((minutes) => {
+    const lead = minutes * MINUTE_MS - UPCOMING_OFFSET_MS;
     const wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + lead), zone);
     if (wall === null) return [];
     const at = instantOf(reminder, wall, zone) - lead;
@@ -54,17 +62,18 @@ function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Step
   });
 }
 
+// Everything planned for the earliest instant goes together, since firedThrough moving to it passes all of it: an
+// occurrence's nag and a later occurrence's early alert, or two later occurrences' early alerts, can share an instant.
+// A roll at that instant goes first, on its own, because it changes what is planned.
 function earliest(reminder: Reminder, zone: string): Step | null {
   const due = dueAt(reminder, zone);
   if (reminder.deleted || reminder.due === null || due === null) return null;
   const next = occurrenceAfter(reminder, due, zone);
-  const steps = [...alertSteps(reminder, due, reminder.due), ...upcomingEarlySteps(reminder, due, zone)];
-  if (next !== null) steps.push({ at: instantOf(reminder, next, zone), roll: next });
-  let first: Step | null = null;
-  for (const step of steps) {
-    if (!first || step.at < first.at || (step.at === first.at && 'roll' in step)) first = step;
-  }
-  return first;
+  const roll = next === null ? null : { at: instantOf(reminder, next, zone), roll: next };
+  const alerts = [...alertSteps(reminder, due, reminder.due), ...upcomingEarlySteps(reminder, due, zone)];
+  const at = Math.min(roll?.at ?? Infinity, ...alerts.map((step) => step.at));
+  if (roll && roll.at === at) return roll;
+  return at === Infinity ? null : { at, alerts: alerts.filter((step) => step.at === at) };
 }
 
 export function nextFireAt(reminder: Reminder, zone: string): number | null {
@@ -84,11 +93,14 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
       if (current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
       continue;
     }
-    const consumesSnooze = step.at <= current.firedThrough || step.alert === 'due';
+    const consumesSnooze = step.at <= current.firedThrough || step.alerts.some(({ alert }) => alert === 'due');
     if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
     current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
-    latest.set(step.due, { alert: step.alert, at: step.at, due: step.due, missed: current.missed });
+    const first = step.alerts.map(({ due }) => due).toSorted()[0];
+    for (const { alert, at, due } of step.alerts) {
+      latest.set(due, { alert, at, due, missed: current.missed, alongside: due !== first });
+    }
   }
   const live = current.due;
   const notices = [...latest.values()].filter((notice) => live !== null && notice.due >= live);
