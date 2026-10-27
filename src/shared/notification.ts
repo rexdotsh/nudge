@@ -1,3 +1,4 @@
+import { declarativeMessage, type DeclarativeMessage, type DeclarativeNotification } from 'declarative-web-push';
 import type { Notice } from './fire';
 import { dueAt, isSnoozed, local, type Reminder } from './reminder';
 import { MINUTE_MS, wallMs } from './time';
@@ -7,32 +8,12 @@ export interface PushData {
   reminder: { id: string; due: string } | null;
 }
 
-export interface NotificationContent {
-  title: string;
-  body: string;
-  navigate: string;
-  tag: string;
-  silent: false;
-  renotify: true;
-  requireInteraction: boolean;
-  data: PushData;
-}
+export type NotificationContent = DeclarativeNotification<PushData> & { data: PushData };
 
-function declarative(notification: Omit<NotificationContent, 'silent' | 'renotify'>, badge?: number): PushMessage {
-  return {
-    web_push: 8030,
-    mutable: true,
-    notification: { ...notification, silent: false, renotify: true },
-    ...(badge !== undefined && { app_badge: String(badge) }),
-  };
-}
+export type PushMessage = DeclarativeMessage<NotificationContent>;
 
-// WebKit reads app_badge beside the notification, not in it.
-export interface PushMessage {
-  web_push: 8030;
-  mutable: true;
-  notification: NotificationContent;
-  app_badge?: string;
+function declarative(notification: NotificationContent, appBadge?: number): PushMessage {
+  return declarativeMessage({ ...notification, silent: false, renotify: true }, { mutable: true, appBadge });
 }
 
 export interface Presentation {
@@ -90,6 +71,16 @@ export function isSettled(shown: Occurrence, reminder: Reminder | undefined, now
   if (!reminder) return false;
   if (reminder.deleted || reminder.due === null) return true;
   return shown.due === reminder.due ? isSnoozed(reminder, now) : shown.due < reminder.due;
+}
+
+export function isSettledTag(tag: string, reminders: readonly Reminder[], now: number): boolean {
+  const shown = taggedOccurrence(tag);
+  if (!shown) return false;
+  return isSettled(
+    shown,
+    reminders.find((reminder) => reminder.id === shown.id),
+    now,
+  );
 }
 
 export function occurrenceTopic(reminderId: string, due: string): string {

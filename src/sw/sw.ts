@@ -1,8 +1,9 @@
+import { closeNotifications, readPush, waitUntilWithin } from 'declarative-web-push/worker';
 import { Unreachable, request } from '../browser/api';
 import { get } from '../browser/kv';
 import { openInPlace, type WorkerMessage } from '../browser/messages';
-import { SNOOZE_MINUTES, showUnlessOnScreen } from '../browser/notify';
-import { dismissSettled, isShown } from '../browser/shown';
+import { SNOOZE_MINUTES, showNudge } from '../browser/notify';
+import { isShown } from '../browser/shown';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
@@ -11,7 +12,7 @@ import { EMPTY_LOCAL } from '../browser/schema';
 import { claim, isSeen, settle } from '../browser/seen';
 import { MAX_REQUEST_BYTES } from '../shared/api';
 import { lateCount } from '../shared/reminder';
-import type { PushData, PushMessage } from '../shared/notification';
+import { isSettledTag, type PushData } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { isRecord } from '../shared/validate';
@@ -22,12 +23,6 @@ const CACHE_PREFIX = 'nudge-';
 const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
 function isPushData(value: unknown): value is PushData {
   return isRecord(value) && typeof value.fire === 'string';
-}
-
-function isPushMessage(value: unknown): value is PushMessage {
-  return (
-    isRecord(value) && value.web_push === 8030 && isRecord(value.notification) && isPushData(value.notification.data)
-  );
 }
 
 async function present(fire: string, show?: () => Promise<void>): Promise<void> {
@@ -91,24 +86,21 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(caches.match(key, { cacheName: CACHE }).then((hit) => hit ?? fetch(incoming)));
 });
 
-// iOS shows a declarative notification only once its push event settles, so the work around it gets a deadline.
 const SHOW_WITHIN_MS = 3000;
 
 self.addEventListener('push', (event) => {
-  // Safari shows a declarative message itself and hands the worker only the notification it made, with no `data`.
-  const shown: unknown = event.notification?.data;
-  if (isPushData(shown)) {
-    const deadline = new Promise((resolve) => setTimeout(resolve, SHOW_WITHIN_MS));
-    event.waitUntil(Promise.race([Promise.all([present(shown.fire), tidy()]), deadline]));
+  const push = readPush(event, isPushData);
+  if (!push) return;
+  if (push.kind === 'declarative') {
+    waitUntilWithin(event, Promise.all([present(push.data.fire), tidy()]), SHOW_WITHIN_MS);
     return;
   }
-  const message: unknown = event.data?.json();
-  if (!isPushMessage(message)) return;
+  const { message } = push;
   const { notification } = message;
   const badge = Number(message.app_badge);
   event.waitUntil(
     Promise.all([
-      present(notification.data.fire, () => showUnlessOnScreen(self.registration, notification)),
+      present(notification.data.fire, () => showNudge(self.registration, notification)),
       tidy(),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
     ]),
@@ -133,7 +125,7 @@ async function tidy(): Promise<void> {
   });
   const local = (await get('local')) ?? EMPTY_LOCAL;
   const reminders = new Replica(local.replica).view(local.pending, currentZone());
-  await dismissSettled(self.registration, () => reminders, Date.now);
+  await closeNotifications(self.registration, (tag) => isSettledTag(tag, reminders, Date.now()));
 }
 
 async function recount(): Promise<void> {
