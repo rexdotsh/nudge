@@ -56,7 +56,10 @@ export function timeLabel(instant: number, zone: string): string {
 
 export function untilLabel(instant: number, now: number): string {
   const minutes = Math.max(1, Math.round((instant - now) / MINUTE_MS));
-  return minutes < 60 ? `in ${minutes} min` : `in ${Math.floor(minutes / 60)} h`;
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `in ${hours}h` : `in ${hours}h ${rest}m`;
 }
 
 const LEAD_UNITS = [
