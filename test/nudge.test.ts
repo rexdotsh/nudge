@@ -711,7 +711,7 @@ describe('delivery', () => {
     await h.runAlarm();
     h.db.run('ALTER TABLE deliveries DROP COLUMN held_at');
     h.db.run('ALTER TABLE devices DROP COLUMN kind');
-    h.db.run('ALTER TABLE applied_ops DROP COLUMN reminder');
+    h.db.run('DROP TABLE agent_keys');
     h.db.run("UPDATE meta SET value = '1' WHERE key = 'schema'");
     h.restart();
     h.restart();

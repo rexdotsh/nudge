@@ -250,7 +250,7 @@ export class Nudge {
       }
       if (theme && !this.store.applied(theme.id)) {
         this.store.chooseTheme(theme.theme, madeAt(theme.at));
-        this.store.recordApplied(theme.id, null, now);
+        this.store.recordApplied(theme.id, now);
       }
     });
     const version = this.store.version();

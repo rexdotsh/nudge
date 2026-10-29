@@ -32,6 +32,8 @@ const call = (route: AgentRoute, parts: Partial<AgentEnvelope> = {}, caller = ag
 const create = (body: unknown, key: string | null = null, caller = agent) =>
   h.ok('create', envelope({ body, key }), caller);
 const act = (parts: Partial<AgentEnvelope>) => h.ok('act', envelope(parts), agent);
+type Use = [AgentRoute, Partial<AgentEnvelope>];
+
 const TOMORROW = '2026-10-13T09:00';
 const everything = () => h.ok('list', envelope({ query: { status: 'all' } }), agent);
 
@@ -83,8 +85,8 @@ describe('agent tokens', () => {
 describe('agent writes', () => {
   test('a create retried with the same key makes one reminder', async () => {
     const first = await create({ text: 'call mom sunday 6pm' }, 'create-1');
-    const again = await create({ text: 'call mom sunday 6pm' }, 'create-1');
-    expect(again.reminder.id).toBe(first.reminder.id);
+    await act({ id: first.reminder.id, action: 'snooze', body: { until: '1h' } });
+    expect(await create({ text: 'call mom sunday 6pm' }, 'create-1')).toEqual(first);
     expect((await everything()).reminders).toHaveLength(1);
   });
 
@@ -105,8 +107,8 @@ describe('agent writes', () => {
     const { reminder } = await create({ text: 'water plants every day 9am' });
     const first = await act({ ...parts, id: reminder.id, key: 'act-1' });
     h.state.now += HOUR_MS;
-    const again = await act({ ...parts, id: reminder.id, key: 'act-1' });
-    expect([again.rev, again.due]).toEqual([first.rev, first.due]);
+    expect(await act({ ...parts, id: reminder.id, key: 'act-1' })).toEqual(first);
+    expect((await h.ok('get', envelope({ id: reminder.id }), agent)).rev).toBe(first.rev);
   });
 
   test('an update retried with the same key applies once, even though its rev is now stale', async () => {
@@ -116,13 +118,64 @@ describe('agent writes', () => {
     expect(await h.ok('update', update, agent)).toEqual(first);
   });
 
-  test('a key used for one reminder cannot be reused for another', async () => {
+  test.each<[string, (one: string, two: string) => [Use, Use]]>([
+    [
+      'a create with another body',
+      () => [
+        ['create', { body: { text: 'one tomorrow' } }],
+        ['create', { body: { text: 'three tomorrow' } }],
+      ],
+    ],
+    [
+      'the same action on another reminder',
+      (one, two) => [
+        ['act', { id: one, action: 'delete' }],
+        ['act', { id: two, action: 'delete' }],
+      ],
+    ],
+    [
+      'another action on the same reminder',
+      (one) => [
+        ['act', { id: one, action: 'delete' }],
+        ['act', { id: one, action: 'restore' }],
+      ],
+    ],
+    [
+      'a snooze until another time',
+      (one) => [
+        ['act', { id: one, action: 'snooze', body: { until: '1h' } }],
+        ['act', { id: one, action: 'snooze', body: { until: '2h' } }],
+      ],
+    ],
+    [
+      'an update with another body',
+      (one) => [
+        ['update', { id: one, body: { rev: 1, title: 'A' } }],
+        ['update', { id: one, body: { rev: 1, title: 'B' } }],
+      ],
+    ],
+    [
+      'a create after a delete',
+      (one) => [
+        ['act', { id: one, action: 'delete' }],
+        ['create', { body: { text: 'four tomorrow' } }],
+      ],
+    ],
+    [
+      'a delete after a create',
+      (one) => [
+        ['create', { body: { text: 'four tomorrow' } }],
+        ['act', { id: one, action: 'delete' }],
+      ],
+    ],
+  ])('a key used once is refused for %s, which changes nothing', async (_, requests) => {
     const one = await create({ text: 'one tomorrow' });
     const two = await create({ text: 'two tomorrow' });
-    await act({ id: one.reminder.id, action: 'delete', key: 'k' });
-    const reused = await call('act', { id: two.reminder.id, action: 'delete', key: 'k' });
-    expect(reused).toMatchObject({ ok: false, error: 'bad_request' });
-    expect((await h.ok('get', envelope({ id: two.reminder.id }), agent)).deleted).toBe(false);
+    const [[firstRoute, first], [secondRoute, second]] = requests(one.reminder.id, two.reminder.id);
+    expect((await call(firstRoute, { ...first, key: 'k' })).ok).toBe(true);
+    const before = await everything();
+    expect(await call(secondRoute, { ...second, key: 'k' })).toMatchObject({ ok: false, error: 'unprocessable' });
+    expect(await everything()).toEqual(before);
   });
 
   test('an edit from a stale rev is refused with the current reminder, and changes nothing', async () => {
@@ -142,6 +195,44 @@ describe('agent writes', () => {
     await act({ id: reminder.id, action: 'complete', body: { due: reminder.due } });
     const again = await call('act', { id: reminder.id, action: 'complete', body: { due: reminder.due } });
     expect(again).toMatchObject({ ok: false, error: 'conflict' });
+  });
+});
+
+describe('undoing a complete', () => {
+  test('a completed one-off goes back to its time with the rev its completion returned', async () => {
+    const { reminder } = await create({ text: 'pay rent tomorrow 10am' });
+    const done = await act({ id: reminder.id, action: 'complete' });
+    const reopened = await act({ id: reminder.id, action: 'reopen', body: { rev: done.rev } });
+    expect([reopened.done, reopened.due]).toEqual([false, reminder.due]);
+  });
+
+  test.each<[string, string, Record<string, unknown> | null, (rev: number) => unknown, string]>([
+    ['after an edit since the complete', 'pay rent tomorrow 10am', { notes: 'paid?' }, (rev) => ({ rev }), 'conflict'],
+    [
+      'for a repeat, whose completion cannot be undone here',
+      'standup every day 9am',
+      null,
+      (rev) => ({ rev }),
+      'conflict',
+    ],
+    [
+      'with an occurrence of its own choosing',
+      'standup every day 9am',
+      null,
+      (rev) => ({ rev, due: '2030-06-11T03:00' }),
+      'bad_request',
+    ],
+    ['without the rev of the complete', 'pay rent tomorrow 10am', null, () => ({}), 'bad_request'],
+  ])('is refused %s, and changes nothing', async (_, text, edit, body, error) => {
+    const { reminder } = await create({ text });
+    const done = await act({ id: reminder.id, action: 'complete' });
+    if (edit) await h.ok('update', envelope({ id: reminder.id, body: { rev: done.rev, ...edit } }), agent);
+    const before = await everything();
+    expect(await call('act', { id: reminder.id, action: 'reopen', body: body(done.rev) })).toMatchObject({
+      ok: false,
+      error,
+    });
+    expect(await everything()).toEqual(before);
   });
 });
 
@@ -165,6 +256,24 @@ describe('agent input', () => {
     ['an id that is not one', 'get', { id: '../../etc' }, 'not_found'],
     ['an unknown action', 'act', { id: ulid(), action: 'explode' }, 'not_found'],
     ['an until that is not a time', 'act', { id: ulid(), action: 'snooze', body: { until: 'soonish' } }, 'bad_request'],
+    [
+      'a snooze until a day that does not exist',
+      'act',
+      { id: ulid(), action: 'snooze', body: { until: '2027-02-30T09:00Z' } },
+      'bad_request',
+    ],
+    [
+      'a pause until a day that does not exist',
+      'act',
+      { id: ulid(), action: 'pause', body: { until: '2027-02-30T09:00+05:30' } },
+      'bad_request',
+    ],
+    [
+      'a pause until an hour that does not exist',
+      'act',
+      { id: ulid(), action: 'pause', body: { until: '2027-03-01T24:30Z' } },
+      'bad_request',
+    ],
     ['a status that does not exist', 'list', { query: { status: 'urgent' } }, 'bad_request'],
     ['a limit out of range', 'list', { query: { limit: '0' } }, 'bad_request'],
   ])('rejects %s', async (_, route, parts, error) => {

@@ -62,6 +62,7 @@ function understood(text: string, { title, important }: ReminderFields, { spans,
 
 /** Why an op that was refused changed nothing, for the ones that can be refused. */
 function refusal(op: Op, current: Reminder): string {
+  if (op.type === 'reopen') return `rev ${op.revision} is stale; it changed since it was completed`;
   if (op.type === 'resume') return 'it is not paused';
   if (op.type === 'pause') return current.repeat ? 'the series has ended' : 'only repeating reminders can be paused';
   if (current.paused) return 'it is paused; resume it first';
@@ -117,36 +118,39 @@ export class Agents {
       };
     },
     get: ({ id }, { now }) => this.view(this.store.reminder(id) ?? missing(), now),
-    create: async ({ key, text, fields }, { caller, now }) => {
+    create: ({ key, text, fields }, { caller, now }) => {
       const typed =
         text === null
           ? null
           : { text, ...(fieldsFromText(text, now, this.scheduler.zone()) ?? invalid('text: it has no title')) };
       const merged = parseFields({ ...(typed?.fields ?? BLANK), ...fields }) ?? invalid('invalid reminder');
-      const { reminder, replayed } = await this.write(key, caller, now, null, () => ({
-        type: 'put',
-        id: ulid(now),
-        fields: merged,
-      }));
-      return {
-        reminder: this.view(reminder, now),
-        understood: typed && !replayed ? understood(typed.text, merged, typed.parsed) : null,
-      };
+      return this.write(
+        { caller, now, key, request: ['create', text, fields] },
+        () => ({ type: 'put', id: ulid(now), fields: merged }),
+        (reminder) => ({
+          reminder: this.view(reminder, now),
+          understood: typed && understood(typed.text, merged, typed.parsed),
+        }),
+      );
     },
-    update: async ({ id, key, rev, fields }, { caller, now }) => {
-      const plan = this.existing(id, (current) => {
-        if (current.deleted) missing();
-        if (current.revision !== rev) {
-          throw new Conflict(`rev ${rev} is stale; it is now ${current.revision}`, this.view(current, now));
-        }
-        return { type: 'put', id, fields: parseFields({ ...fieldsOf(current), ...fields }) ?? invalid() };
-      });
-      return this.view((await this.write(key, caller, now, id, plan)).reminder, now);
-    },
-    act: async ({ id, key, action }, { caller, now }) => {
-      const plan = this.existing(id, (current) => this.op(action, current, now));
-      return this.view((await this.write(key, caller, now, id, plan)).reminder, now);
-    },
+    update: ({ id, key, rev, fields }, { caller, now }) =>
+      this.write(
+        { caller, now, key, request: ['update', id, rev, fields] },
+        this.existing(id, (current) => {
+          if (current.deleted) missing();
+          if (current.revision !== rev) {
+            throw new Conflict(`rev ${rev} is stale; it is now ${current.revision}`, this.view(current, now));
+          }
+          return { type: 'put', id, fields: parseFields({ ...fieldsOf(current), ...fields }) ?? invalid() };
+        }),
+        (reminder) => this.view(reminder, now),
+      ),
+    act: ({ id, key, action }, { caller, now }) =>
+      this.write(
+        { caller, now, key, request: ['act', id, action] },
+        this.existing(id, (current) => this.op(action, current, now)),
+        (reminder) => this.view(reminder, now),
+      ),
   };
 
   private op(action: AgentAction, current: Reminder, now: number): Op {
@@ -176,17 +180,11 @@ export class Agents {
           due: action.due ?? current.due ?? refuse('it is done; nothing is due'),
           until: future(action.until, snoozeFrom(current, now, zone)),
         };
+      // Like the app's undo, only a finished one-off goes back, to its own time and only if nothing changed since: the
+      // occurrence a completed repeat moved on from is not kept, so it cannot be told apart from an invented one.
       case 'reopen':
-        return {
-          type: 'reopen',
-          id,
-          due:
-            action.due ??
-            (current.due === null
-              ? current.start
-              : refuse('it is not done; to undo completing a repeat, send the due you completed')),
-          revision: current.revision,
-        };
+        if (current.due !== null || current.repeat !== null) refuse('only a completed one-off can be reopened');
+        return { type: 'reopen', id, due: current.start, revision: action.rev };
       case 'pause':
         return { type: 'pause', id, until: action.until && future(action.until, now) };
       case 'resume':
@@ -201,34 +199,37 @@ export class Agents {
   }
 
   /**
-   * Applies one change at most once per Idempotency-Key: a retry changes nothing and gets the reminder as it is now.
-   * `id` is the reminder the change is for, or null when it makes a new one.
+   * Applies one change at most once per Idempotency-Key. A retry of the same request changes nothing and gets the
+   * response the first one got; the key used for any other request is refused.
    */
-  private async write(
-    key: string | null,
-    caller: DeviceRow,
-    now: number,
-    id: string | null,
+  private async write<T>(
+    { caller, now, key, request }: { caller: DeviceRow; now: number; key: string | null; request: unknown[] },
     plan: () => Op,
-  ): Promise<{ reminder: Reminder; replayed: boolean }> {
+    respond: (reminder: Reminder) => T,
+  ): Promise<T> {
     const opId = key === null ? ulid(now) : `agent:${caller.id}:${key}`;
-    const result = this.runtime.transaction(() => {
-      const replay = this.store.appliedTo(opId);
-      if (replay) {
-        if (replay.reminder === null || (id !== null && replay.reminder !== id)) {
-          invalid('Idempotency-Key: already used for another reminder');
+    const fingerprint = JSON.stringify(request);
+    const response = this.runtime.transaction((): T => {
+      const used = key === null ? undefined : this.store.agentKey(opId);
+      if (used) {
+        if (used.request !== fingerprint) {
+          throw new ApiFailure('unprocessable', 'Idempotency-Key: already used for a different request');
         }
-        return { reminder: this.store.reminder(replay.reminder) ?? missing(), replayed: true };
+        return JSON.parse(used.response);
       }
       const op = plan();
       const next = this.scheduler.commit(opId, op, now, now);
-      if (next) return { reminder: next, replayed: false };
-      const current = this.store.reminder(op.id) ?? missing();
-      throw new Conflict(refusal(op, current), this.view(current, now));
+      if (!next) {
+        const current = this.store.reminder(op.id) ?? missing();
+        throw new Conflict(refusal(op, current), this.view(current, now));
+      }
+      const answer = respond(next);
+      if (key !== null) this.store.recordAgentKey(opId, fingerprint, JSON.stringify(answer));
+      return answer;
     });
     await this.scheduler.rearm();
     this.runtime.broadcast({ kind: 'changed', version: this.store.version() });
-    return result;
+    return response;
   }
 
   private existing(id: string, build: (current: Reminder) => Op): () => Op {

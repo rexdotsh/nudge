@@ -4,6 +4,12 @@ import { DELIVERY_SCHEMA, Deliveries } from './deliveries';
 import { DEVICE_SCHEMA, Devices } from './devices';
 import { count, type Sql, type SqlValue } from './sql';
 
+const AGENT_KEYS = `CREATE TABLE IF NOT EXISTS agent_keys (
+  id TEXT PRIMARY KEY,
+  request TEXT NOT NULL,
+  response TEXT NOT NULL
+)`;
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS reminders (
     id TEXT PRIMARY KEY,
@@ -13,7 +19,8 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS reminders_by_version ON reminders (version)`,
   `CREATE INDEX IF NOT EXISTS reminders_by_fire_at ON reminders (fire_at) WHERE fire_at IS NOT NULL`,
-  `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL, reminder TEXT)`,
+  `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
+  AGENT_KEYS,
   `CREATE TABLE IF NOT EXISTS test_requests (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   ...DEVICE_SCHEMA,
   ...DELIVERY_SCHEMA,
@@ -23,7 +30,7 @@ const SCHEMA = [
 const UPGRADES = [
   'ALTER TABLE deliveries ADD COLUMN held_at INTEGER',
   "ALTER TABLE devices ADD COLUMN kind TEXT NOT NULL DEFAULT 'device'",
-  'ALTER TABLE applied_ops ADD COLUMN reminder TEXT',
+  AGENT_KEYS,
 ];
 const SCHEMA_VERSION = String(UPGRADES.length + 1);
 
@@ -123,17 +130,22 @@ export class Store {
   }
 
   applied(opId: string): boolean {
-    return this.appliedTo(opId) !== undefined;
+    return count(this.sql, 'SELECT COUNT(*) AS count FROM applied_ops WHERE id = ?', opId) > 0;
   }
 
-  appliedTo(opId: string): { reminder: string | null } | undefined {
+  recordApplied(opId: string, now: number): void {
+    this.sql.exec('INSERT INTO applied_ops (id, at) VALUES (?, ?)', opId, now);
+  }
+
+  /** What an agent's Idempotency-Key was first used for, and what that request answered. */
+  agentKey(opId: string): { request: string; response: string } | undefined {
     return this.sql
-      .exec<{ reminder: string | null }>('SELECT reminder FROM applied_ops WHERE id = ?', opId)
+      .exec<{ request: string; response: string }>('SELECT request, response FROM agent_keys WHERE id = ?', opId)
       .toArray()[0];
   }
 
-  recordApplied(opId: string, reminderId: string | null, now: number): void {
-    this.sql.exec('INSERT INTO applied_ops (id, at, reminder) VALUES (?, ?, ?)', opId, now, reminderId);
+  recordAgentKey(opId: string, request: string, response: string): void {
+    this.sql.exec('INSERT INTO agent_keys (id, request, response) VALUES (?, ?, ?)', opId, request, response);
   }
 
   testRequest(id: string): number | null {

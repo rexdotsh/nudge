@@ -41,18 +41,18 @@ Read the URL from `$NUDGE_URL` and the token from `$NUDGE_TOKEN`. If they aren't
 | PATCH  | `/api/v1/reminders/:id`          | Change some of `title, notes, start, zone, repeat, important, alerts`, with **required** `rev`. `409` if it changed since (body has `current`)                                                                            |
 | POST   | `/api/v1/reminders/:id/complete` | Done. Optional `{ "due": "..." }`: the occurrence you mean; `409` if it is no longer current                                                                                                                              |
 | POST   | `/api/v1/reminders/:id/skip`     | Repeats only: move past the current occurrence. Optional `due`, as for complete                                                                                                                                           |
-| POST   | `/api/v1/reminders/:id/snooze`   | `{ "until": "1h" }`, a span (`30m`, `2 hours`, `3 days`), a wall time, or a time with an offset. Optional `due`                                                                                                           |
+| POST   | `/api/v1/reminders/:id/snooze`   | `{ "until": "1h" }`, a span (`30m`, `2 hours`, `3 days`), a wall time, or a time with an offset (`2026-11-01T18:00-05:00`); impossible dates are a `400`. Optional `due`                                                  |
 | POST   | `/api/v1/reminders/:id/pause`    | Repeats only. `{ "until": "2026-12-01T09:00" }` (or a span), or no body to pause until resumed                                                                                                                            |
 | POST   | `/api/v1/reminders/:id/resume`   | End a pause                                                                                                                                                                                                               |
-| POST   | `/api/v1/reminders/:id/reopen`   | Undo a complete. A done one-off goes back to its time; for a repeat, send `{ "due": "..." }` with the occurrence you completed                                                                                            |
+| POST   | `/api/v1/reminders/:id/reopen`   | Undo completing a one-off: `{ "rev": N }` with the `rev` the complete returned. `409` if it changed since, or for a repeat, whose completion only the app can undo                                                        |
 | DELETE | `/api/v1/reminders/:id`          | Soft delete                                                                                                                                                                                                               |
 | POST   | `/api/v1/reminders/:id/restore`  | Undo a delete                                                                                                                                                                                                             |
 
 Fields: `title` (1–200 chars), `notes` (up to 4000), `start` (wall time of the first occurrence, which anchors a repeat), `zone` (`null` or a time zone), `repeat` (`null` or `{ "rule": "FREQ=WEEKLY;BYDAY=MO,TH", "anchor": "schedule" }`; a `completion` anchor takes only `FREQ` and `INTERVAL`), `important` (boolean), `alerts` (minutes).
 
-Every write accepts an **`Idempotency-Key`** header: make up one key per change (a UUID) and send the same key if you retry it. A retry with a used key changes nothing and returns the reminder as it is now, so a timeout never completes two occurrences or creates a duplicate. Always send one on writes.
+Every write accepts an **`Idempotency-Key`** header: make up one key per change (a UUID) and send the same key with the same request if you retry it. The retry changes nothing and gets exactly the response the first one got (including `understood`), so a timeout never completes two occurrences or creates a duplicate. A used key sent with any other request is refused with `422` and changes nothing. Always send one on writes.
 
-Errors come back as `{ "error": "..." }` with a 4xx status saying what was wrong, like `start: expected a wall time like 2026-11-02T18:00`. A `409` also has `current`, the reminder as it is now. Bodies are JSON.
+Errors come back as `{ "error": "..." }` with a 4xx status saying what was wrong, like `start: expected a wall time like 2026-11-02T18:00`. A `409` also has `current`, the reminder as it is now. A `422` means an `Idempotency-Key` was reused for a different request. Bodies are JSON.
 
 ## Examples
 
@@ -119,5 +119,5 @@ With no time, a dated reminder is at 9am and one with no date at all comes up in
 - Act on the reminder they mean: if a search finds several, ask which one. Pass `due` when completing or skipping a repeat, so you never act on an occurrence they didn't mean.
 - Send an `Idempotency-Key` on every write, and reuse it only when retrying that same request.
 - On `409`, re-read, re-apply your change to `current` if it still makes sense, and retry once with the new `rev`.
-- After any write, say what changed: done, snoozed until when, paused until when, or the new time. If you made a mistake, undo it: `reopen` a complete, `restore` a delete, `resume` a pause.
+- After any write, say what changed: done, snoozed until when, paused until when, or the new time. If you made a mistake, undo it: `reopen` a completed one-off, `restore` a delete, `resume` a pause. Completing a repeat can't be undone here; tell the user, who can undo it in the app.
 - Don't set `important` or `alerts` unless the user asks for nagging or a heads-up.

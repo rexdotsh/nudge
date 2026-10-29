@@ -78,7 +78,7 @@ export class Scheduler {
     const previous = this.store.reminder(op.id);
     const next = applyOp(previous, op, { now: at, zone: this.zone() });
     if (next) this.saveChange(previous, next, op.type !== 'put' || previous?.due !== next.due);
-    this.store.recordApplied(opId, op.id, now);
+    this.store.recordApplied(opId, now);
     return next;
   }
 

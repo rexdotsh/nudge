@@ -111,7 +111,8 @@ export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
 export type Moment = { after: number } | { wall: string } | { at: number };
 
 export type AgentAction =
-  | { type: 'complete' | 'skip' | 'reopen'; due: string | null }
+  | { type: 'complete' | 'skip'; due: string | null }
+  | { type: 'reopen'; rev: number }
   | { type: 'snooze'; due: string | null; until: Moment }
   | { type: 'pause'; until: Moment | null }
   | { type: 'resume' | 'delete' | 'restore' };
@@ -184,6 +185,7 @@ export const API_ERRORS = {
   forbidden: 403,
   not_found: 404,
   conflict: 409,
+  unprocessable: 422,
   locked: 429,
 } as const;
 

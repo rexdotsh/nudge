@@ -99,16 +99,21 @@ function wall(value: unknown, name: string): string | null {
     : invalid(`${name}: expected a wall time like 2026-11-02T18:00`);
 }
 
+function revision(value: unknown): number {
+  return isInteger(value, 1, Number.MAX_SAFE_INTEGER) ? value : invalid('rev: the rev from your last read is required');
+}
+
+const WITH_OFFSET = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+
 function moment(value: unknown): Moment {
   const text = isText(value, 40, 1) ? value.trim() : '';
   const span = new RegExp(`^(?:in\\s+)?${DURATION}$`).exec(text.toLowerCase());
   const minutes = span ? durationMinutes(span[1] ?? '', span[2] ?? '') : 0;
   if (minutes > 0 && minutes <= MAX_SPAN_MINUTES) return { after: minutes };
   if (parseLocal(text)) return { wall: text };
-  const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text)
-    ? Date.parse(text)
-    : NaN;
-  if (!Number.isNaN(at)) return { at };
+  // Date.parse rolls impossible dates over (February 30 becomes March 2), so the wall part must be a real time first.
+  const offset = WITH_OFFSET.exec(text);
+  if (offset && parseLocal(offset[1] ?? '')) return { at: Date.parse(text) };
   return invalid(
     'until: expected a span like "1h" or "3 days", a wall time like 2026-11-02T18:00, or a time with an offset',
   );
@@ -118,10 +123,13 @@ function action(envelope: Record<string, unknown>): AgentAction {
   const type = envelope.action;
   switch (type) {
     case 'complete':
-    case 'skip':
-    case 'reopen': {
+    case 'skip': {
       const { due } = json(envelope, ['due']);
       return { type, due: wall(due, 'due') };
+    }
+    case 'reopen': {
+      const { rev } = json(envelope, ['rev']);
+      return { type, rev: revision(rev) };
     }
     case 'snooze': {
       const { due, until } = json(envelope, ['until', 'due']);
@@ -175,10 +183,10 @@ export const AGENT_REQUESTS: { [R in AgentRoute]: (envelope: unknown) => AgentRo
   update: (value) => {
     const envelope = record(value);
     const body = json(envelope, ['rev', ...FIELD_KEYS]);
-    if (!isInteger(body.rev, 1, Number.MAX_SAFE_INTEGER)) invalid('rev: the rev from your last read is required');
+    const rev = revision(body.rev);
     const fields = fieldChanges(body);
     if (Object.keys(fields).length === 0) invalid(`nothing to change; send some of: ${FIELD_KEYS.join(', ')}`);
-    return { id: reminderId(envelope), key: idempotencyKey(envelope), rev: body.rev, fields };
+    return { id: reminderId(envelope), key: idempotencyKey(envelope), rev, fields };
   },
   act: (value) => {
     const envelope = record(value);
