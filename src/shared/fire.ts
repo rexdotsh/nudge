@@ -1,4 +1,4 @@
-import { dueAt, instantOf, occurrenceAfter, type Reminder } from './reminder';
+import { dueAt, instantOf, occurrenceAfter, resumed, type Reminder } from './reminder';
 import { HOUR_MS, MINUTE_MS } from './time';
 
 export const NAG_INTERVAL_MS = 5 * MINUTE_MS;
@@ -19,7 +19,7 @@ interface AlertStep {
   due: string;
 }
 
-type Step = { at: number; roll: string } | { at: number; alerts: AlertStep[] };
+type Step = { at: number; roll: string } | { at: number; resume: true } | { at: number; alerts: AlertStep[] };
 
 function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
@@ -63,6 +63,7 @@ function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Aler
 function earliest(reminder: Reminder, zone: string): Step | null {
   const due = dueAt(reminder, zone);
   if (reminder.deleted || reminder.due === null || due === null) return null;
+  if (reminder.paused) return reminder.paused.until === null ? null : { at: reminder.paused.until, resume: true };
   const next = occurrenceAfter(reminder, due, zone);
   const roll = next === null ? null : { at: instantOf(reminder, next, zone), roll: next };
   const alerts = [...alertSteps(reminder, due, reminder.due), ...upcomingEarlySteps(reminder, due, zone)];
@@ -78,9 +79,13 @@ export function nextFireAt(reminder: Reminder, zone: string): number | null {
 // A late run sends at most one notice per occurrence (the latest step), not a burst, and only for occurrences that are
 // still current or upcoming; ones it rolled past are not announced.
 export function fire(reminder: Reminder, now: number, zone: string): { reminder: Reminder; notices: Notice[] } {
-  const current = { ...reminder };
+  let current = { ...reminder };
   const latest = new Map<string, Notice>();
   for (let step = earliest(current, zone); step && step.at <= now; step = earliest(current, zone)) {
+    if ('resume' in step) {
+      current = resumed(current, step.at, zone);
+      continue;
+    }
     if ('roll' in step) {
       current.due = step.roll;
       current.missed += 1;

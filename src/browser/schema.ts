@@ -1,9 +1,9 @@
 import type { Change, Health, Session, Theme, ThemeChoice } from '../shared/api';
-import type { Reminder } from '../shared/reminder';
+import type { StoredReminder } from '../shared/reminder';
 
 export interface Snapshot {
   version: number;
-  reminders: Reminder[];
+  reminders: StoredReminder[];
 }
 
 export interface Local {
@@ -30,7 +30,9 @@ export interface Schema {
   session: Session;
   installKey: string;
   vapidPublicKey: string;
+  /** Read and written by bundles from before pausing, which may still be open in another tab; see `legacy.ts`. */
   local: Local;
+  state: Local;
   notices: Notices;
   zone: { name: string; since: number };
   zoneControls: boolean;

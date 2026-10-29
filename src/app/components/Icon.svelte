@@ -12,6 +12,8 @@
     plus: 'M12 5.5v13M5.5 12h13',
     trash: 'M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5',
     skip: 'M5.5 6.5 11 12l-5.5 5.5M12.5 6.5 18 12l-5.5 5.5',
+    pause: 'M9 6v12M15 6v12',
+    play: 'M8 5.8v12.4a.8.8 0 0 0 1.2.7l9.8-6.2a.8.8 0 0 0 0-1.4L9.2 5.1a.8.8 0 0 0-1.2.7Z',
   } as const;
 
   type IconName = keyof typeof PATHS;

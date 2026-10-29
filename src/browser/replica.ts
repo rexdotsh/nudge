@@ -1,6 +1,6 @@
 import type { Change, SyncResponse } from '../shared/api';
 import { applyOp } from '../shared/ops';
-import type { Reminder } from '../shared/reminder';
+import { fromStored, type Reminder } from '../shared/reminder';
 import type { Snapshot } from './schema';
 
 export class Replica {
@@ -10,7 +10,7 @@ export class Replica {
   constructor(snapshot?: Snapshot) {
     if (!snapshot) return;
     this.version = snapshot.version;
-    for (const reminder of snapshot.reminders) this.server.set(reminder.id, reminder);
+    for (const reminder of snapshot.reminders) this.server.set(reminder.id, fromStored(reminder));
   }
 
   receive(response: SyncResponse, since = this.version): void {

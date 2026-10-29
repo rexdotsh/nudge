@@ -3,6 +3,7 @@ import { nextOccurrence } from './occurrences';
 import { parseRule, type Frequency } from './rrule';
 import {
   HOUR_MS,
+  MINUTE_MS,
   addMonthsClamped,
   epochDay,
   formatLocal,
@@ -30,6 +31,12 @@ export interface ReminderFields {
   alerts: number[];
 }
 
+/** A paused series fires nothing from `at`, until `until` or, when that is null, until it is resumed. */
+interface Pause {
+  at: number;
+  until: number | null;
+}
+
 interface ReminderState {
   revision: number;
   due: string | null;
@@ -37,6 +44,9 @@ interface ReminderState {
   snoozedUntil: number | null;
   firedThrough: number;
   completedAt: number | null;
+  paused: Pause | null;
+  /** Nothing planned at or before this is ever shown, even by a device's fallback: it predates the reminder or a pause. */
+  quietThrough: number;
 }
 
 export interface Reminder extends ReminderFields, ReminderState {
@@ -44,6 +54,14 @@ export interface Reminder extends ReminderFields, ReminderState {
   createdAt: number;
   updatedAt: number;
   deleted: boolean;
+}
+
+/** A reminder as stored, which may predate pausing. */
+export type StoredReminder = Omit<Reminder, 'paused' | 'quietThrough'> &
+  Partial<Pick<Reminder, 'paused' | 'quietThrough'>>;
+
+export function fromStored(stored: StoredReminder): Reminder {
+  return { ...stored, paused: stored.paused ?? null, quietThrough: stored.quietThrough ?? stored.createdAt };
 }
 
 export function fieldsOf({ title, notes, start, zone, repeat, important, alerts }: ReminderFields): ReminderFields {
@@ -105,6 +123,19 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour, minute });
 }
 
+// A floating reminder keeps its wall times when the zone changes, so the instants it recorded must move with them:
+// otherwise flying west re-fires an occurrence, flying east silently skips one, and a pause ends at another time.
+export function movedZone(reminder: Reminder, from: string, to: string): Reminder {
+  const move = (instant: number) => toInstant(toLocal(instant, from), to) + (instant % MINUTE_MS);
+  const { paused } = reminder;
+  return {
+    ...reminder,
+    firedThrough: move(reminder.firedThrough),
+    quietThrough: move(reminder.quietThrough),
+    paused: paused && { at: move(paused.at), until: paused.until === null ? null : move(paused.until) },
+  };
+}
+
 export function isSnoozed(reminder: Reminder, now: number): boolean {
   return reminder.snoozedUntil !== null && reminder.snoozedUntil > now;
 }
@@ -117,7 +148,35 @@ export function shownAt(reminder: Reminder, now: number, currentZone: string): n
 
 export function isLate(reminder: Reminder, now: number, currentZone: string): boolean {
   const due = dueAt(reminder, currentZone);
-  return due !== null && due <= now && !isSnoozed(reminder, now);
+  return due !== null && due <= now && !isSnoozed(reminder, now) && reminder.paused === null;
+}
+
+/**
+ * Whatever came due while paused is dropped, as if skipped at `at`, so a resumed series is never late and never sends
+ * a backlog; an occurrence that was already late when it was paused is left as it was.
+ */
+export function resumed(reminder: Reminder, at: number, currentZone: string): Reminder {
+  const { paused, snoozedUntil } = reminder;
+  if (paused === null) return reminder;
+  const due = dueAt(reminder, currentZone);
+  const first = due !== null && due > paused.at ? reminder.due : occurrenceAfter(reminder, paused.at, currentZone);
+  const unpaused = {
+    ...reminder,
+    paused: null,
+    revision: reminder.revision + 1,
+    // A snooze is a span of elapsed time and `at` is a real instant, unlike the pause's start, which moves with the
+    // wall clock: only a wake-up still ahead survives.
+    snoozedUntil: snoozedUntil !== null && snoozedUntil >= at ? snoozedUntil : null,
+    firedThrough: Math.max(reminder.firedThrough, at - 1),
+    quietThrough: Math.max(reminder.quietThrough, at - 1),
+  };
+  if (first === null || instantOf(reminder, first, currentZone) >= at) return unpaused;
+  // An occurrence exactly at `at` still counts as next, but an interval restarts from the day it resumes.
+  const next =
+    reminder.repeat?.anchor === 'completion'
+      ? dueAfterCompletion(reminder, at, currentZone)
+      : occurrenceAfter(reminder, at - 1, currentZone);
+  return { ...unpaused, due: next, missed: 0, snoozedUntil: null };
 }
 
 export function lateCount(reminders: readonly Reminder[], now: number, currentZone: string): number {

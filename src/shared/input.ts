@@ -70,6 +70,7 @@ export function parseOp(value: unknown): Op | null {
   if (!isRecord(value) || !isUlid(value.id)) return null;
   const { id, type, due } = value;
   const occurrence = isText(due, 16) && parseLocal(due) ? due : null;
+  const revision = isInteger(value.revision, 1, Number.MAX_SAFE_INTEGER) ? value.revision : null;
   switch (type) {
     case 'put': {
       const fields = parseFields(value.fields);
@@ -79,13 +80,16 @@ export function parseOp(value: unknown): Op | null {
     case 'skip':
       return occurrence === null ? null : { type, id, due: occurrence };
     case 'reopen':
-      return occurrence !== null && isInteger(value.revision, 1, Number.MAX_SAFE_INTEGER)
-        ? { type, id, due: occurrence, revision: value.revision }
-        : null;
+      return occurrence !== null && revision !== null ? { type, id, due: occurrence, revision } : null;
+    case 'unpause':
+      return revision === null ? null : { type, id, revision };
     case 'snooze':
       return occurrence && isInteger(value.until, 0, 8.64e15)
         ? { type, id, due: occurrence, until: value.until }
         : null;
+    case 'pause':
+      return value.until === null || isInteger(value.until, 0, 8.64e15) ? { type, id, until: value.until } : null;
+    case 'resume':
     case 'delete':
     case 'restore':
       return { type, id };

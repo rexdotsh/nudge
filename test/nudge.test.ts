@@ -117,7 +117,11 @@ function harness() {
     now: () => state.now,
     secrets: { auth: AUTH, setupCode: SETUP_CODE },
   };
-  const nudge = new Nudge(runtime);
+  let nudge = new Nudge(runtime);
+  // A Durable Object evicted and started again on the same storage.
+  const restart = () => {
+    nudge = new Nudge(runtime);
+  };
 
   const call = <R extends Route>(route: R, body: unknown, deviceId: string | null = null) =>
     nudge.call(route, { deviceId, origin: ORIGIN }, body);
@@ -163,7 +167,23 @@ function harness() {
   const sentTo = (seed: number, service: PushService = 'fcm') =>
     state.pushes.filter((push) => push.endpoint === keys(seed, service).endpoint).length;
 
-  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, sentTo };
+  return {
+    db,
+    get nudge() {
+      return nudge;
+    },
+    restart,
+    state,
+    attempts,
+    call,
+    ok,
+    sync,
+    put,
+    runAlarm,
+    runAlarmsThrough,
+    pair,
+    sentTo,
+  };
 }
 
 let h: ReturnType<typeof harness>;
@@ -352,7 +372,10 @@ describe('sync', () => {
     expect(h.sentTo(1)).toBe(1);
   });
 
-  test('snoozing a notification after flying west still brings it back after the snooze', async () => {
+  test.each([
+    ['still brings it back after the snooze', false, 2],
+    ['does not bring it back once a pause covered the end of the snooze', true, 1],
+  ])('snoozing a notification after flying west %s', async (_, paused, sent) => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
     const id = await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
@@ -361,9 +384,37 @@ describe('sync', () => {
     await h.sync(deviceId, [], 'America/New_York');
     const until = h.state.now + 15 * MINUTE_MS;
     await h.sync(deviceId, [{ type: 'snooze', id, due: '2026-10-12T09:00', until }], 'America/New_York');
-    expect(h.state.alarm).toBe(until);
+    if (paused) await h.sync(deviceId, [{ type: 'pause', id, until: until + 15 * MINUTE_MS }], 'America/New_York');
+    expect(h.state.alarm).toBe(paused ? until + 15 * MINUTE_MS : until);
     await h.runAlarm();
-    expect(h.sentTo(1)).toBe(2);
+    expect(h.sentTo(1)).toBe(sent);
+  });
+
+  test.each<[string, number | null]>([
+    ['on its date', Date.UTC(2026, 9, 12, 11)],
+    ['by hand', null],
+  ])('a snooze that ended during a pause stays quiet after flying west and resuming %s', async (_, until) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = ulid(h.state.now);
+    await h.sync(deviceId, [{ type: 'put', id, fields: fields({ repeat: daily }) }], 'UTC');
+    await h.runAlarm();
+    await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, deviceId);
+    h.state.now = Date.UTC(2026, 9, 12, 9, 30);
+    const snoozedUntil = Date.UTC(2026, 9, 12, 10, 30);
+    await h.sync(deviceId, [{ type: 'snooze', id, due: TODAY, until: snoozedUntil }], 'UTC');
+    h.state.now = Date.UTC(2026, 9, 12, 10);
+    await h.sync(deviceId, [{ type: 'pause', id, until }], 'UTC');
+    h.state.now = Date.UTC(2026, 9, 12, 10, 15);
+    await h.sync(deviceId, [], 'America/New_York');
+    if (until === null) {
+      h.state.now = Date.UTC(2026, 9, 12, 15);
+      await h.sync(deviceId, [{ type: 'resume', id }], 'America/New_York');
+    } else {
+      expect(h.state.alarm).toBe(Date.UTC(2026, 9, 12, 15));
+    }
+    await h.runAlarmsThrough(Date.UTC(2026, 9, 12, 16));
+    expect(h.sentTo(1)).toBe(1);
   });
 
   test('flying east past a floating reminder that has not fired yet still fires it', async () => {
@@ -752,6 +803,98 @@ describe('delivery', () => {
       expect(h.state.alarm).toBeNull();
     },
   );
+
+  test('pausing ends the resends and nags already under way, and the series comes back by itself on its date', async () => {
+    const { phone } = await h.pair();
+    const id = await h.put(phone, { repeat: daily, important: true });
+    await h.runAlarm();
+    const until = Date.UTC(2026, 9, 14, 18, 30);
+    await h.sync(phone, [{ type: 'pause', id, until }]);
+    expect(h.state.alarm).toBe(until);
+    const sent = h.state.pushes.length;
+    await h.runAlarm();
+    expect(h.state.pushes).toHaveLength(sent);
+    const { reminders } = await h.sync(phone, []);
+    expect(reminders.find((reminder) => reminder.id === id)).toMatchObject({ paused: null, due: '2026-10-15T09:00' });
+    await h.runAlarm();
+    expect(h.state.now).toBe(Date.UTC(2026, 9, 15, 3, 30));
+    expect([h.sentTo(1), h.sentTo(2)]).toEqual([2, 2]);
+  });
+
+  test.each<[string, (id: string, revision: number) => Op]>([
+    ['undoing the pause', (id, revision) => ({ type: 'unpause', id, revision })],
+    ['resuming before anything else came due', (id) => ({ type: 'resume', id })],
+  ])('a push that never got through is retried after %s', async (_, end) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: daily });
+    h.state.status = () => 503;
+    await h.runAlarm();
+    const retry = h.state.alarm;
+    h.state.now += 1000;
+    const { reminders } = await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    expect(h.state.alarm).toBeNull();
+    const paused = reminders.find((reminder) => reminder.id === id);
+    h.state.now += 1000;
+    await h.sync(deviceId, [end(id, paused?.revision ?? 0)]);
+    expect(h.state.alarm).toBe(retry);
+    h.state.status = () => 201;
+    const tried = h.sentTo(1);
+    await h.runAlarm();
+    expect(h.sentTo(1)).toBe(tried + 1);
+    expect(h.state.pushes.at(-1)?.message.notification.data.reminder).toEqual({ id, due: TODAY });
+  });
+
+  test.each<[string, (id: string, deviceId: string) => Promise<unknown>, number]>([
+    [
+      'a later occurrence came due while it was paused',
+      async () => {
+        h.state.now = DUE + 25 * HOUR_MS;
+      },
+      DUE + 48 * HOUR_MS,
+    ],
+    [
+      'its time was changed while it was paused',
+      (id, deviceId) =>
+        h.sync(deviceId, [{ type: 'put', id, fields: fields({ start: '2026-10-12T18:00', repeat: daily }) }]),
+      DUE + 9 * HOUR_MS,
+    ],
+  ])('pushes held for an occurrence that is no longer due are dropped on resume: %s', async (_, meanwhile, next) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: daily });
+    h.state.status = () => 503;
+    await h.runAlarm();
+    await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    await meanwhile(id, deviceId);
+    await h.sync(deviceId, [{ type: 'resume', id }]);
+    expect(h.state.alarm).toBe(next);
+  });
+
+  test('a store from before pausing is upgraded in place, and pausing works on it', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: daily });
+    h.state.status = () => 503;
+    await h.runAlarm();
+    h.db.run('ALTER TABLE deliveries DROP COLUMN held_at');
+    h.db.run("UPDATE meta SET value = '1' WHERE key = 'schema'");
+    h.restart();
+    h.restart();
+    const { reminders } = await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    expect(reminders.find((reminder) => reminder.id === id)?.paused).not.toBeNull();
+    expect(h.state.alarm).toBeNull();
+  });
+
+  test('reminders stored before pausing existed load as not paused, and can be paused', async () => {
+    const { phone } = await h.pair();
+    const id = await h.put(phone, { repeat: daily });
+    h.db.run("UPDATE reminders SET data = json_remove(data, '$.paused')");
+    const { reminders } = await h.sync(phone, []);
+    expect(reminders.find((reminder) => reminder.id === id)?.paused).toBeNull();
+    await h.sync(phone, [{ type: 'pause', id, until: null }]);
+    expect(h.state.alarm).toBeNull();
+  });
 
   test('completing a reminder cancels the resends of its notification', async () => {
     const { phone } = await h.pair();

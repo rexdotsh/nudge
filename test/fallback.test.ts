@@ -3,6 +3,7 @@ import { Fallback } from '../src/app/lib/fallback';
 import { fire as fireReminder, nextFireAt } from '../src/shared/fire';
 import { fireId, type NotificationContent } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
+import { movedZone, type Reminder } from '../src/shared/reminder';
 import { MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 
@@ -168,4 +169,62 @@ test.each([
   expect([...sent.keys()]).toEqual(['early-10', 'early-11', 'due-10']);
   const labels = new Map([...sent].map(([label, id]) => [id, label]));
   expect(device.shownFires.map((id) => labels.get(id))).toEqual(shown);
+});
+
+const PAUSED_AT = Date.UTC(2026, 9, 12, 1, 30);
+const BACK_AT = Date.UTC(2026, 9, 12, 3, 0);
+
+const resumeByHand = (paused: Reminder) =>
+  applyOp(paused, { type: 'resume', id: paused.id }, { now: BACK_AT, zone: ZONE });
+
+// Daily at 09:00 with a one-hour warning, paused from 07:00 to 08:30, which held back the 08:00 warning.
+function pausedThenBack(until: number | null, resume: (paused: Reminder) => Reminder | null): Reminder {
+  const fields = {
+    title: 'Water the plants',
+    notes: '',
+    start: '2026-10-12T09:00',
+    zone: null,
+    repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' as const },
+    important: false,
+    alerts: [60],
+  };
+  const id = ulid();
+  const created = applyOp(undefined, { type: 'put', id, fields }, { now: PAUSED_AT - 60 * MINUTE_MS, zone: ZONE });
+  const paused = created && applyOp(created, { type: 'pause', id, until }, { now: PAUSED_AT, zone: ZONE });
+  const resumed = paused && resume(paused);
+  if (!resumed) throw new Error('pause or resume was rejected');
+  return resumed;
+}
+
+test.each<[string, number | null, (paused: Reminder) => Reminder | null]>([
+  ['by hand', null, resumeByHand],
+  ['on its date', BACK_AT, (paused) => fireReminder(paused, BACK_AT, ZONE).reminder],
+])(
+  'a fallback after a pause ended %s shows nothing the pause held back, only what comes after',
+  async (_, until, resume) => {
+    const resumed = pausedThenBack(until, resume);
+    expect(fireReminder(resumed, BACK_AT + MINUTE_MS, ZONE).notices).toEqual([]);
+
+    const after = harness([], [], Promise.resolve(), BACK_AT + MINUTE_MS);
+    after.fallback.schedule([resumed], ZONE, true);
+    await after.ready(after.fire());
+    expect(after.shown).toEqual([]);
+
+    const due = Date.UTC(2026, 9, 12, 3, 30);
+    const later = harness([], [], Promise.resolve(), due + MINUTE_MS);
+    later.fallback.schedule([resumed], ZONE, true);
+    await later.ready(later.fire());
+    expect(later.shownFires).toEqual([fireId(resumed.id, { at: due, due: '2026-10-12T09:00' })]);
+  },
+);
+
+test('after flying west, a fallback still keeps quiet the warning a pause held back, as the server does', async () => {
+  const ny = 'America/New_York';
+  const moved = movedZone(pausedThenBack(null, resumeByHand), ZONE, ny);
+  const warning = Date.UTC(2026, 9, 12, 12, 0);
+  expect(nextFireAt(moved, ny)).toBe(warning + 60 * MINUTE_MS);
+  const device = harness([], [], Promise.resolve(), warning + 5 * MINUTE_MS);
+  device.fallback.schedule([moved], ny, true);
+  await device.ready(device.fire());
+  expect(device.shown).toEqual([]);
 });

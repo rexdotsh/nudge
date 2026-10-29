@@ -5,6 +5,8 @@
   import CheckCircle from '../components/CheckCircle.svelte';
   import Icon from '../components/Icon.svelte';
   import Pane from '../components/Pane.svelte';
+  import PausedRow from '../components/PausedRow.svelte';
+  import PauseSheet from '../components/PauseSheet.svelte';
   import ReminderRow from '../components/ReminderRow.svelte';
   import RowMenu from '../components/RowMenu.svelte';
   import ShortcutsSheet from '../components/ShortcutsSheet.svelte';
@@ -28,7 +30,11 @@
   const lists = $derived(triage(app.reminders, app.now, app.zone));
   const completed = $derived(recentlyCompleted(app.reminders, app.now));
   const editing = $derived(app.reminders.find((reminder) => reminder.id === ui.editing && !reminder.deleted));
-  const snoozing = $derived(app.reminders.find((reminder) => reminder.id === ui.snoozing));
+  const sheet = $derived.by(() => {
+    const open = ui.sheet;
+    const reminder = open && app.reminders.find((candidate) => candidate.id === open.id);
+    return open && reminder ? { kind: open.kind, reminder } : null;
+  });
   const menu = $derived.by(() => {
     const at = ui.menu;
     const reminder = at && app.reminders.find((candidate) => candidate.id === at.id);
@@ -92,6 +98,15 @@
     </section>
   {/if}
 
+  {#if lists.paused.length > 0}
+    <section>
+      <h2 class="label" data-glide="paused"><span>Paused</span><span>{lists.paused.length}</span></h2>
+      {#each lists.paused as reminder (reminder.id)}
+        <PausedRow {reminder} now={app.now} zone={app.zone} />
+      {/each}
+    </section>
+  {/if}
+
   {#if completed.length > 0}
     <section>
       <button
@@ -133,11 +148,11 @@
     </section>
   {/if}
 
-  {#each editing && !snoozing && !ui.docked ? [editing] : [] as reminder (reminder.id)}
+  {#each editing && !sheet && !ui.docked ? [editing] : [] as reminder (reminder.id)}
     <EditSheet {reminder} />
   {/each}
-  {#each snoozing ? [snoozing] : [] as reminder (reminder.id)}
-    <SnoozeSheet {reminder} />
+  {#each sheet ? [sheet] : [] as { kind, reminder } (reminder.id)}
+    {#if kind === 'snooze'}<SnoozeSheet {reminder} />{:else}<PauseSheet {reminder} />{/if}
   {/each}
   {#each menu ? [menu] : [] as opened (opened.id)}
     <RowMenu reminder={opened.reminder} x={opened.x} y={opened.y} fromKeyboard={opened.fromKeyboard} />

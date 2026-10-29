@@ -70,7 +70,7 @@ export function taggedOccurrence(tag: string): Occurrence | null {
 // Unknown reminders and upcoming occurrences keep their notifications.
 export function isSettled(shown: Occurrence, reminder: Reminder | undefined, now: number): boolean {
   if (!reminder) return false;
-  if (reminder.deleted || reminder.due === null) return true;
+  if (reminder.deleted || reminder.due === null || reminder.paused !== null) return true;
   return shown.due === reminder.due ? isSnoozed(reminder, now) : shown.due < reminder.due;
 }
 

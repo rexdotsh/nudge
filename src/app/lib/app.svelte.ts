@@ -1,10 +1,10 @@
 import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set, update } from '../../browser/kv';
 import { Replica } from '../../browser/replica';
-import { EMPTY_LOCAL, type Local } from '../../browser/schema';
+import type { Local } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { isWorkerMessage } from '../../browser/messages';
-import { commit, currentZone, enqueue } from '../../browser/outbox';
+import { commit, currentZone, enqueue, readLocal } from '../../browser/outbox';
 import { MAX_REQUEST_BYTES, type Change, type Health, type Theme } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
@@ -263,7 +263,7 @@ class App {
   }
 
   private async reloadLocal(): Promise<void> {
-    this.show((await get('local')) ?? EMPTY_LOCAL);
+    this.show(await readLocal());
   }
 
   private show(local: Local): void {

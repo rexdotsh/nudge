@@ -30,7 +30,8 @@
           {tonight.key === 'evening' ? 'Tonight' : 'Tomorrow'}
         </button>
       {/if}
-      <button class="btn more" onclick={() => ui.snooze(focus.reminder.id)} aria-label="More snooze options">···</button
+      <button class="btn more" onclick={() => ui.open('snooze', focus.reminder.id)} aria-label="More snooze options"
+        >···</button
       >
     </div>
     {#each triage.late as entry (entry.reminder.id)}

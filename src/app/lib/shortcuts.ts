@@ -1,5 +1,5 @@
 import type { Reminder } from '../../shared/reminder';
-import { complete, remove, snoozeOptions } from './actions';
+import { complete, remove, resume, snoozeOptions } from './actions';
 import { app } from './app.svelte';
 import { closeEditor, keepSelection, openEditor, rowOf, rows, saveEditor, snoozeTo } from './selection';
 import { toasts } from './toasts.svelte';
@@ -73,14 +73,23 @@ export const DONE: Binding = {
   keys: ['x', ' '],
   yields: true,
   featured: true,
-  run: ({ target }) => act(target, (reminder) => keepSelection(reminder.id, () => complete(reminder))),
+  run: ({ target }) => act(running(target), (reminder) => keepSelection(reminder.id, () => complete(reminder))),
 };
 
 export const SNOOZE: Binding = {
   label: 'Snooze',
   keys: ['s'],
   featured: true,
-  run: ({ target }) => act(target, ({ id }) => ui.snooze(id)),
+  run: ({ target }) => act(running(target), ({ id }) => ui.open('snooze', id)),
+};
+
+export const PAUSE: Binding = {
+  label: 'Pause or resume',
+  keys: ['p'],
+  run: ({ target }) =>
+    act(target?.repeat ? target : undefined, (reminder) =>
+      reminder.paused ? keepSelection(reminder.id, () => resume(reminder)) : ui.open('pause', reminder.id),
+    ),
 };
 
 export const DELETE: Binding = {
@@ -96,6 +105,7 @@ const REMINDERS: readonly Binding[] = [
   OPEN,
   DONE,
   SNOOZE,
+  PAUSE,
   DELETE,
 ];
 
@@ -190,6 +200,11 @@ function showHelp(): boolean {
   return true;
 }
 
+/** A paused series has no occurrence to finish or snooze. */
+function running(target: Reminder | undefined): Reminder | undefined {
+  return target?.paused ? undefined : target;
+}
+
 function act(target: Reminder | undefined, action: (reminder: Reminder) => unknown): boolean {
   if (!target) return false;
   void action(target);
@@ -220,7 +235,8 @@ function escape(): boolean {
 }
 
 function pickSnooze(position: number): boolean {
-  const reminder = app.reminders.find((candidate) => candidate.id === ui.snoozing);
+  const id = ui.sheet?.id;
+  const reminder = app.reminders.find((candidate) => candidate.id === id);
   const option = reminder && snoozeOptions(reminder, app.now, app.zone)[position - 1];
   if (!reminder || !option) return false;
   void snoozeTo(reminder, option.at);
@@ -242,7 +258,7 @@ function move(step: number): boolean {
 
 function inPlay(target: Element | null): readonly Binding[] {
   if (ui.menu || ui.help) return [];
-  if (ui.snoozing) return SNOOZING;
+  if (ui.sheet) return ui.sheet.kind === 'snooze' ? SNOOZING : [];
   if (ui.editing && !ui.docked) return EDITING;
   return target?.closest('#editor') ? [...GENERAL, ...EDITING] : [...GENERAL, ...REMINDERS];
 }

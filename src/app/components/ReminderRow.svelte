@@ -74,7 +74,7 @@
     <span class="actions hover-actions">
       <button
         class="icon-button press"
-        onclick={() => ui.snooze(reminder.id)}
+        onclick={() => ui.open('snooze', reminder.id)}
         aria-label={`Snooze ${reminder.title}`}
         title={tip('Snooze', SNOOZE)}><Icon name="clock" size={16} /></button
       >
