@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { isSnoozed } from '../../shared/reminder';
+  import { isSnoozed, snoozeFrom } from '../../shared/reminder';
   import { HOUR_MS } from '../../shared/time';
-  import { complete, remove, snooze, snoozeFrom } from '../lib/actions';
+  import { complete, remove, snooze } from '../lib/actions';
   import { repeatLabel, shortWhen } from '../lib/format';
-  import type { Entry } from '../lib/sections';
+  import type { Entry } from '../../shared/triage';
   import { completeFrom } from '../lib/selection';
   import { DELETE, SNOOZE, tip } from '../lib/shortcuts';
   import { swipe } from '../lib/swipe';

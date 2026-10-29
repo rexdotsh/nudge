@@ -16,7 +16,8 @@
   import { app } from '../lib/app.svelte';
   import { dayHeading, whenLabel } from '../lib/format';
   import { glide } from '../lib/motion.svelte';
-  import { recentlyCompleted, triage } from '../lib/sections';
+  import { triage } from '../../shared/triage';
+  import { recentlyCompleted } from '../lib/sections';
   import { rowOf } from '../lib/selection';
   import { SETTINGS, shortcut, tip } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';

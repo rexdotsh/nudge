@@ -3,6 +3,7 @@
   import type { DeviceInfo } from '../../shared/api';
   import { MINUTE_MS } from '../../shared/time';
   import { ulid } from '../../shared/ulid';
+  import AgentConnect from '../components/AgentConnect.svelte';
   import Icon from '../components/Icon.svelte';
   import Toast from '../components/Toast.svelte';
   import ThemeOptions from '../components/ThemeOptions.svelte';
@@ -69,14 +70,21 @@
     });
 
   function revoke(device: DeviceInfo) {
-    if (!confirm(`Remove ${device.label}? It will stop getting reminders.`)) return;
+    const effect = device.kind === 'agent' ? 'Its token will stop working.' : 'It will stop getting reminders.';
+    if (!confirm(`Remove ${device.label}? ${effect}`)) return;
     void attempt(async () => {
       await request('revoke', { id: device.id });
       await load();
     });
   }
 
-  function delivery({ push }: DeviceInfo): string {
+  function status(device: DeviceInfo): string {
+    if (device.kind === 'agent') {
+      return device.usedAt
+        ? `Agent · last used ${whenLabel(device.usedAt, app.now, app.zone)}`
+        : 'Agent · not used yet';
+    }
+    const { push } = device;
     const state = push.enabled ? 'Notifications on' : 'Notifications off';
     return push.receiptAt ? `${state} · last delivered ${whenLabel(push.receiptAt, app.now, app.zone)}` : state;
   }
@@ -173,7 +181,7 @@
       <div class="field">
         <span>
           {device.label}{#if device.id === app.deviceId}<span class="me">{' · this device'}</span>{/if}
-          <small>{delivery(device)}</small>
+          <small>{status(device)}</small>
         </span>
         {#if device.id !== app.deviceId}
           <button class="link remove" onclick={() => revoke(device)} aria-label={`Remove ${device.label}`}
@@ -234,6 +242,11 @@
   <h2 class="label" id="theme-heading">Theme</h2>
   <div class="group" role="radiogroup" aria-labelledby="theme-heading">
     <ThemeOptions />
+  </div>
+
+  <h2 class="label">Agents</h2>
+  <div class="group">
+    <AgentConnect {attempt} onCreated={() => void load()} />
   </div>
 
   <h2 class="label">Data</h2>

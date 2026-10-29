@@ -1,8 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { HOUR_MS, formatClock, formatDate, parseLocal, toInstant, toLocal } from '../../shared/time';
-  import type { Reminder } from '../../shared/reminder';
-  import { snoozeFrom, snoozeOptions } from '../lib/actions';
+  import { snoozeFrom, type Reminder } from '../../shared/reminder';
+  import { snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { whenLabel } from '../lib/format';
   import { snoozeTo } from '../lib/selection';

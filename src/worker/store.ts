@@ -13,14 +13,18 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS reminders_by_version ON reminders (version)`,
   `CREATE INDEX IF NOT EXISTS reminders_by_fire_at ON reminders (fire_at) WHERE fire_at IS NOT NULL`,
-  `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL, reminder TEXT)`,
   `CREATE TABLE IF NOT EXISTS test_requests (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   ...DEVICE_SCHEMA,
   ...DELIVERY_SCHEMA,
 ];
 
 // UPGRADES[n - 1] brings a store from version n to n + 1; a new store starts at the latest version.
-const UPGRADES = ['ALTER TABLE deliveries ADD COLUMN held_at INTEGER'];
+const UPGRADES = [
+  'ALTER TABLE deliveries ADD COLUMN held_at INTEGER',
+  "ALTER TABLE devices ADD COLUMN kind TEXT NOT NULL DEFAULT 'device'",
+  'ALTER TABLE applied_ops ADD COLUMN reminder TEXT',
+];
 const SCHEMA_VERSION = String(UPGRADES.length + 1);
 
 export class Store {
@@ -119,11 +123,17 @@ export class Store {
   }
 
   applied(opId: string): boolean {
-    return count(this.sql, 'SELECT COUNT(*) AS count FROM applied_ops WHERE id = ?', opId) > 0;
+    return this.appliedTo(opId) !== undefined;
   }
 
-  recordApplied(opId: string, now: number): void {
-    this.sql.exec('INSERT INTO applied_ops (id, at) VALUES (?, ?)', opId, now);
+  appliedTo(opId: string): { reminder: string | null } | undefined {
+    return this.sql
+      .exec<{ reminder: string | null }>('SELECT reminder FROM applied_ops WHERE id = ?', opId)
+      .toArray()[0];
+  }
+
+  recordApplied(opId: string, reminderId: string | null, now: number): void {
+    this.sql.exec('INSERT INTO applied_ops (id, at, reminder) VALUES (?, ?, ?)', opId, now, reminderId);
   }
 
   testRequest(id: string): number | null {

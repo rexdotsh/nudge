@@ -8,6 +8,7 @@ import {
   type Presentation,
   type PushMessage,
 } from '../shared/notification';
+import { applyOp, type Op } from '../shared/ops';
 import { lateCount, movedZone, type Reminder } from '../shared/reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../shared/time';
 import type { DeliveryRow, Outgoing } from './deliveries';
@@ -70,6 +71,15 @@ export class Scheduler {
     else if (previous?.paused && !next.paused && previous.due === next.due && next.due !== null) {
       deliveries.releaseForReminder(next.id, occurrenceTopic(next.id, next.due));
     } else if (settles || previous?.paused) deliveries.cancelForReminder(next.id);
+  }
+
+  /** Applies an op made at `at` and records it as applied, returning the reminder it changed, if it changed one. */
+  commit(opId: string, op: Op, at: number, now: number): Reminder | null {
+    const previous = this.store.reminder(op.id);
+    const next = applyOp(previous, op, { now: at, zone: this.zone() });
+    if (next) this.saveChange(previous, next, op.type !== 'put' || previous?.due !== next.due);
+    this.store.recordApplied(opId, op.id, now);
+    return next;
   }
 
   private origin(): string {

@@ -20,7 +20,7 @@ import {
   type RepeatMatch,
   type Time,
 } from './phrases';
-import type { Repeat } from './reminder';
+import { firstDue, type ReminderFields, type Repeat } from './reminder';
 import { applyEnding, scanEnding } from './quick-add-end';
 import { formatRule, rule } from './rrule';
 import { Scanner, type Span } from './scanner';
@@ -269,4 +269,24 @@ export function suggestedStart(now: number, zone: string): string {
   const rounded = Math.ceil(minutes / 30) * 30;
   const next: LocalDateTime = { ...local, hour: Math.floor(rounded / 60), minute: rounded % 60 };
   return formatLocal(next.hour >= 24 ? { ...fromEpochDay(epochDay(local) + 1), ...DEFAULT_TIME } : next);
+}
+
+/** The reminder typed text becomes, starting at its first occurrence, or null when it leaves no title. */
+export function fieldsFromText(
+  text: string,
+  now: number,
+  zone: string,
+): { fields: ReminderFields; parsed: QuickAdd } | null {
+  const parsed = parseQuickAdd(text, now, zone);
+  if (parsed.title === '') return null;
+  const fields: ReminderFields = {
+    title: parsed.title,
+    notes: '',
+    start: parsed.start ?? suggestedStart(now, zone),
+    zone: null,
+    repeat: parsed.repeat,
+    important: parsed.important,
+    alerts: [],
+  };
+  return { fields: { ...fields, start: firstDue(fields, now, zone) ?? fields.start }, parsed };
 }

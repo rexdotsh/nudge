@@ -1,6 +1,6 @@
 import { SNOOZE_MINUTES } from '../../browser/notify';
-import { parseQuickAdd, suggestedStart } from '../../shared/quick-add';
-import { dueAt, firstDue, type Reminder, type ReminderFields } from '../../shared/reminder';
+import { fieldsFromText } from '../../shared/quick-add';
+import { dueAt, snoozeFrom, type Reminder } from '../../shared/reminder';
 import { HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
 import { ulid } from '../../shared/ulid';
 import { app } from './app.svelte';
@@ -10,20 +10,10 @@ import { toasts } from './toasts.svelte';
 
 export async function add(text: string): Promise<boolean> {
   const now = Date.now();
-  const parsed = parseQuickAdd(text, now, app.zone);
-  if (parsed.title === '') return false;
+  const typed = fieldsFromText(text, now, app.zone);
+  if (!typed) return false;
   const id = ulid(now);
-  const fields: ReminderFields = {
-    title: parsed.title,
-    notes: '',
-    start: parsed.start ?? suggestedStart(now, app.zone),
-    zone: null,
-    repeat: parsed.repeat,
-    important: parsed.important,
-    alerts: [],
-  };
-  const start = firstDue(fields, now, app.zone) ?? fields.start;
-  const created = await app.apply({ type: 'put', id, fields: { ...fields, start } });
+  const created = await app.apply({ type: 'put', id, fields: typed.fields });
   const due = created ? dueAt(created, app.zone) : null;
   toasts.show(
     due === null ? 'Added' : `Added for ${summaryWhen(due, now, app.zone)}`,
@@ -92,10 +82,6 @@ export interface SnoozeOption {
   key: 'soon' | 'hour' | 'evening' | 'morning' | 'week';
   label: string;
   at: number;
-}
-
-export function snoozeFrom(reminder: Reminder, now: number, zone: string): number {
-  return Math.max(now, dueAt(reminder, zone) ?? now);
 }
 
 export function snoozeOptions(reminder: Reminder, now: number, zone: string): SnoozeOption[] {

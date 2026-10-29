@@ -15,7 +15,8 @@ export const DEVICE_SCHEMA = [
     endpoint TEXT,
     p256dh TEXT,
     auth TEXT,
-    receipt_at INTEGER
+    receipt_at INTEGER,
+    kind TEXT NOT NULL DEFAULT 'device'
   )`,
   `CREATE TABLE IF NOT EXISTS enrollments (
     credential TEXT NOT NULL,
@@ -39,6 +40,7 @@ export type DeviceRow = {
   p256dh: string | null;
   auth: string | null;
   receipt_at: number | null;
+  kind: 'device' | 'agent';
 };
 
 export interface Target extends PushKeys {
@@ -59,11 +61,10 @@ function target(row: DeviceRow): Target | undefined {
 }
 
 export function deviceInfo(row: DeviceRow): DeviceInfo {
-  return {
-    id: row.id,
-    label: row.label,
-    push: { enabled: row.endpoint !== null, receiptAt: row.receipt_at },
-  };
+  const { id, label } = row;
+  return row.kind === 'agent'
+    ? { kind: 'agent', id, label, usedAt: row.seen_at > row.created_at ? row.seen_at : null }
+    : { kind: 'device', id, label, push: { enabled: row.endpoint !== null, receiptAt: row.receipt_at } };
 }
 
 export class Devices {
@@ -121,6 +122,27 @@ export class Devices {
       now,
       now,
     );
+  }
+
+  /** An agent has no install of its own, so its id stands in for one and a retry finds the agent it made. */
+  addAgent(id: string, label: string, zone: string, locale: string, now: number): DeviceRow | undefined {
+    this.sql.exec(
+      `INSERT INTO devices (id, install_key, label, platform, zone, locale, created_at, seen_at, kind)
+       VALUES (?, ?, ?, 'other', ?, ?, ?, ?, 'agent') ON CONFLICT DO NOTHING`,
+      id,
+      `agent:${id}`,
+      label,
+      zone,
+      locale,
+      now,
+      now,
+    );
+    const row = this.get(id);
+    return row?.kind === 'agent' ? row : undefined;
+  }
+
+  seen(id: string, now: number): void {
+    this.sql.exec('UPDATE devices SET seen_at = ? WHERE id = ?', now, id);
   }
 
   touch(id: string, zone: string, now: number): void {
