@@ -24,6 +24,10 @@ export async function verifyToken(secret: string, token: string): Promise<string
   return valid ? deviceId : null;
 }
 
+export function bearer(request: Request): string {
+  return request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
+}
+
 export function sameSecret(given: string, expected: string): boolean {
   const a = utf8(given);
   const b = utf8(expected);

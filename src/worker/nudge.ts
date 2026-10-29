@@ -1,4 +1,5 @@
 import {
+  isAgentRoute,
   isPublicRoute,
   type DeviceInput,
   type DeviceRoute,
@@ -12,12 +13,12 @@ import {
   type SyncRequest,
   type SyncResponse,
 } from '../shared/api';
-import { applyOp } from '../shared/ops';
 import { DAY_MS, MINUTE_MS } from '../shared/time';
 import { ulid } from '../shared/ulid';
 import { isRecord } from '../shared/validate';
+import { Agents } from './agent';
 import { deviceInfo, type DeviceRow } from './devices';
-import { ApiFailure, DEVICE_REQUESTS, PUBLIC_REQUESTS } from './requests';
+import { ApiFailure, Conflict, DEVICE_REQUESTS, PUBLIC_REQUESTS, type Handlers } from './requests';
 import type { Runtime } from './runtime';
 import { Scheduler } from './scheduler';
 import { Store } from './store';
@@ -34,17 +35,15 @@ const FAILURE_LIMIT = 10;
 const MAX_PENDING_TESTS = 5;
 const MAX_BACKDATE_MS = 30 * DAY_MS;
 
-type Handlers<R extends { [K in keyof R]: { request: unknown; response: unknown } }, Context> = {
-  [K in keyof R]: (request: R[K]['request'], context: Context) => R[K]['response'] | Promise<R[K]['response']>;
-};
-
 export class Nudge {
   private readonly store: Store;
   private readonly scheduler: Scheduler;
+  private readonly agents: Agents;
 
   constructor(private readonly runtime: Runtime) {
     this.store = new Store(runtime.sql);
     this.scheduler = new Scheduler(this.store, runtime);
+    this.agents = new Agents(this.store, this.scheduler, runtime);
   }
 
   private readonly publicHandlers: Handlers<PublicRoutes, null> = {
@@ -91,6 +90,13 @@ export class Nudge {
       return null;
     },
     sync: (request, device) => this.sync(request, device),
+    agent: async ({ id, name }) => {
+      const zone = this.scheduler.zone();
+      const locale = this.store.meta('locale') ?? 'en';
+      const agent = this.store.devices.addAgent(id, name, zone, locale, this.runtime.now());
+      if (!agent) throw new ApiFailure('bad_request');
+      return { token: await issueToken(this.runtime.secrets.auth, agent.id) };
+    },
   };
 
   async call<R extends Route>(route: R, caller: Caller, body: unknown): Promise<Reply<Routes[R]['response']>> {
@@ -98,15 +104,19 @@ export class Nudge {
       if (this.store.meta('origin') !== caller.origin) this.store.setMeta('origin', caller.origin);
       if (isPublicRoute(route))
         return { ok: true, data: await this.publicHandlers[route](PUBLIC_REQUESTS[route](body), null) };
+      if (isAgentRoute(route))
+        return { ok: true, data: await this.agents.call(route, this.requireCaller(caller.deviceId), body) };
       return { ok: true, data: await this.callDevice(route, this.requireDevice(caller.deviceId), body) };
     } catch (error) {
-      if (error instanceof ApiFailure) return { ok: false, error: error.code };
+      if (error instanceof Conflict)
+        return { ok: false, error: 'conflict', message: error.message, current: error.current };
+      if (error instanceof ApiFailure) return { ok: false, error: error.code, message: error.message };
       throw error;
     }
   }
 
   canConnect(deviceId: string): boolean {
-    return this.store.devices.get(deviceId) !== undefined;
+    return this.store.devices.get(deviceId)?.kind === 'device';
   }
 
   async message(deviceId: string, text: string): Promise<ServerMessage> {
@@ -142,9 +152,15 @@ export class Nudge {
     return this.deviceHandlers[route](DEVICE_REQUESTS[route](body), device);
   }
 
+  private requireCaller(deviceId: string | null): DeviceRow {
+    const caller = deviceId === null ? undefined : this.store.devices.get(deviceId);
+    if (!caller) throw new ApiFailure('unauthorized', 'unauthorized: this token was removed');
+    return caller;
+  }
+
   private requireDevice(deviceId: string | null): DeviceRow {
-    const device = deviceId === null ? undefined : this.store.devices.get(deviceId);
-    if (!device) throw new ApiFailure('unauthorized');
+    const device = this.requireCaller(deviceId);
+    if (device.kind !== 'device') throw new ApiFailure('forbidden', 'agents can only use /api/v1');
     return device;
   }
 
@@ -230,11 +246,7 @@ export class Nudge {
       if (device.zone !== zone) this.scheduler.setZone(zone);
       this.store.devices.touch(device.id, zone, now);
       for (const { opId, op, at } of changes) {
-        if (this.store.applied(opId)) continue;
-        const previous = this.store.reminder(op.id);
-        const next = applyOp(previous, op, { now: madeAt(at), zone: this.scheduler.zone() });
-        if (next) this.scheduler.saveChange(previous, next, op.type !== 'put' || previous?.due !== next.due);
-        this.store.recordApplied(opId, now);
+        if (!this.store.applied(opId)) this.scheduler.commit(opId, op, madeAt(at), now);
       }
       if (theme && !this.store.applied(theme.id)) {
         this.store.chooseTheme(theme.theme, madeAt(theme.at));

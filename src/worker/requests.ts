@@ -3,6 +3,7 @@ import {
   MAX_CHANGES,
   PLATFORMS,
   THEMES,
+  type AgentReminder,
   type ApiError,
   type Change,
   type DeviceInput,
@@ -20,18 +21,34 @@ import { isTimeZone } from '../shared/time';
 import { isUlid } from '../shared/ulid';
 import { isInteger, isRecord, isText } from '../shared/validate';
 
+export type Handlers<R extends { [K in keyof R]: { request: unknown; response: unknown } }, Context> = {
+  [K in keyof R]: (request: R[K]['request'], context: Context) => R[K]['response'] | Promise<R[K]['response']>;
+};
+
 export class ApiFailure extends Error {
-  constructor(readonly code: ApiError) {
-    super(code);
+  constructor(
+    readonly code: Exclude<ApiError, 'conflict'>,
+    message: string = code,
+  ) {
+    super(message);
   }
 }
 
-function invalid(): never {
-  throw new ApiFailure('bad_request');
+export class Conflict extends Error {
+  constructor(
+    message: string,
+    readonly current: AgentReminder,
+  ) {
+    super(message);
+  }
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : invalid();
+export function invalid(message?: string): never {
+  throw new ApiFailure('bad_request', message);
+}
+
+export function record(value: unknown, message?: string): Record<string, unknown> {
+  return isRecord(value) ? value : invalid(message);
 }
 
 function isLocale(value: unknown): value is string {
@@ -118,4 +135,8 @@ export const DEVICE_REQUESTS: { [R in DeviceRoute]: (body: unknown) => DeviceRou
     return isText(fire, 80, 1) ? { fire } : invalid();
   },
   sync: syncRequest,
+  agent: (body) => {
+    const { id, name } = record(body);
+    return isUlid(id) && isText(name, 40) && name.trim() !== '' ? { id, name: name.trim() } : invalid();
+  },
 };

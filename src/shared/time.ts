@@ -115,6 +115,10 @@ function offsetAt(instant: number, zone: string): number {
   return wallMs(toLocal(instant, zone)) - Math.floor(instant / MINUTE_MS) * MINUTE_MS;
 }
 
+export function daysFromToday(instant: number, now: number, zone: string): number {
+  return epochDay(toLocal(instant, zone)) - epochDay(toLocal(now, zone));
+}
+
 /** Ambiguous times resolve to the earlier instant; nonexistent ones move forward by the gap, like Temporal's "compatible". */
 export function toInstant(local: LocalDateTime, zone: string): number {
   const wall = wallMs(local);
@@ -150,4 +154,11 @@ export function parseLocal(text: string): LocalDateTime | null {
   if (Number.isNaN(instant)) return null;
   const local = fromWallMs(instant);
   return formatLocal(fromWallMs(wallMs(local))) === text ? local : null;
+}
+
+/** An instant as ISO 8601 to the minute, in a zone's wall time with its offset, like 2026-11-01T18:00+05:30. */
+export function formatInstant(instant: number, zone: string): string {
+  const offset = offsetAt(instant, zone) / MINUTE_MS;
+  const sign = offset < 0 ? '-' : '+';
+  return `${formatLocal(toLocal(instant, zone))}${sign}${formatClock({ hour: Math.floor(Math.abs(offset) / 60), minute: Math.abs(offset) % 60 })}`;
 }

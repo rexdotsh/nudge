@@ -25,3 +25,13 @@ bun run secrets <worker-name>
 ```
 
 For Telegram alerts, export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` before `secrets`. Then open the Worker's URL, install it, and enter the setup code it printed. Add more devices from Settings. On Windows 11, Settings also offers an installable app.
+
+## API
+
+Agents and scripts get their own token from Settings → Agents → Connect an agent, and send it as a bearer token:
+
+```sh
+curl "$NUDGE_URL/api/v1/today" -H "Authorization: Bearer $NUDGE_TOKEN"
+```
+
+Endpoints, the data model and examples are in [`skills/nudge/SKILL.md`](skills/nudge/SKILL.md). Install the skill for an agent with `npx skills add rexdotsh/nudge`. A token shows up under Devices in Settings, where removing it revokes it.

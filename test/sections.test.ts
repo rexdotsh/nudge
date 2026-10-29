@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { recentlyCompleted, triage } from '../src/app/lib/sections';
+import { recentlyCompleted } from '../src/app/lib/sections';
+import { triage } from '../src/shared/triage';
 import { applyOp } from '../src/shared/ops';
 import type { Reminder } from '../src/shared/reminder';
 import { HOUR_MS } from '../src/shared/time';

@@ -140,6 +140,10 @@ export function isSnoozed(reminder: Reminder, now: number): boolean {
   return reminder.snoozedUntil !== null && reminder.snoozedUntil > now;
 }
 
+export function snoozeFrom(reminder: Reminder, now: number, zone: string): number {
+  return Math.max(now, dueAt(reminder, zone) ?? now);
+}
+
 export function shownAt(reminder: Reminder, now: number, currentZone: string): number | null {
   const due = dueAt(reminder, currentZone);
   const { snoozedUntil } = reminder;

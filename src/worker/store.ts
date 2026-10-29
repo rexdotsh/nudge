@@ -4,6 +4,12 @@ import { DELIVERY_SCHEMA, Deliveries } from './deliveries';
 import { DEVICE_SCHEMA, Devices } from './devices';
 import { count, type Sql, type SqlValue } from './sql';
 
+const AGENT_KEYS = `CREATE TABLE IF NOT EXISTS agent_keys (
+  id TEXT PRIMARY KEY,
+  request TEXT NOT NULL,
+  response TEXT NOT NULL
+)`;
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS reminders (
     id TEXT PRIMARY KEY,
@@ -14,13 +20,18 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS reminders_by_version ON reminders (version)`,
   `CREATE INDEX IF NOT EXISTS reminders_by_fire_at ON reminders (fire_at) WHERE fire_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS applied_ops (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
+  AGENT_KEYS,
   `CREATE TABLE IF NOT EXISTS test_requests (id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   ...DEVICE_SCHEMA,
   ...DELIVERY_SCHEMA,
 ];
 
 // UPGRADES[n - 1] brings a store from version n to n + 1; a new store starts at the latest version.
-const UPGRADES = ['ALTER TABLE deliveries ADD COLUMN held_at INTEGER'];
+const UPGRADES = [
+  'ALTER TABLE deliveries ADD COLUMN held_at INTEGER',
+  "ALTER TABLE devices ADD COLUMN kind TEXT NOT NULL DEFAULT 'device'",
+  AGENT_KEYS,
+];
 const SCHEMA_VERSION = String(UPGRADES.length + 1);
 
 export class Store {
@@ -124,6 +135,17 @@ export class Store {
 
   recordApplied(opId: string, now: number): void {
     this.sql.exec('INSERT INTO applied_ops (id, at) VALUES (?, ?)', opId, now);
+  }
+
+  /** What an agent's Idempotency-Key was first used for, and what that request answered. */
+  agentKey(opId: string): { request: string; response: string } | undefined {
+    return this.sql
+      .exec<{ request: string; response: string }>('SELECT request, response FROM agent_keys WHERE id = ?', opId)
+      .toArray()[0];
+  }
+
+  recordAgentKey(opId: string, request: string, response: string): void {
+    this.sql.exec('INSERT INTO agent_keys (id, request, response) VALUES (?, ?, ?)', opId, request, response);
   }
 
   testRequest(id: string): number | null {

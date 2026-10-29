@@ -1,7 +1,8 @@
 <script lang="ts">
   import { snooze, snoozeOptions } from '../lib/actions';
   import { timeLabel, untilLabel, whenLabel } from '../lib/format';
-  import { quietSummary, type Triage } from '../lib/sections';
+  import type { Triage } from '../../shared/triage';
+  import { quietSummary } from '../lib/sections';
   import { completeFrom } from '../lib/selection';
   import { ui } from '../lib/ui.svelte';
   import CheckCircle from './CheckCircle.svelte';

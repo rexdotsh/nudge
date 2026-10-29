@@ -10,7 +10,8 @@ import {
 import { vapidKeys } from 'declarative-web-push/server';
 import { readJson } from './body';
 import { DEVICE_HEADER } from './nudge-do';
-import { verifyToken } from './tokens';
+import { serveAgent } from './agent-http';
+import { bearer, verifyToken } from './tokens';
 import { buildInstaller, serveInstaller } from './windows';
 
 export { NudgeDO } from './nudge-do';
@@ -21,7 +22,7 @@ function reply(result: Reply<unknown>): Response {
   return Response.json(result, { status: result.ok ? 200 : API_ERRORS[result.error] });
 }
 
-const failure = (error: ApiError) => reply({ ok: false, error });
+const failure = (error: Exclude<ApiError, 'conflict'>) => reply({ ok: false, error, message: error });
 
 async function openSocket(request: Request, env: Env): Promise<Response> {
   if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected a websocket', { status: 426 });
@@ -38,10 +39,15 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/config') return Response.json({ vapidPublicKey: vapidKeys(env.VAPID_JWK).publicKey });
     if (url.pathname === '/api/socket') return openSocket(request, env);
+    if (url.pathname.startsWith('/api/v1/')) {
+      return serveAgent(request, bearer(request), {
+        verify: (token) => verifyToken(env.AUTH_SECRET, token),
+        call: (route, deviceId, envelope) => nudge(env).call(route, { deviceId, origin: url.origin }, envelope),
+      });
+    }
     if (url.pathname === '/api/windows') {
-      const token = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
       return serveInstaller(
-        { method: request.method, origin: url.origin, token },
+        { method: request.method, origin: url.origin, token: bearer(request) },
         {
           verify: (value) => verifyToken(env.AUTH_SECRET, value),
           enrolled: (deviceId) => nudge(env).isEnrolled(deviceId),
@@ -54,8 +60,7 @@ export default {
     const isPublic = isPublicRoute(route);
     if (!isPublic && !isDeviceRoute(route)) return new Response('not found', { status: 404 });
     if (request.method !== 'POST') return new Response('method not allowed', { status: 405 });
-    const bearer = request.headers.get('Authorization')?.replace(/^Bearer /, '') ?? '';
-    const deviceId = isPublic ? null : await verifyToken(env.AUTH_SECRET, bearer);
+    const deviceId = isPublic ? null : await verifyToken(env.AUTH_SECRET, bearer(request));
     if (!isPublic && deviceId === null) return failure('unauthorized');
     const parsed = await readJson(request, MAX_REQUEST_BYTES);
     if (!parsed) return failure('bad_request');

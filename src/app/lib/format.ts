@@ -2,7 +2,7 @@ import { describeRepeat } from '../../shared/describe';
 import { memoize } from '../../shared/memoize';
 import { local, type Repeat } from '../../shared/reminder';
 import type { Time } from '../../shared/phrases';
-import { DAY_MS, MINUTE_MS, epochDay, toLocal } from '../../shared/time';
+import { DAY_MS, MINUTE_MS, daysFromToday, toLocal } from '../../shared/time';
 
 export const locale = navigator.language;
 
@@ -35,10 +35,6 @@ export function calendarLabel(days: number, style: Style): string {
 
 export function clockLabel({ hour, minute }: Time): string {
   return format(Date.UTC(1970, 0, 1, hour, minute), 'UTC', 'time');
-}
-
-export function daysFromToday(instant: number, now: number, zone: string): number {
-  return epochDay(toLocal(instant, zone)) - epochDay(toLocal(now, zone));
 }
 
 export function dayLabel(instant: number, now: number, zone: string): string {
