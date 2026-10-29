@@ -390,6 +390,33 @@ describe('sync', () => {
     expect(h.sentTo(1)).toBe(sent);
   });
 
+  test.each<[string, number | null]>([
+    ['on its date', Date.UTC(2026, 9, 12, 11)],
+    ['by hand', null],
+  ])('a snooze that ended during a pause stays quiet after flying west and resuming %s', async (_, until) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = ulid(h.state.now);
+    await h.sync(deviceId, [{ type: 'put', id, fields: fields({ repeat: daily }) }], 'UTC');
+    await h.runAlarm();
+    await h.ok('receipt', { fire: h.state.pushes[0]?.message.notification.data.fire }, deviceId);
+    h.state.now = Date.UTC(2026, 9, 12, 9, 30);
+    const snoozedUntil = Date.UTC(2026, 9, 12, 10, 30);
+    await h.sync(deviceId, [{ type: 'snooze', id, due: TODAY, until: snoozedUntil }], 'UTC');
+    h.state.now = Date.UTC(2026, 9, 12, 10);
+    await h.sync(deviceId, [{ type: 'pause', id, until }], 'UTC');
+    h.state.now = Date.UTC(2026, 9, 12, 10, 15);
+    await h.sync(deviceId, [], 'America/New_York');
+    if (until === null) {
+      h.state.now = Date.UTC(2026, 9, 12, 15);
+      await h.sync(deviceId, [{ type: 'resume', id }], 'America/New_York');
+    } else {
+      expect(h.state.alarm).toBe(Date.UTC(2026, 9, 12, 15));
+    }
+    await h.runAlarmsThrough(Date.UTC(2026, 9, 12, 16));
+    expect(h.sentTo(1)).toBe(1);
+  });
+
   test('flying east past a floating reminder that has not fired yet still fires it', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);

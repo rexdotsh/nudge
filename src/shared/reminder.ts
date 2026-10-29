@@ -160,12 +160,13 @@ export function resumed(reminder: Reminder, at: number, currentZone: string): Re
   if (paused === null) return reminder;
   const due = dueAt(reminder, currentZone);
   const first = due !== null && due > paused.at ? reminder.due : occurrenceAfter(reminder, paused.at, currentZone);
-  const wokeWhilePaused = snoozedUntil !== null && snoozedUntil > paused.at && snoozedUntil < at;
   const unpaused = {
     ...reminder,
     paused: null,
     revision: reminder.revision + 1,
-    snoozedUntil: wokeWhilePaused ? null : snoozedUntil,
+    // A snooze is a span of elapsed time and `at` is a real instant, unlike the pause's start, which moves with the
+    // wall clock: only a wake-up still ahead survives.
+    snoozedUntil: snoozedUntil !== null && snoozedUntil >= at ? snoozedUntil : null,
     firedThrough: Math.max(reminder.firedThrough, at - 1),
     quietThrough: Math.max(reminder.quietThrough, at - 1),
   };
