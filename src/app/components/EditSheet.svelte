@@ -85,15 +85,31 @@
         <input class="toggle" type="checkbox" bind:checked={draft.pinned} />
       </label>
     {/if}
+    {#if reminder.repeat && (reminder.paused || reminder.due !== null)}
+      <div class="field">
+        <span
+          >Pause repeats{#if reminder.paused}<small>{pausedLabel(reminder.paused.until, app.now, app.zone)}</small
+            >{/if}</span
+        >
+        {#if reminder.paused}
+          <button
+            class="link press"
+            disabled={!draft.parsed}
+            onclick={() => act((current) => resume(current).then(closeEditor))}>Resume</button
+          >
+        {:else}
+          <button
+            class="link quiet press"
+            disabled={!draft.parsed}
+            onclick={() => act(({ id }) => ui.open('pause', id))}>Pause…</button
+          >
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <div class="acts">
-    {#if reminder.paused}
-      <p class="paused">{pausedLabel(reminder.paused.until, app.now, app.zone)}</p>
-      <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => resume(current).then(closeEditor))}
-        ><Icon name="play" size={16} />Resume</button
-      >
-    {:else if reminder.due !== null}
+    {#if !reminder.paused && reminder.due !== null}
       <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => complete(current).then(closeEditor))}
         ><Icon name="check" size={16} />Done</button
       >
@@ -103,9 +119,6 @@
       {#if reminder.repeat}
         <button class="btn" disabled={!draft.parsed} onclick={() => act(skip)}
           ><Icon name="skip" size={16} />Skip</button
-        >
-        <button class="btn" disabled={!draft.parsed} onclick={() => act(({ id }) => ui.open('pause', id))}
-          ><Icon name="pause" size={16} />Pause</button
         >
       {/if}
     {/if}
@@ -168,13 +181,6 @@
   .acts .btn {
     flex: 1;
     padding: 0 12px;
-  }
-
-  .paused {
-    flex-basis: 100%;
-    margin: 0 2px 4px;
-    color: var(--muted);
-    font-size: 13.5px;
   }
 
   .delete {
