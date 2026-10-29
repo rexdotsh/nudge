@@ -587,6 +587,16 @@ describe('pause and resume', () => {
       },
     ],
     [
+      'an after-done repeat that came due while paused until a date counts its interval from that day',
+      {
+        series: { repeat: everyThreeDaysAfterDone },
+        pause: '2026-10-11T21:00',
+        until: '2026-10-20T00:00',
+        end: '2026-10-23T09:00',
+        sent: [['due', '2026-10-23T09:00', 0]],
+      },
+    ],
+    [
       'an after-done repeat resumed before it came due keeps its due time',
       {
         series: { repeat: everyThreeDaysAfterDone },
@@ -650,6 +660,25 @@ describe('pause and resume', () => {
     expect(again.paused).toEqual({ at: at('2026-10-12T07:00'), until: at('2026-10-20T00:00') });
     const resumed = apply(again, { type: 'resume', id: ID }, '2026-10-14T12:00');
     expect(applyOp(resumed, { type: 'resume', id: ID }, { now: at('2026-10-14T12:01'), zone: ZONE })).toBeNull();
+  });
+
+  test('undoing a pause brings back the occurrence that came due meanwhile, but never over a change made since', () => {
+    const clock = (ms: number) => ({ now: at('2026-10-12T09:00') + ms, zone: ZONE });
+    const paused = applyOp(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, clock(-1000));
+    if (!paused) throw new Error('pause was rejected');
+    const undo = { type: 'unpause', id: ID, revision: paused.revision } as const;
+    const undone = applyOp(paused, undo, clock(1000));
+    expect(undone?.due).toBe('2026-10-12T09:00');
+    expect(undone && fire(undone, at('2026-10-12T09:00') + 2000, ZONE).notices.map(({ alert }) => alert)).toEqual([
+      'due',
+    ]);
+    expect(undone && applyOp(undone, undo, clock(2000))).toBeNull();
+    const edited = apply(
+      paused,
+      { type: 'put', id: ID, fields: fields({ title: 'Mist', repeat: daily }) },
+      '2026-10-12T09:00',
+    );
+    expect(applyOp(edited, undo, clock(2000))).toBeNull();
   });
 
   test.each<[string, Partial<ReminderFields>, Op]>([
@@ -756,6 +785,8 @@ describe('input validation', () => {
     expect(parseOp({ type: 'pause', id: ID, until: null })).toEqual({ type: 'pause', id: ID, until: null });
     expect(parseOp({ type: 'pause', id: ID, until: 5 })).toEqual({ type: 'pause', id: ID, until: 5 });
     expect(parseOp({ type: 'resume', id: ID, until: 5 })).toEqual({ type: 'resume', id: ID });
+    expect(parseOp({ type: 'unpause', id: ID, revision: 2 })).toEqual({ type: 'unpause', id: ID, revision: 2 });
+    expect(parseOp({ type: 'unpause', id: ID })).toBeNull();
     for (const until of [undefined, -1, 1.5, '5', 9e15]) expect(parseOp({ type: 'pause', id: ID, until })).toBeNull();
     expect(parseOp({ type: 'complete', id: ID })).toBeNull();
     expect(parseOp({ type: 'explode', id: ID })).toBeNull();

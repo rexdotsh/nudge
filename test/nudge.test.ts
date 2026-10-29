@@ -352,7 +352,10 @@ describe('sync', () => {
     expect(h.sentTo(1)).toBe(1);
   });
 
-  test('snoozing a notification after flying west still brings it back after the snooze', async () => {
+  test.each([
+    ['still brings it back after the snooze', false, 2],
+    ['does not bring it back once a pause covered the end of the snooze', true, 1],
+  ])('snoozing a notification after flying west %s', async (_, paused, sent) => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
     const id = await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
@@ -361,9 +364,10 @@ describe('sync', () => {
     await h.sync(deviceId, [], 'America/New_York');
     const until = h.state.now + 15 * MINUTE_MS;
     await h.sync(deviceId, [{ type: 'snooze', id, due: '2026-10-12T09:00', until }], 'America/New_York');
-    expect(h.state.alarm).toBe(until);
+    if (paused) await h.sync(deviceId, [{ type: 'pause', id, until: until + 15 * MINUTE_MS }], 'America/New_York');
+    expect(h.state.alarm).toBe(paused ? until + 15 * MINUTE_MS : until);
     await h.runAlarm();
-    expect(h.sentTo(1)).toBe(2);
+    expect(h.sentTo(1)).toBe(sent);
   });
 
   test('flying east past a floating reminder that has not fired yet still fires it', async () => {

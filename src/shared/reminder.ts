@@ -139,18 +139,25 @@ export function isLate(reminder: Reminder, now: number, currentZone: string): bo
  * a backlog; an occurrence that was already late when it was paused is left as it was.
  */
 export function resumed(reminder: Reminder, at: number, currentZone: string): Reminder {
-  const { paused } = reminder;
+  const { paused, snoozedUntil } = reminder;
   if (paused === null) return reminder;
   const due = dueAt(reminder, currentZone);
   const first = due !== null && due > paused.at ? reminder.due : occurrenceAfter(reminder, paused.at, currentZone);
+  const wokeWhilePaused = snoozedUntil !== null && snoozedUntil > paused.at && snoozedUntil < at;
   const unpaused = {
     ...reminder,
     paused: null,
     revision: reminder.revision + 1,
+    snoozedUntil: wokeWhilePaused ? null : snoozedUntil,
     firedThrough: Math.max(reminder.firedThrough, at - 1),
   };
   if (first === null || instantOf(reminder, first, currentZone) >= at) return unpaused;
-  return { ...unpaused, due: dueAfterCompletion(reminder, at - 1, currentZone), missed: 0, snoozedUntil: null };
+  // An occurrence exactly at `at` still counts as next, but an interval restarts from the day it resumes.
+  const next =
+    reminder.repeat?.anchor === 'completion'
+      ? dueAfterCompletion(reminder, at, currentZone)
+      : occurrenceAfter(reminder, at - 1, currentZone);
+  return { ...unpaused, due: next, missed: 0, snoozedUntil: null };
 }
 
 export function lateCount(reminders: readonly Reminder[], now: number, currentZone: string): number {

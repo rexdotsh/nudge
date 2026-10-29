@@ -8,6 +8,7 @@ export type Op =
   | { type: 'reopen'; id: string; due: string; revision: number }
   | { type: 'pause'; id: string; until: number | null }
   | { type: 'resume'; id: string }
+  | { type: 'unpause'; id: string; revision: number }
   | { type: 'delete'; id: string }
   | { type: 'restore'; id: string };
 
@@ -88,6 +89,10 @@ export function applyOp(current: Reminder | undefined, op: Op, clock: Clock): Re
       };
     case 'resume':
       return current.paused ? { ...resumed(current, now, zone), updatedAt: now } : null;
+    // Undoes a pause exactly, keeping what came due meanwhile, unless anything changed since.
+    case 'unpause':
+      if (!current.paused || current.revision !== op.revision) return null;
+      return { ...current, paused: null, revision: current.revision + 1, updatedAt: now };
     case 'delete':
     case 'restore':
       return { ...current, deleted: op.type === 'delete', revision: current.revision + 1, updatedAt: now };

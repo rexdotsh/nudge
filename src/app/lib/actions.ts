@@ -60,8 +60,11 @@ export async function snooze(reminder: Reminder, until: number): Promise<void> {
 export async function pause(reminder: Reminder, until: number | null): Promise<void> {
   tick();
   const { id } = reminder;
-  await app.apply({ type: 'pause', id, until });
-  toasts.show(pausedLabel(until, Date.now(), app.zone), () => void app.apply({ type: 'resume', id }));
+  const after = await app.apply({ type: 'pause', id, until });
+  toasts.show(
+    pausedLabel(until, Date.now(), app.zone),
+    after ? () => void app.apply({ type: 'unpause', id, revision: after.revision }) : undefined,
+  );
 }
 
 export async function resume(reminder: Reminder): Promise<void> {
