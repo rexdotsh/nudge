@@ -50,7 +50,7 @@ Read the URL from `$NUDGE_URL` and the token from `$NUDGE_TOKEN`. If they aren't
 
 Fields: `title` (1–200 chars), `notes` (up to 4000), `start` (wall time of the first occurrence, which anchors a repeat), `zone` (`null` or a time zone), `repeat` (`null` or `{ "rule": "FREQ=WEEKLY;BYDAY=MO,TH", "anchor": "schedule" }`; a `completion` anchor takes only `FREQ` and `INTERVAL`), `important` (boolean), `alerts` (minutes).
 
-Every write accepts an **`Idempotency-Key`** header: make up one key per change (a UUID) and send the same key with the same request if you retry it. The retry changes nothing and gets exactly the response the first one got (including `understood`), so a timeout never completes two occurrences or creates a duplicate. A used key sent with any other request is refused with `422` and changes nothing. Always send one on writes.
+Every write accepts an **`Idempotency-Key`** header: make up one key per change (a UUID) and send the same key with the same request if you retry it. The retry changes nothing and gets exactly the response the first one got (including `understood`), so a timeout never completes two occurrences or creates a duplicate. A used key sent with any other request is refused with `422` and changes nothing. Only a write that succeeds uses up its key: a `4xx` is not stored, so after fixing the request (or once it makes sense, say after a `409`) you can send it again with the same key. Always send one on writes.
 
 Errors come back as `{ "error": "..." }` with a 4xx status saying what was wrong, like `start: expected a wall time like 2026-11-02T18:00`. A `409` also has `current`, the reminder as it is now. A `422` means an `Idempotency-Key` was reused for a different request. Bodies are JSON.
 
@@ -117,7 +117,7 @@ With no time, a dated reminder is at 9am and one with no date at all comes up in
 - Before adding, search with `?q=` for a similar title. If one exists, ask whether to change it instead of adding a second.
 - If the user is vague about when ("remind me about the car"), ask, unless they are fine with the default.
 - Act on the reminder they mean: if a search finds several, ask which one. Pass `due` when completing or skipping a repeat, so you never act on an occurrence they didn't mean.
-- Send an `Idempotency-Key` on every write, and reuse it only when retrying that same request.
+- Send an `Idempotency-Key` on every write, and reuse it only to retry that same change: after a timeout, or after a `4xx` you fixed.
 - On `409`, re-read, re-apply your change to `current` if it still makes sense, and retry once with the new `rev`.
 - After any write, say what changed: done, snoozed until when, paused until when, or the new time. If you made a mistake, undo it: `reopen` a completed one-off, `restore` a delete, `resume` a pause. Completing a repeat can't be undone here; tell the user, who can undo it in the app.
 - Don't set `important` or `alerts` unless the user asks for nagging or a heads-up.

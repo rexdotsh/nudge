@@ -90,6 +90,24 @@ describe('agent writes', () => {
     expect((await everything()).reminders).toHaveLength(1);
   });
 
+  test('a retried create still gets its answer after the calendar moves on, even if its text would now fail', async () => {
+    const text = `${'a'.repeat(200)} on the 31st`;
+    const first = await create({ text }, 'create-31st');
+    h.state.now = Date.UTC(2026, 10, 1, 2, 0);
+    expect(await call('create', { body: { text } })).toMatchObject({ ok: false, error: 'bad_request' });
+    expect(await create({ text }, 'create-31st')).toEqual(first);
+  });
+
+  test('a refused change does not use up its key, so the request can be sent again once it makes sense', async () => {
+    const { reminder } = await create({ text: 'standup every day 9am' });
+    expect(await call('act', { id: reminder.id, action: 'resume', key: 'resume-1' })).toMatchObject({
+      ok: false,
+      error: 'conflict',
+    });
+    await act({ id: reminder.id, action: 'pause' });
+    expect((await act({ id: reminder.id, action: 'resume', key: 'resume-1' })).paused).toBeNull();
+  });
+
   test('keys belong to one agent, so another agent using the same key makes its own reminder', async () => {
     const other = await connect('opencode');
     const mine = await create({ text: 'pay rent tomorrow' }, 'same');

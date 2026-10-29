@@ -118,39 +118,36 @@ export class Agents {
       };
     },
     get: ({ id }, { now }) => this.view(this.store.reminder(id) ?? missing(), now),
-    create: ({ key, text, fields }, { caller, now }) => {
-      const typed =
-        text === null
-          ? null
-          : { text, ...(fieldsFromText(text, now, this.scheduler.zone()) ?? invalid('text: it has no title')) };
-      const merged = parseFields({ ...(typed?.fields ?? BLANK), ...fields }) ?? invalid('invalid reminder');
-      return this.write(
-        { caller, now, key, request: ['create', text, fields] },
-        () => ({ type: 'put', id: ulid(now), fields: merged }),
-        (reminder) => ({
-          reminder: this.view(reminder, now),
-          understood: typed && understood(typed.text, merged, typed.parsed),
-        }),
-      );
-    },
+    create: ({ key, text, fields }, { caller, now }) =>
+      this.write({ caller, now, key, request: ['create', text, fields] }, () => {
+        const typed =
+          text === null
+            ? null
+            : { text, ...(fieldsFromText(text, now, this.scheduler.zone()) ?? invalid('text: it has no title')) };
+        const merged = parseFields({ ...(typed?.fields ?? BLANK), ...fields }) ?? invalid('invalid reminder');
+        return {
+          op: { type: 'put', id: ulid(now), fields: merged },
+          respond: (reminder) => ({
+            reminder: this.view(reminder, now),
+            understood: typed && understood(typed.text, merged, typed.parsed),
+          }),
+        };
+      }),
     update: ({ id, key, rev, fields }, { caller, now }) =>
-      this.write(
-        { caller, now, key, request: ['update', id, rev, fields] },
-        this.existing(id, (current) => {
-          if (current.deleted) missing();
-          if (current.revision !== rev) {
-            throw new Conflict(`rev ${rev} is stale; it is now ${current.revision}`, this.view(current, now));
-          }
-          return { type: 'put', id, fields: parseFields({ ...fieldsOf(current), ...fields }) ?? invalid() };
-        }),
-        (reminder) => this.view(reminder, now),
-      ),
+      this.write({ caller, now, key, request: ['update', id, rev, fields] }, () => {
+        const current = this.store.reminder(id) ?? missing();
+        if (current.deleted) missing();
+        if (current.revision !== rev) {
+          throw new Conflict(`rev ${rev} is stale; it is now ${current.revision}`, this.view(current, now));
+        }
+        const merged = parseFields({ ...fieldsOf(current), ...fields }) ?? invalid();
+        return { op: { type: 'put', id, fields: merged }, respond: (reminder) => this.view(reminder, now) };
+      }),
     act: ({ id, key, action }, { caller, now }) =>
-      this.write(
-        { caller, now, key, request: ['act', id, action] },
-        this.existing(id, (current) => this.op(action, current, now)),
-        (reminder) => this.view(reminder, now),
-      ),
+      this.write({ caller, now, key, request: ['act', id, action] }, () => ({
+        op: this.op(action, this.store.reminder(id) ?? missing(), now),
+        respond: (reminder) => this.view(reminder, now),
+      })),
   };
 
   private op(action: AgentAction, current: Reminder, now: number): Op {
@@ -200,12 +197,13 @@ export class Agents {
 
   /**
    * Applies one change at most once per Idempotency-Key. A retry of the same request changes nothing and gets the
-   * response the first one got; the key used for any other request is refused.
+   * response the first one got, so `request` is the validated input alone and `plan`, which reads the clock and the
+   * stored reminders, runs only for a new change. A key used for another request is refused; a refused change does
+   * not use up its key.
    */
   private async write<T>(
     { caller, now, key, request }: { caller: DeviceRow; now: number; key: string | null; request: unknown[] },
-    plan: () => Op,
-    respond: (reminder: Reminder) => T,
+    plan: () => { op: Op; respond: (reminder: Reminder) => T },
   ): Promise<T> {
     const opId = key === null ? ulid(now) : `agent:${caller.id}:${key}`;
     const fingerprint = JSON.stringify(request);
@@ -217,7 +215,7 @@ export class Agents {
         }
         return JSON.parse(used.response);
       }
-      const op = plan();
+      const { op, respond } = plan();
       const next = this.scheduler.commit(opId, op, now, now);
       if (!next) {
         const current = this.store.reminder(op.id) ?? missing();
@@ -230,10 +228,6 @@ export class Agents {
     await this.scheduler.rearm();
     this.runtime.broadcast({ kind: 'changed', version: this.store.version() });
     return response;
-  }
-
-  private existing(id: string, build: (current: Reminder) => Op): () => Op {
-    return () => build(this.store.reminder(id) ?? missing());
   }
 
   private view(reminder: Reminder, now: number): AgentReminder {
