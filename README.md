@@ -12,7 +12,7 @@ Personal reminders that show up on time. An installable PWA for iPhone, Android,
 </p>
 
 - Type it like you'd say it: "book club last fri of the month 7pm".
-- Real calendar repeats, plus "every 3 days after done".
+- Real calendar repeats, plus "every 3 days after done", and a pause for when you're away.
 - Web Push on time, with retries and Telegram alerts if something's off.
 - Local first, works offline.
 

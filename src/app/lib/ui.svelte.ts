@@ -3,6 +3,12 @@ import type { Reminder } from '../../shared/reminder';
 import { Draft } from './draft.svelte';
 import { toasts } from './toasts.svelte';
 
+/** A sheet that picks a time for one reminder: when a snooze ends, or until when a series is paused. */
+interface TimeSheet {
+  kind: 'snooze' | 'pause';
+  id: string;
+}
+
 interface Menu {
   id: string;
   x: number;
@@ -15,7 +21,7 @@ const fine = new MediaQuery('pointer: fine');
 
 class Ui {
   editing = $state<string | null>(null);
-  snoozing = $state<string | null>(null);
+  sheet = $state<TimeSheet | null>(null);
   menu = $state<Menu | null>(null);
   help = $state(false);
   composing = $state('');
@@ -32,7 +38,7 @@ class Ui {
   get idle(): boolean {
     return (
       (this.editing === null || this.docked) &&
-      this.snoozing === null &&
+      this.sheet === null &&
       this.menu === null &&
       !this.help &&
       ![...this.#drafts.values()].some((draft) => draft.dirty) &&
@@ -55,14 +61,20 @@ class Ui {
   edit(id: string): void {
     const leaving = this.draft;
     if (leaving && leaving.id !== id) void this.#leave(leaving);
-    this.snoozing = null;
+    this.sheet = null;
     this.menu = null;
     this.editing = id;
   }
 
-  snooze(id: string): void {
+  open(kind: TimeSheet['kind'], id: string): void {
     this.menu = null;
-    this.snoozing = id;
+    this.sheet = { kind, id };
+  }
+
+  /** A docked editor stays beside the list; a sheet editor was only hidden behind the time sheet and goes too. */
+  closeSheet(): void {
+    if (this.docked) this.sheet = null;
+    else this.close();
   }
 
   async #leave(draft: Draft): Promise<void> {
@@ -77,7 +89,7 @@ class Ui {
   close(): void {
     if (this.editing !== null) this.#drafts.delete(this.editing);
     this.editing = null;
-    this.snoozing = null;
+    this.sheet = null;
   }
 }
 

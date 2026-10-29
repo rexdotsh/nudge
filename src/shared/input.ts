@@ -86,6 +86,9 @@ export function parseOp(value: unknown): Op | null {
       return occurrence && isInteger(value.until, 0, 8.64e15)
         ? { type, id, due: occurrence, until: value.until }
         : null;
+    case 'pause':
+      return value.until === null || isInteger(value.until, 0, 8.64e15) ? { type, id, until: value.until } : null;
+    case 'resume':
     case 'delete':
     case 'restore':
       return { type, id };

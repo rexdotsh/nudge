@@ -393,6 +393,11 @@ button:disabled {
   white-space: nowrap;
 }
 
+button.picker:hover,
+.picker[aria-expanded='true'] {
+  color: var(--ink);
+}
+
 .picker:focus-within {
   box-shadow: 0 0 0 2px var(--ring);
 }

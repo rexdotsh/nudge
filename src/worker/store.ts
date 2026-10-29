@@ -1,5 +1,5 @@
 import { DEFAULT_THEME, THEMES, type Theme } from '../shared/api';
-import type { Reminder } from '../shared/reminder';
+import { fromStored, type Reminder } from '../shared/reminder';
 import { DELIVERY_SCHEMA, Deliveries } from './deliveries';
 import { DEVICE_SCHEMA, Devices } from './devices';
 import { count, type Sql, type SqlValue } from './sql';
@@ -73,7 +73,7 @@ export class Store {
     return this.sql
       .exec<{ data: string }>(query, ...bindings)
       .toArray()
-      .map((row): Reminder => JSON.parse(row.data));
+      .map((row) => fromStored(JSON.parse(row.data)));
   }
 
   reminder(id: string): Reminder | undefined {

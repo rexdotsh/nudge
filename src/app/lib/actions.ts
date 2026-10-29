@@ -4,7 +4,7 @@ import { dueAt, firstDue, type Reminder, type ReminderFields } from '../../share
 import { HOUR_MS, MINUTE_MS, epochDay, fromEpochDay, toInstant, toLocal, weekday } from '../../shared/time';
 import { ulid } from '../../shared/ulid';
 import { app } from './app.svelte';
-import { summaryWhen, whenLabel } from './format';
+import { pausedLabel, summaryWhen, whenLabel } from './format';
 import { tick } from './haptics';
 import { toasts } from './toasts.svelte';
 
@@ -55,6 +55,25 @@ export async function snooze(reminder: Reminder, until: number): Promise<void> {
   tick();
   await app.apply({ type: 'snooze', id: reminder.id, due: reminder.due, until });
   toasts.show(`Snoozed until ${whenLabel(until, Date.now(), app.zone)}`);
+}
+
+export async function pause(reminder: Reminder, until: number | null): Promise<void> {
+  tick();
+  const { id } = reminder;
+  await app.apply({ type: 'pause', id, until });
+  toasts.show(pausedLabel(until, Date.now(), app.zone), () => void app.apply({ type: 'resume', id }));
+}
+
+export async function resume(reminder: Reminder): Promise<void> {
+  const { id, paused } = reminder;
+  if (!paused) return;
+  tick();
+  const after = await app.apply({ type: 'resume', id });
+  const due = after ? dueAt(after, app.zone) : null;
+  toasts.show(
+    due === null ? 'Resumed' : `Resumed, next one ${summaryWhen(due, Date.now(), app.zone)}`,
+    () => void app.apply({ type: 'pause', id, until: paused.until }),
+  );
 }
 
 export async function remove(...reminders: Reminder[]): Promise<void> {

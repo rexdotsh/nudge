@@ -50,11 +50,9 @@ export async function saveEditor(): Promise<void> {
   if (ui.draft === draft && !draft.dirty) closeEditor();
 }
 
-/** A docked editor stays beside the list; a sheet editor was only hidden behind the snooze sheet and goes too. */
 export async function snoozeTo(reminder: Reminder, at: number): Promise<void> {
   await snooze(reminder, at);
-  if (ui.docked) ui.snoozing = null;
-  else ui.close();
+  ui.closeSheet();
 }
 
 /** Completes from a Done control; activated from the keyboard, focus moves on to a neighbour instead of the page. */

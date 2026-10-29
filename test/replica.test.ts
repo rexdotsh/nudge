@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { Replica } from '../src/browser/replica';
 import type { Change } from '../src/shared/api';
+import { isSettledTag } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
 import type { Reminder, ReminderFields } from '../src/shared/reminder';
 import { ulid } from '../src/shared/ulid';
@@ -69,4 +70,11 @@ test.each([
   replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic' }, since);
   expect(replica.version).toBe(expected);
   expect(replica.view([], ZONE)).toHaveLength(expected === 3 ? 0 : 1);
+});
+
+test('a snapshot saved before pausing existed loads as not paused, so its notifications are not taken as settled', () => {
+  const { paused: _, ...stored } = server();
+  const [loaded] = new Replica({ version: 1, reminders: [stored] }).view([], ZONE);
+  expect(loaded?.paused).toBeNull();
+  expect(isSettledTag(`${ID}:2026-10-12T09:00`, loaded ? [loaded] : [], NOW)).toBe(false);
 });

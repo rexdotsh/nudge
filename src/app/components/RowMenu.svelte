@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Reminder } from '../../shared/reminder';
-  import { complete, remove, snooze, snoozeOptions } from '../lib/actions';
+  import { complete, remove, resume, snooze, snoozeOptions } from '../lib/actions';
   import { app } from '../lib/app.svelte';
   import { closeOnBack } from '../lib/close';
   import { shortWhen } from '../lib/format';
   import { focusRow, keepSelection, openEditor } from '../lib/selection';
-  import { DELETE, DONE, OPEN, SNOOZE, composing, hint } from '../lib/shortcuts';
+  import { DELETE, DONE, OPEN, PAUSE, SNOOZE, composing, hint } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
   import Popover from './Popover.svelte';
 
@@ -60,22 +60,37 @@
     data-autofocus={fromKeyboard || undefined}
     onclick={() => run(({ id }) => openEditor(id))}>Open<kbd>{hint(OPEN)}</kbd></button
   >
-  <button class="item" role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
-    >Done<kbd>{hint(DONE)}</kbd></button
-  >
-  <div class="rule" role="separator"></div>
-  <p class="caption" role="presentation">Snooze</p>
-  {#each options as option (option.key)}
+  {#if reminder.paused}
+    <button class="item" role="menuitem" onclick={() => run((target) => keepSelection(target.id, () => resume(target)))}
+      >Resume<kbd>{hint(PAUSE)}</kbd></button
+    >
+  {:else}
     <button
       class="item"
       role="menuitem"
-      onclick={() => run((target) => keepSelection(target.id, () => snooze(target, option.at)))}
-      >{option.label}<span class="time">{shortWhen(option.at, app.now, app.zone)}</span></button
+      onclick={() => run((target) => keepSelection(target.id, () => complete(target)))}
+      >Done<kbd>{hint(DONE)}</kbd></button
     >
-  {/each}
-  <button class="item" role="menuitem" onclick={() => run(({ id }) => ui.snooze(id))}
-    >Pick a time…<kbd>{hint(SNOOZE)}</kbd></button
-  >
+    <div class="rule" role="separator"></div>
+    <p class="caption" role="presentation">Snooze</p>
+    {#each options as option (option.key)}
+      <button
+        class="item"
+        role="menuitem"
+        onclick={() => run((target) => keepSelection(target.id, () => snooze(target, option.at)))}
+        >{option.label}<span class="time">{shortWhen(option.at, app.now, app.zone)}</span></button
+      >
+    {/each}
+    <button class="item" role="menuitem" onclick={() => run(({ id }) => ui.open('snooze', id))}
+      >Pick a time…<kbd>{hint(SNOOZE)}</kbd></button
+    >
+    {#if reminder.repeat}
+      <div class="rule" role="separator"></div>
+      <button class="item" role="menuitem" onclick={() => run(({ id }) => ui.open('pause', id))}
+        >Pause…<kbd>{hint(PAUSE)}</kbd></button
+      >
+    {/if}
+  {/if}
   <div class="rule" role="separator"></div>
   <button
     class="item danger"

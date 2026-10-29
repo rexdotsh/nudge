@@ -13,13 +13,17 @@ export interface Triage {
   late: Entry[];
   today: Entry[];
   later: Entry[];
+  paused: Reminder[];
 }
 
 const FOCUS_WINDOW_MS = 3 * HOUR_MS;
 
+const backAt = ({ paused }: Reminder) => paused?.until ?? Number.MAX_SAFE_INTEGER;
+
 export function triage(reminders: readonly Reminder[], now: number, zone: string): Triage {
-  const entries = reminders
-    .filter((reminder) => !reminder.deleted && reminder.due !== null)
+  const open = reminders.filter((reminder) => !reminder.deleted && reminder.due !== null);
+  const entries = open
+    .filter((reminder) => reminder.paused === null)
     .map((reminder) => ({ reminder, at: shownAt(reminder, now, zone) ?? now, late: isLate(reminder, now, zone) }))
     .toSorted((a, b) => a.at - b.at);
   const late = entries.filter((entry) => entry.late);
@@ -32,6 +36,9 @@ export function triage(reminders: readonly Reminder[], now: number, zone: string
     late: late.filter((entry) => entry !== focus),
     today: rest.filter((entry) => daysFromToday(entry.at, now, zone) <= 0),
     later: rest.filter((entry) => daysFromToday(entry.at, now, zone) > 0),
+    paused: open
+      .filter((reminder) => reminder.paused !== null)
+      .toSorted((a, b) => backAt(a) - backAt(b) || a.title.localeCompare(b.title)),
   };
 }
 

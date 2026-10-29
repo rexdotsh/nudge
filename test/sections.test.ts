@@ -26,9 +26,13 @@ test.each([
     ...starts.map((start) => reminder(start)),
     reminder('2026-10-12T18:00', { deleted: true }),
     reminder('2026-10-10T09:00', { due: null }),
+    reminder('2026-10-12T09:30', { paused: { at: NOW - HOUR_MS, until: null } }),
   ];
-  const { focus, late, today, later } = triage(reminders, NOW, ZONE);
-  const shown = [focus, ...late, ...today, ...later].flatMap((entry) => (entry ? [entry.reminder.id] : []));
+  const { focus, late, today, later, paused } = triage(reminders, NOW, ZONE);
+  const shown = [
+    ...[focus, ...late, ...today, ...later].flatMap((entry) => (entry ? [entry.reminder.id] : [])),
+    ...paused.map(({ id }) => id),
+  ];
   const open = reminders.filter((item) => !item.deleted && item.due !== null).map((item) => item.id);
   expect(shown.toSorted()).toEqual(open.toSorted());
 });

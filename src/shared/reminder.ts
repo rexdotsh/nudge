@@ -30,6 +30,12 @@ export interface ReminderFields {
   alerts: number[];
 }
 
+/** A paused series fires nothing from `at`, until `until` or, when that is null, until it is resumed. */
+interface Pause {
+  at: number;
+  until: number | null;
+}
+
 interface ReminderState {
   revision: number;
   due: string | null;
@@ -37,6 +43,7 @@ interface ReminderState {
   snoozedUntil: number | null;
   firedThrough: number;
   completedAt: number | null;
+  paused: Pause | null;
 }
 
 export interface Reminder extends ReminderFields, ReminderState {
@@ -44,6 +51,13 @@ export interface Reminder extends ReminderFields, ReminderState {
   createdAt: number;
   updatedAt: number;
   deleted: boolean;
+}
+
+/** A reminder as stored, which may predate pausing. */
+export type StoredReminder = Omit<Reminder, 'paused'> & { paused?: Pause | null };
+
+export function fromStored(stored: StoredReminder): Reminder {
+  return { ...stored, paused: stored.paused ?? null };
 }
 
 export function fieldsOf({ title, notes, start, zone, repeat, important, alerts }: ReminderFields): ReminderFields {
@@ -117,7 +131,26 @@ export function shownAt(reminder: Reminder, now: number, currentZone: string): n
 
 export function isLate(reminder: Reminder, now: number, currentZone: string): boolean {
   const due = dueAt(reminder, currentZone);
-  return due !== null && due <= now && !isSnoozed(reminder, now);
+  return due !== null && due <= now && !isSnoozed(reminder, now) && reminder.paused === null;
+}
+
+/**
+ * Whatever came due while paused is dropped, as if skipped at `at`, so a resumed series is never late and never sends
+ * a backlog; an occurrence that was already late when it was paused is left as it was.
+ */
+export function resumed(reminder: Reminder, at: number, currentZone: string): Reminder {
+  const { paused } = reminder;
+  if (paused === null) return reminder;
+  const due = dueAt(reminder, currentZone);
+  const first = due !== null && due > paused.at ? reminder.due : occurrenceAfter(reminder, paused.at, currentZone);
+  const unpaused = {
+    ...reminder,
+    paused: null,
+    revision: reminder.revision + 1,
+    firedThrough: Math.max(reminder.firedThrough, at - 1),
+  };
+  if (first === null || instantOf(reminder, first, currentZone) >= at) return unpaused;
+  return { ...unpaused, due: dueAfterCompletion(reminder, at - 1, currentZone), missed: 0, snoozedUntil: null };
 }
 
 export function lateCount(reminders: readonly Reminder[], now: number, currentZone: string): number {

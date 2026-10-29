@@ -504,6 +504,197 @@ describe('firing', () => {
   });
 });
 
+describe('pause and resume', () => {
+  interface Paused {
+    zone?: string;
+    series: Partial<ReminderFields>;
+    pause: string;
+    until?: string;
+    resume?: string;
+    end: string;
+    sent: [string, string, number][];
+  }
+
+  const twiceADay = { rule: 'FREQ=DAILY;BYHOUR=8,12,20;BYMINUTE=0;BYSETPOS=1,-1', anchor: 'schedule' } as const;
+  const everyThreeDaysAfterDone = { rule: 'FREQ=DAILY;INTERVAL=3', anchor: 'completion' } as const;
+
+  test.each<[string, Paused]>([
+    [
+      'nothing fires until it is resumed, then it picks up at the next occurrence',
+      {
+        series: { repeat: daily, alerts: [60] },
+        pause: '2026-10-12T07:00',
+        resume: '2026-10-14T12:00',
+        end: '2026-10-15T09:00',
+        sent: [
+          ['early', '2026-10-15T09:00', 0],
+          ['due', '2026-10-15T09:00', 0],
+        ],
+      },
+    ],
+    [
+      'it comes back by itself on its date, without the early alerts planned while it was paused',
+      {
+        series: { repeat: daily, alerts: [days(1)] },
+        pause: '2026-10-11T21:00',
+        until: '2026-10-14T00:00',
+        end: '2026-10-14T09:00',
+        sent: [
+          ['due', '2026-10-14T09:00', 0],
+          ['early', '2026-10-15T09:00', 0],
+        ],
+      },
+    ],
+    [
+      'an occurrence at the moment it comes back still fires',
+      {
+        series: { start: '2026-10-12T00:00', repeat: daily },
+        pause: '2026-10-11T21:00',
+        until: '2026-10-14T00:00',
+        end: '2026-10-14T00:00',
+        sent: [['due', '2026-10-14T00:00', 0]],
+      },
+    ],
+    [
+      'a pause across the fall-back comes back at the same wall time',
+      {
+        zone: 'America/New_York',
+        series: { start: '2026-10-30T09:00', repeat: daily },
+        pause: '2026-10-30T10:00',
+        until: '2026-11-03T00:00',
+        end: '2026-11-03T09:00',
+        sent: [['due', '2026-11-03T09:00', 0]],
+      },
+    ],
+    [
+      'several times a day, it resumes at the next time that day',
+      {
+        series: { start: '2026-10-12T08:00', repeat: twiceADay },
+        pause: '2026-10-12T07:00',
+        resume: '2026-10-13T12:30',
+        end: '2026-10-13T20:00',
+        sent: [['due', '2026-10-13T20:00', 0]],
+      },
+    ],
+    [
+      'an after-done repeat that came due while paused counts its interval from the resume',
+      {
+        series: { repeat: everyThreeDaysAfterDone },
+        pause: '2026-10-11T21:00',
+        resume: '2026-10-20T12:00',
+        end: '2026-10-23T09:00',
+        sent: [['due', '2026-10-23T09:00', 0]],
+      },
+    ],
+    [
+      'an after-done repeat resumed before it came due keeps its due time',
+      {
+        series: { repeat: everyThreeDaysAfterDone },
+        pause: '2026-10-11T21:00',
+        resume: '2026-10-12T08:00',
+        end: '2026-10-12T09:00',
+        sent: [['due', '2026-10-12T09:00', 0]],
+      },
+    ],
+    [
+      'an occurrence that was already late stays late after a pause that nothing came due in, like an undo',
+      {
+        series: { repeat: daily },
+        pause: '2026-10-12T09:10',
+        resume: '2026-10-12T09:20',
+        end: '2026-10-13T09:00',
+        sent: [['due', '2026-10-13T09:00', 1]],
+      },
+    ],
+    [
+      'an occurrence that was already late is dropped once a later one came due while paused',
+      {
+        series: { repeat: daily },
+        pause: '2026-10-12T09:10',
+        resume: '2026-10-14T12:00',
+        end: '2026-10-15T09:00',
+        sent: [['due', '2026-10-15T09:00', 0]],
+      },
+    ],
+  ])('%s', (_, { zone = ZONE, series, pause, until, resume, end, sent }) => {
+    const step = (reminder: Reminder | undefined, op: Op, wall: string) => {
+      const next = applyOp(reminder, op, { now: at(wall, zone), zone });
+      if (!next) throw new Error(`op ${op.type} was rejected`);
+      return next;
+    };
+    const created = step(undefined, { type: 'put', id: ID, fields: fields(series) }, '2026-10-11T20:00');
+    let reminder = fireThrough(created, at(pause, zone) - 1, zone).reminder;
+    reminder = step(reminder, { type: 'pause', id: ID, until: until ? at(until, zone) : null }, pause);
+    if (resume) {
+      const held = fireThrough(reminder, at(resume, zone), zone);
+      expect(held.notices).toEqual([]);
+      reminder = step(held.reminder, { type: 'resume', id: ID }, resume);
+    } else {
+      expect(nextFireAt(reminder, zone)).toBe(until ? at(until, zone) : null);
+    }
+    const after = fireThrough(reminder, at(end, zone), zone);
+    expect(after.notices.map(({ alert, due, missed }) => [alert, due, missed])).toEqual(sent);
+    expect(after.reminder.paused).toBeNull();
+  });
+
+  test('an indefinite pause plans nothing and is never late', () => {
+    const paused = apply(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, '2026-10-12T09:30');
+    expect(nextFireAt(paused, ZONE)).toBeNull();
+    expect(isLate(paused, at('2026-10-20T09:00'), ZONE)).toBe(false);
+  });
+
+  test('replays are harmless: a second pause keeps when it started, a second resume does nothing', () => {
+    const pause = { type: 'pause', id: ID, until: null } as const;
+    const paused = apply(create({ repeat: daily }), pause, '2026-10-12T07:00');
+    const again = apply(paused, { ...pause, until: at('2026-10-20T00:00') }, '2026-10-13T07:00');
+    expect(again.paused).toEqual({ at: at('2026-10-12T07:00'), until: at('2026-10-20T00:00') });
+    const resumed = apply(again, { type: 'resume', id: ID }, '2026-10-14T12:00');
+    expect(applyOp(resumed, { type: 'resume', id: ID }, { now: at('2026-10-14T12:01'), zone: ZONE })).toBeNull();
+  });
+
+  test.each<[string, Partial<ReminderFields>, Op]>([
+    ['a one-off cannot be paused', {}, { type: 'pause', id: ID, until: null }],
+    ['a pause that would already be over', { repeat: daily }, { type: 'pause', id: ID, until: at('2026-10-12T06:00') }],
+  ])('%s', (_, series, op) => {
+    expect(applyOp(create(series), op, { now: at('2026-10-12T07:00'), zone: ZONE })).toBeNull();
+  });
+
+  test('a paused series has no occurrence to complete, skip or snooze, even from a notification shown before', () => {
+    const paused = apply(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, '2026-10-12T09:01');
+    const clock = { now: at('2026-10-12T09:02'), zone: ZONE };
+    for (const op of [
+      { type: 'complete', id: ID, due: '2026-10-12T09:00' },
+      { type: 'skip', id: ID, due: '2026-10-12T09:00' },
+      { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-12T09:20') },
+    ] as const) {
+      expect(applyOp(paused, op, clock)).toBeNull();
+    }
+  });
+
+  test('editing a paused series keeps it paused, and making it a one-off ends the pause', () => {
+    const paused = apply(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, '2026-10-12T07:00');
+    const renamed = apply(
+      paused,
+      { type: 'put', id: ID, fields: fields({ title: 'Mist', repeat: daily }) },
+      '2026-10-12T07:01',
+    );
+    const moved = apply(
+      renamed,
+      { type: 'put', id: ID, fields: fields({ start: '2026-10-13T10:00', repeat: daily }) },
+      '2026-10-12T07:02',
+    );
+    expect([renamed.paused, moved.paused]).toEqual([paused.paused, paused.paused]);
+    expect(nextFireAt(moved, ZONE)).toBeNull();
+    const once = apply(
+      moved,
+      { type: 'put', id: ID, fields: fields({ start: '2026-10-13T10:00' }) },
+      '2026-10-12T07:03',
+    );
+    expect(once.paused).toBeNull();
+    expect(nextFireAt(once, ZONE)).toBe(at('2026-10-13T10:00'));
+  });
+});
+
 describe('time zones', () => {
   test('floating reminders follow the current zone; pinned ones do not', () => {
     const floating = create();
@@ -562,6 +753,10 @@ describe('input validation', () => {
     expect(parseOp({ type: 'delete', id: ID })).toEqual({ type: 'delete', id: ID });
     expect(parseOp({ type: 'reopen', id: ID, due: '2026-10-12T09:00', revision: 3 })?.type).toBe('reopen');
     expect(parseOp({ type: 'reopen', id: ID, due: '2026-10-12T09:00' })).toBeNull();
+    expect(parseOp({ type: 'pause', id: ID, until: null })).toEqual({ type: 'pause', id: ID, until: null });
+    expect(parseOp({ type: 'pause', id: ID, until: 5 })).toEqual({ type: 'pause', id: ID, until: 5 });
+    expect(parseOp({ type: 'resume', id: ID, until: 5 })).toEqual({ type: 'resume', id: ID });
+    for (const until of [undefined, -1, 1.5, '5', 9e15]) expect(parseOp({ type: 'pause', id: ID, until })).toBeNull();
     expect(parseOp({ type: 'complete', id: ID })).toBeNull();
     expect(parseOp({ type: 'explode', id: ID })).toBeNull();
     expect(parseOp({ type: 'delete', id: 'nope' })).toBeNull();

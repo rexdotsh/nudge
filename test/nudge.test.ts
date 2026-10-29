@@ -753,6 +753,33 @@ describe('delivery', () => {
     },
   );
 
+  test('pausing ends the resends and nags already under way, and the series comes back by itself on its date', async () => {
+    const { phone } = await h.pair();
+    const id = await h.put(phone, { repeat: daily, important: true });
+    await h.runAlarm();
+    const until = Date.UTC(2026, 9, 14, 18, 30);
+    await h.sync(phone, [{ type: 'pause', id, until }]);
+    expect(h.state.alarm).toBe(until);
+    const sent = h.state.pushes.length;
+    await h.runAlarm();
+    expect(h.state.pushes).toHaveLength(sent);
+    const { reminders } = await h.sync(phone, []);
+    expect(reminders.find((reminder) => reminder.id === id)).toMatchObject({ paused: null, due: '2026-10-15T09:00' });
+    await h.runAlarm();
+    expect(h.state.now).toBe(Date.UTC(2026, 9, 15, 3, 30));
+    expect([h.sentTo(1), h.sentTo(2)]).toEqual([2, 2]);
+  });
+
+  test('reminders stored before pausing existed load as not paused, and can be paused', async () => {
+    const { phone } = await h.pair();
+    const id = await h.put(phone, { repeat: daily });
+    h.db.run("UPDATE reminders SET data = json_remove(data, '$.paused')");
+    const { reminders } = await h.sync(phone, []);
+    expect(reminders.find((reminder) => reminder.id === id)?.paused).toBeNull();
+    await h.sync(phone, [{ type: 'pause', id, until: null }]);
+    expect(h.state.alarm).toBeNull();
+  });
+
   test('completing a reminder cancels the resends of its notification', async () => {
     const { phone } = await h.pair();
     const id = await h.put(phone);

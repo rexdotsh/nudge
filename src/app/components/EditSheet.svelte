@@ -3,9 +3,9 @@
   import { fly } from 'svelte/transition';
   import { LIMITS } from '../../shared/input';
   import type { Reminder } from '../../shared/reminder';
-  import { complete, remove } from '../lib/actions';
+  import { complete, remove, resume } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { zoneLabel } from '../lib/format';
+  import { pausedLabel, zoneLabel } from '../lib/format';
   import { tick } from '../lib/haptics';
   import { arrive } from '../lib/motion.svelte';
   import { closeEditor, saveEditor } from '../lib/selection';
@@ -88,16 +88,24 @@
   </div>
 
   <div class="acts">
-    {#if reminder.due !== null}
+    {#if reminder.paused}
+      <p class="paused">{pausedLabel(reminder.paused.until, app.now, app.zone)}</p>
+      <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => resume(current).then(closeEditor))}
+        ><Icon name="play" size={16} />Resume</button
+      >
+    {:else if reminder.due !== null}
       <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => complete(current).then(closeEditor))}
         ><Icon name="check" size={16} />Done</button
       >
-      <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => ui.snooze(current.id))}
+      <button class="btn" disabled={!draft.parsed} onclick={() => act((current) => ui.open('snooze', current.id))}
         ><Icon name="clock" size={16} />Snooze</button
       >
       {#if reminder.repeat}
         <button class="btn" disabled={!draft.parsed} onclick={() => act(skip)}
           ><Icon name="skip" size={16} />Skip</button
+        >
+        <button class="btn" disabled={!draft.parsed} onclick={() => act(({ id }) => ui.open('pause', id))}
+          ><Icon name="pause" size={16} />Pause</button
         >
       {/if}
     {/if}
@@ -160,6 +168,13 @@
   .acts .btn {
     flex: 1;
     padding: 0 12px;
+  }
+
+  .paused {
+    flex-basis: 100%;
+    margin: 0 2px 4px;
+    color: var(--muted);
+    font-size: 13.5px;
   }
 
   .delete {
