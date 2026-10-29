@@ -19,7 +19,9 @@ const SCHEMA = [
   ...DELIVERY_SCHEMA,
 ];
 
-const SCHEMA_VERSION = '1';
+// UPGRADES[n - 1] brings a store from version n to n + 1; a new store starts at the latest version.
+const UPGRADES = ['ALTER TABLE deliveries ADD COLUMN held_at INTEGER'];
+const SCHEMA_VERSION = String(UPGRADES.length + 1);
 
 export class Store {
   readonly devices: Devices;
@@ -29,8 +31,9 @@ export class Store {
     this.devices = new Devices(sql);
     this.deliveries = new Deliveries(sql);
     sql.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-    if (this.meta('schema') === SCHEMA_VERSION) return;
-    for (const statement of SCHEMA) sql.exec(statement);
+    const version = this.meta('schema');
+    if (version === SCHEMA_VERSION) return;
+    for (const statement of version === null ? SCHEMA : UPGRADES.slice(Number(version) - 1)) sql.exec(statement);
     this.setMeta('schema', SCHEMA_VERSION);
   }
 

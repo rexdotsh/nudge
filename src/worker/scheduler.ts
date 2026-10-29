@@ -8,8 +8,8 @@ import {
   type Presentation,
   type PushMessage,
 } from '../shared/notification';
-import { lateCount, type Reminder } from '../shared/reminder';
-import { DAY_MS, HOUR_MS, MINUTE_MS, toInstant, toLocal } from '../shared/time';
+import { lateCount, movedZone, type Reminder } from '../shared/reminder';
+import { DAY_MS, HOUR_MS, MINUTE_MS } from '../shared/time';
 import type { DeliveryRow, Outgoing } from './deliveries';
 import type { Target } from './devices';
 import type { Runtime } from './runtime';
@@ -46,24 +46,30 @@ export class Scheduler {
     return this.store.meta('zone') ?? 'UTC';
   }
 
-  // Floating reminders keep their wall time when the instance zone changes, so what has already fired must move with
-  // it: otherwise flying west re-fires an occurrence and flying east silently skips one.
   setZone(zone: string): void {
     const previous = this.store.meta('zone');
     if (previous === zone) return;
     this.store.setMeta('zone', zone);
     for (const reminder of this.store.reminders()) {
-      if (reminder.zone !== null) continue;
-      const firedThrough =
-        previous === null
-          ? reminder.firedThrough
-          : toInstant(toLocal(reminder.firedThrough, previous), zone) + (reminder.firedThrough % MINUTE_MS);
-      this.save({ ...reminder, firedThrough });
+      if (reminder.zone === null) this.save(previous === null ? reminder : movedZone(reminder, previous, zone));
     }
   }
 
   save(reminder: Reminder): void {
     this.store.saveReminder(reminder, nextFireAt(reminder, this.zone()));
+  }
+
+  /**
+   * Saves a change and settles what is queued for the reminder: a pause holds it, ending the pause goes on with it if
+   * the same occurrence is still due, and any other change that settles the occurrence cancels it.
+   */
+  saveChange(previous: Reminder | undefined, next: Reminder, settles: boolean): void {
+    this.save(next);
+    const { deliveries } = this.store;
+    if (next.paused && !next.deleted) deliveries.holdForReminder(next.id);
+    else if (previous?.paused && !next.paused && previous.due === next.due && next.due !== null) {
+      deliveries.releaseForReminder(next.id, occurrenceTopic(next.id, next.due));
+    } else if (settles || previous?.paused) deliveries.cancelForReminder(next.id);
   }
 
   private origin(): string {
@@ -146,7 +152,10 @@ export class Scheduler {
 
   private async process(now: number): Promise<void> {
     const zone = this.zone();
-    const fired = this.store.dueReminders(now).map((reminder) => fire(reminder, now, zone));
+    const fired = this.store.dueReminders(now).map((previous) => {
+      const { reminder, notices } = fire(previous, now, zone);
+      return { previous, reminder, notices };
+    });
     const updated = new Map(fired.map(({ reminder }) => [reminder.id, reminder]));
     const badge = lateCount(
       this.store.reminders().map((reminder) => updated.get(reminder.id) ?? reminder),
@@ -158,8 +167,8 @@ export class Scheduler {
     const unreached = this.runtime.transaction(() => {
       const targets = this.store.devices.targets();
       const missed: Outgoing[] = [];
-      for (const { reminder, notices } of fired) {
-        this.save(reminder);
+      for (const { previous, reminder, notices } of fired) {
+        this.saveChange(previous, reminder, false);
         for (const notice of notices) {
           const item = this.noticeFor(reminder, notice, view);
           if (targets.length === 0) missed.push(item);

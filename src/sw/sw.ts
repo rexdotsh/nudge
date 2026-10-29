@@ -1,14 +1,12 @@
 import { closeNotifications, readPush, waitUntilWithin } from 'declarative-web-push/worker';
 import { Unreachable, request } from '../browser/api';
-import { get } from '../browser/kv';
 import { openInPlace, type WorkerMessage } from '../browser/messages';
 import { SNOOZE_MINUTES, showNudge } from '../browser/notify';
 import { isShown } from '../browser/shown';
 import { batch } from '../browser/batch';
-import { commit, currentZone, enqueue } from '../browser/outbox';
+import { commit, currentZone, enqueue, readLocal } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
 import { Replica } from '../browser/replica';
-import { EMPTY_LOCAL } from '../browser/schema';
 import { claim, isSeen, settle } from '../browser/seen';
 import { MAX_REQUEST_BYTES } from '../shared/api';
 import { lateCount } from '../shared/reminder';
@@ -109,7 +107,7 @@ self.addEventListener('push', (event) => {
 
 // Sends the outbox in order, so an action never overtakes the change that created what it acts on.
 async function drain(): Promise<void> {
-  const local = (await get('local')) ?? EMPTY_LOCAL;
+  const local = await readLocal();
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
   const since = local.replica.version;
   const response = await request('sync', { since, zone: currentZone(), changes, theme: null });
@@ -123,14 +121,14 @@ async function tidy(): Promise<void> {
   await drain().catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
   });
-  const local = (await get('local')) ?? EMPTY_LOCAL;
+  const local = await readLocal();
   const reminders = new Replica(local.replica).view(local.pending, currentZone());
   await closeNotifications(self.registration, (tag) => isSettledTag(tag, reminders, Date.now()));
 }
 
 async function recount(): Promise<void> {
   if (!('setAppBadge' in self.navigator)) return;
-  const local = (await get('local')) ?? EMPTY_LOCAL;
+  const local = await readLocal();
   const zone = currentZone();
   const reminders = new Replica(local.replica).view(local.pending, zone);
   await self.navigator.setAppBadge(lateCount(reminders, Date.now(), zone));

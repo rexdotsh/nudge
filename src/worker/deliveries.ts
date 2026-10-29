@@ -15,6 +15,7 @@ export const DELIVERY_SCHEMA = [
     sent_at INTEGER,
     receipt_at INTEGER,
     next_at INTEGER,
+    held_at INTEGER,
     PRIMARY KEY (fire, device_id)
   )`,
   `CREATE INDEX IF NOT EXISTS deliveries_by_next_at ON deliveries (next_at) WHERE next_at IS NOT NULL`,
@@ -34,6 +35,7 @@ export type DeliveryRow = {
   sent_at: number | null;
   receipt_at: number | null;
   next_at: number | null;
+  held_at: number | null;
 };
 
 export type Outgoing = Pick<DeliveryRow, 'fire' | 'title' | 'topic' | 'payload'>;
@@ -166,18 +168,39 @@ export class Deliveries {
 
   cancelForReminder(reminderId: string): void {
     this.sql.exec(
-      `UPDATE deliveries SET next_at = NULL, lease = NULL
+      `UPDATE deliveries SET next_at = NULL, held_at = NULL, lease = NULL
+       WHERE (next_at IS NOT NULL OR held_at IS NOT NULL) AND substr(fire, 1, length(?) + 1) = ? || '@'`,
+      reminderId,
+      reminderId,
+    );
+  }
+
+  /** Stops what is queued for a paused reminder, keeping when each was due so that ending the pause can go on with it. */
+  holdForReminder(reminderId: string): void {
+    this.sql.exec(
+      `UPDATE deliveries SET held_at = next_at, next_at = NULL, lease = NULL
        WHERE next_at IS NOT NULL AND substr(fire, 1, length(?) + 1) = ? || '@'`,
       reminderId,
       reminderId,
     );
   }
 
+  /** Goes on with what a pause held for the occurrence still due, and drops what it held for any other. */
+  releaseForReminder(reminderId: string, topic: string): void {
+    this.sql.exec(
+      `UPDATE deliveries SET next_at = CASE WHEN topic = ? AND receipt_at IS NULL THEN held_at END, held_at = NULL
+       WHERE held_at IS NOT NULL AND substr(fire, 1, length(?) + 1) = ? || '@'`,
+      topic,
+      reminderId,
+      reminderId,
+    );
+  }
+
   cancelForDevice(deviceId: string): void {
-    this.sql.exec('UPDATE deliveries SET next_at = NULL, lease = NULL WHERE device_id = ?', deviceId);
+    this.sql.exec('UPDATE deliveries SET next_at = NULL, held_at = NULL, lease = NULL WHERE device_id = ?', deviceId);
   }
 
   purge(before: number): void {
-    this.sql.exec('DELETE FROM deliveries WHERE created_at < ? AND next_at IS NULL', before);
+    this.sql.exec('DELETE FROM deliveries WHERE created_at < ? AND next_at IS NULL AND held_at IS NULL', before);
   }
 }

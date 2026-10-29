@@ -233,10 +233,7 @@ export class Nudge {
         if (this.store.applied(opId)) continue;
         const previous = this.store.reminder(op.id);
         const next = applyOp(previous, op, { now: madeAt(at), zone: this.scheduler.zone() });
-        if (next) {
-          this.scheduler.save(next);
-          if (op.type !== 'put' || previous?.due !== next.due) this.store.deliveries.cancelForReminder(op.id);
-        }
+        if (next) this.scheduler.saveChange(previous, next, op.type !== 'put' || previous?.due !== next.due);
         this.store.recordApplied(opId, now);
       }
       if (theme && !this.store.applied(theme.id)) {

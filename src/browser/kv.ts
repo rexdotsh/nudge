@@ -69,3 +69,26 @@ export function update<K extends keyof Schema>(
     };
   });
 }
+
+/** Like `update`, for two keys in one transaction; a first value of undefined leaves that key as it was. */
+export function updatePair<A extends keyof Schema, B extends keyof Schema>(
+  first: A,
+  second: B,
+  change: (a: Schema[A] | undefined, b: Schema[B] | undefined) => [Schema[A] | undefined, Schema[B]],
+): Promise<Schema[B]> {
+  return transact('readwrite', (store) => {
+    let next: Schema[B] | undefined;
+    const readA: IDBRequest<Schema[A] | undefined> = store.get(first);
+    const readB: IDBRequest<Schema[B] | undefined> = store.get(second);
+    readB.addEventListener('success', () => {
+      const [a, b] = change(readA.result, readB.result);
+      if (a !== undefined) store.put(a, first);
+      store.put(b, second);
+      next = b;
+    });
+    return () => {
+      if (next === undefined) throw new Error(`update of ${first} and ${second} did not run`);
+      return next;
+    };
+  });
+}

@@ -50,7 +50,7 @@ export class Fallback {
 
   private locally(reminder: Reminder, now: number): Reminder {
     const watermark = this.watermarks.get(reminder.id) ?? -Infinity;
-    return { ...reminder, firedThrough: Math.max(watermark, reminder.createdAt, now - LOOKBACK_MS) };
+    return { ...reminder, firedThrough: Math.max(watermark, reminder.quietThrough, now - LOOKBACK_MS) };
   }
 
   private advance(id: string, firedThrough: number): void {

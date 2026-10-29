@@ -45,6 +45,7 @@ function put(current: Reminder | undefined, id: string, fields: ReminderFields, 
     firedThrough: Math.max(current?.firedThrough ?? now, now),
     completedAt: null,
     paused: fields.repeat && due !== null ? (current?.paused ?? null) : null,
+    quietThrough: current?.quietThrough ?? now,
   };
 }
 

@@ -30,7 +30,9 @@ export interface Schema {
   session: Session;
   installKey: string;
   vapidPublicKey: string;
+  /** Read and written by bundles from before pausing, which may still be open in another tab; see `legacy.ts`. */
   local: Local;
+  state: Local;
   notices: Notices;
   zone: { name: string; since: number };
   zoneControls: boolean;

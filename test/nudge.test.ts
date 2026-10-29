@@ -117,7 +117,11 @@ function harness() {
     now: () => state.now,
     secrets: { auth: AUTH, setupCode: SETUP_CODE },
   };
-  const nudge = new Nudge(runtime);
+  let nudge = new Nudge(runtime);
+  // A Durable Object evicted and started again on the same storage.
+  const restart = () => {
+    nudge = new Nudge(runtime);
+  };
 
   const call = <R extends Route>(route: R, body: unknown, deviceId: string | null = null) =>
     nudge.call(route, { deviceId, origin: ORIGIN }, body);
@@ -163,7 +167,23 @@ function harness() {
   const sentTo = (seed: number, service: PushService = 'fcm') =>
     state.pushes.filter((push) => push.endpoint === keys(seed, service).endpoint).length;
 
-  return { db, nudge, state, attempts, call, ok, sync, put, runAlarm, runAlarmsThrough, pair, sentTo };
+  return {
+    db,
+    get nudge() {
+      return nudge;
+    },
+    restart,
+    state,
+    attempts,
+    call,
+    ok,
+    sync,
+    put,
+    runAlarm,
+    runAlarmsThrough,
+    pair,
+    sentTo,
+  };
 }
 
 let h: ReturnType<typeof harness>;
@@ -772,6 +792,71 @@ describe('delivery', () => {
     await h.runAlarm();
     expect(h.state.now).toBe(Date.UTC(2026, 9, 15, 3, 30));
     expect([h.sentTo(1), h.sentTo(2)]).toEqual([2, 2]);
+  });
+
+  test.each<[string, (id: string, revision: number) => Op]>([
+    ['undoing the pause', (id, revision) => ({ type: 'unpause', id, revision })],
+    ['resuming before anything else came due', (id) => ({ type: 'resume', id })],
+  ])('a push that never got through is retried after %s', async (_, end) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: daily });
+    h.state.status = () => 503;
+    await h.runAlarm();
+    const retry = h.state.alarm;
+    h.state.now += 1000;
+    const { reminders } = await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    expect(h.state.alarm).toBeNull();
+    const paused = reminders.find((reminder) => reminder.id === id);
+    h.state.now += 1000;
+    await h.sync(deviceId, [end(id, paused?.revision ?? 0)]);
+    expect(h.state.alarm).toBe(retry);
+    h.state.status = () => 201;
+    const tried = h.sentTo(1);
+    await h.runAlarm();
+    expect(h.sentTo(1)).toBe(tried + 1);
+    expect(h.state.pushes.at(-1)?.message.notification.data.reminder).toEqual({ id, due: TODAY });
+  });
+
+  test.each<[string, (id: string, deviceId: string) => Promise<unknown>, number]>([
+    [
+      'a later occurrence came due while it was paused',
+      async () => {
+        h.state.now = DUE + 25 * HOUR_MS;
+      },
+      DUE + 48 * HOUR_MS,
+    ],
+    [
+      'its time was changed while it was paused',
+      (id, deviceId) =>
+        h.sync(deviceId, [{ type: 'put', id, fields: fields({ start: '2026-10-12T18:00', repeat: daily }) }]),
+      DUE + 9 * HOUR_MS,
+    ],
+  ])('pushes held for an occurrence that is no longer due are dropped on resume: %s', async (_, meanwhile, next) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: daily });
+    h.state.status = () => 503;
+    await h.runAlarm();
+    await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    await meanwhile(id, deviceId);
+    await h.sync(deviceId, [{ type: 'resume', id }]);
+    expect(h.state.alarm).toBe(next);
+  });
+
+  test('a store from before pausing is upgraded in place, and pausing works on it', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    const id = await h.put(deviceId, { repeat: daily });
+    h.state.status = () => 503;
+    await h.runAlarm();
+    h.db.run('ALTER TABLE deliveries DROP COLUMN held_at');
+    h.db.run("UPDATE meta SET value = '1' WHERE key = 'schema'");
+    h.restart();
+    h.restart();
+    const { reminders } = await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    expect(reminders.find((reminder) => reminder.id === id)?.paused).not.toBeNull();
+    expect(h.state.alarm).toBeNull();
   });
 
   test('reminders stored before pausing existed load as not paused, and can be paused', async () => {
