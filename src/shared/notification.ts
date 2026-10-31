@@ -5,6 +5,8 @@ import { MINUTE_MS, wallMs } from './time';
 
 export interface PushData {
   fire: string;
+  /** The notice by its occurrence, from `noticeKey`; test pushes and pushes queued before it existed have none. */
+  notice?: string;
   reminder: { id: string; due: string } | null;
 }
 
@@ -55,7 +57,15 @@ export function fireId(reminderId: string, { at, due }: Pick<Notice, 'at' | 'due
   return `${reminderId}@${at}/${due}`;
 }
 
-type Occurrence = NonNullable<PushData['reminder']>;
+/**
+ * A notice by its occurrence rather than its instant, which moves with the zone: a device that got a notice keeps it
+ * as shown when the zone changes, and does not show it again.
+ */
+export function noticeKey(reminderId: string, { due, slot }: Pick<Notice, 'due' | 'slot'>): string {
+  return `${reminderId}:${due}/${slot}`;
+}
+
+export type Occurrence = NonNullable<PushData['reminder']>;
 
 function occurrenceTag({ id, due }: Occurrence): string {
   return `${id}:${due}`;
@@ -97,7 +107,11 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
       navigate: `${view.origin}/?open=${reminder.id}`,
       tag: occurrenceTag({ id: reminder.id, due: notice.due }),
       requireInteraction: reminder.important && notice.alert !== 'early',
-      data: { fire: fireId(reminder.id, notice), reminder: { id: reminder.id, due: notice.due } },
+      data: {
+        fire: fireId(reminder.id, notice),
+        notice: noticeKey(reminder.id, notice),
+        reminder: { id: reminder.id, due: notice.due },
+      },
     },
     view.badge,
   );

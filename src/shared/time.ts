@@ -111,7 +111,7 @@ export function toLocal(instant: number, zone: string): LocalDateTime {
   };
 }
 
-function offsetAt(instant: number, zone: string): number {
+export function offsetAt(instant: number, zone: string): number {
   return wallMs(toLocal(instant, zone)) - Math.floor(instant / MINUTE_MS) * MINUTE_MS;
 }
 

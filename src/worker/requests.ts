@@ -14,6 +14,7 @@ import {
   type PushKeys,
   type SyncRequest,
   type ThemeChoice,
+  type ZoneChoice,
 } from '../shared/api';
 import { BASE64URL } from '../shared/encoding';
 import { parseOp } from '../shared/input';
@@ -69,11 +70,13 @@ function base64urlLength(value: unknown, bytes: number): value is string {
   }
 }
 
+const isZone = (value: unknown): value is string => isText(value, 64) && isTimeZone(value);
+
 function deviceInput(value: unknown): DeviceInput {
   const { key, label, platform, zone, locale } = record(value);
   const known = PLATFORMS.find((candidate) => candidate === platform);
   if (!isText(key, 64, 22) || !/^[\w-]+$/.test(key)) invalid();
-  if (!isText(label, 60, 1) || !known || !isText(zone, 64) || !isTimeZone(zone) || !isLocale(locale)) invalid();
+  if (!isText(label, 60, 1) || !known || !isZone(zone) || !isLocale(locale)) invalid();
   return { key, label: label.trim(), platform: known, zone, locale };
 }
 
@@ -106,11 +109,19 @@ function themeChoice(value: unknown): ThemeChoice | null {
   return { id, theme: known, at };
 }
 
+function zoneChoice(value: unknown): ZoneChoice | null {
+  // Bundles from before zones could be fixed leave it out.
+  if (value === undefined || value === null) return null;
+  const { id, zone, at } = record(value);
+  if (!isUlid(id) || !(zone === null || isZone(zone)) || !isInteger(at, 0, Number.MAX_SAFE_INTEGER)) invalid();
+  return { id, zone, at };
+}
+
 function syncRequest(value: unknown): SyncRequest {
-  const { since, zone, changes, theme } = record(value);
-  if (!isInteger(since, 0, Number.MAX_SAFE_INTEGER) || !isText(zone, 64) || !isTimeZone(zone)) invalid();
+  const { since, zone, changes, theme, zoneChoice: choice } = record(value);
+  if (!isInteger(since, 0, Number.MAX_SAFE_INTEGER) || !isZone(zone)) invalid();
   if (!Array.isArray(changes) || changes.length > MAX_CHANGES) invalid();
-  return { since, zone, changes: changes.map(change), theme: themeChoice(theme) };
+  return { since, zone, changes: changes.map(change), theme: themeChoice(theme), zoneChoice: zoneChoice(choice) };
 }
 
 export const PUBLIC_REQUESTS: { [R in PublicRoute]: (body: unknown) => PublicRoutes[R]['request'] } = {

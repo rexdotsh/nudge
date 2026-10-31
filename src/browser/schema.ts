@@ -1,9 +1,11 @@
-import type { Change, Health, Session, Theme, ThemeChoice } from '../shared/api';
+import type { Change, Health, InstanceZone, Session, Theme, ThemeChoice, ZoneChoice } from '../shared/api';
 import type { StoredReminder } from '../shared/reminder';
 
 export interface Snapshot {
   version: number;
   reminders: StoredReminder[];
+  /** The instance zone, from the same response as the reminders; absent before the first sync and in older saves. */
+  zone?: InstanceZone;
 }
 
 export interface Local {
@@ -35,6 +37,8 @@ export interface Schema {
   state: Local;
   notices: Notices;
   zone: { name: string; since: number };
+  /** A zone choice made on this device and not yet answered by a sync. */
+  zoneChoice: ZoneChoice | null;
   zoneControls: boolean;
   health: Health;
   theme: ThemeState;

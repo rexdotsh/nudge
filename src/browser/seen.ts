@@ -1,30 +1,26 @@
+import type { Occurrence, PushData } from '../shared/notification';
+import { claimNotice, isSeenIn, settleNotice } from './claims';
 import { get, update } from './kv';
 import type { Claim, Notices } from './schema';
 
-const LIMIT = 300;
-const CLAIM_MS = 60_000;
 const EMPTY: Notices = { seen: [], claims: {} };
 
-export async function isSeen(fire: string): Promise<boolean> {
-  return ((await get('notices')) ?? EMPTY).seen.includes(fire);
+type Shown = Pick<PushData, 'fire' | 'notice'>;
+
+export async function isSeen(shown: Shown): Promise<boolean> {
+  return isSeenIn(((await get('notices')) ?? EMPTY).seen, shown);
 }
 
-// The service worker and an open page can both try to show the same fire; whoever claims it first shows it.
-export async function claim(fire: string, now: number): Promise<Claim> {
+export async function claim(shown: Shown, now: number, occurrence: Occurrence | null): Promise<Claim> {
   let outcome: Claim = 'busy';
   await update('notices', (current = EMPTY) => {
-    const claimedAt = current.claims[fire];
-    if (current.seen.includes(fire)) outcome = 'seen';
-    else if (claimedAt !== undefined && now - claimedAt < CLAIM_MS) outcome = 'busy';
-    else outcome = 'won';
-    return outcome === 'won' ? { ...current, claims: { ...current.claims, [fire]: now } } : current;
+    const claimed = claimNotice(current, shown, now, occurrence);
+    outcome = claimed.outcome;
+    return claimed.notices;
   });
   return outcome;
 }
 
-export async function settle(fire: string, shown: boolean): Promise<void> {
-  await update('notices', (current = EMPTY) => ({
-    claims: Object.fromEntries(Object.entries(current.claims).filter(([key]) => key !== fire)),
-    seen: shown && !current.seen.includes(fire) ? [...current.seen.slice(1 - LIMIT), fire] : current.seen,
-  }));
+export async function settle(shown: Shown, displayed: boolean): Promise<void> {
+  await update('notices', (current = EMPTY) => settleNotice(current, shown, displayed));
 }

@@ -79,7 +79,11 @@
       <label class="field">
         <span
           >Keep this time zone<small
-            >{draft.pinned ? `Always ${zoneLabel(zone, app.now)}` : 'Follows you when you travel'}</small
+            >{draft.pinned
+              ? `Always ${zoneLabel(zone, app.now)}`
+              : app.fixedZone !== null
+                ? `In ${zoneLabel(zone, app.now)}, from Settings`
+                : 'Follows you when you travel'}</small
           ></span
         >
         <input class="toggle" type="checkbox" bind:checked={draft.pinned} />

@@ -5,11 +5,19 @@ import type { Local } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { isWorkerMessage } from '../../browser/messages';
 import { commit, currentZone, enqueue, readLocal } from '../../browser/outbox';
-import { MAX_REQUEST_BYTES, type Change, type Health, type Theme } from '../../shared/api';
+import {
+  MAX_REQUEST_BYTES,
+  type Change,
+  type Health,
+  type SyncRequest,
+  type Theme,
+  type ZoneChoice,
+} from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
-import { DAY_MS } from '../../shared/time';
+import { DAY_MS, offsetAt } from '../../shared/time';
+import { ulid } from '../../shared/ulid';
 import { Connection } from './connection';
 import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
@@ -29,7 +37,18 @@ class App {
   reminders = $state.raw<Reminder[]>([]);
   online = $state(true);
   now = $state(Date.now());
+  /** Where this device is. */
+  here = $state(currentZone());
+  /** The zone reminders are shown in, the same on every device; before the server confirms one, this device's. */
   zone = $state(currentZone());
+  /** The zone the server confirmed, the only one notifications are planned in. */
+  plannedZone = $state<string | null>(null);
+  private zoneFixed = $state(false);
+  private zoneChoice = $state.raw<ZoneChoice | null>(null);
+  /** The zone reminders stay in, counting a choice not yet sent; null while they follow the devices. */
+  readonly fixedZone = $derived(this.zoneChoice ? this.zoneChoice.zone : this.zoneFixed ? this.zone : null);
+  /** This device's clock reads another time than the zone reminders are shown in. */
+  readonly away = $derived(offsetAt(this.now, this.here) !== offsetAt(this.now, this.zone));
   travelling = $state(false);
   zoneControls = $state(false);
   notifications = $state<PushPermission>(pushPermission());
@@ -87,7 +106,7 @@ class App {
         key,
         label: DEVICE_LABELS[this.platform],
         platform: this.platform,
-        zone: this.zone,
+        zone: this.here,
         locale: navigator.language,
       },
     });
@@ -128,6 +147,13 @@ class App {
     void this.sync();
   }
 
+  async chooseZone(zone: string | null): Promise<void> {
+    const choice = { id: ulid(), zone, at: Date.now() };
+    await set('zoneChoice', choice);
+    this.zoneChoice = choice;
+    void this.sync();
+  }
+
   sync(): Promise<void> {
     if (this.inflight) {
       this.again = true;
@@ -151,25 +177,26 @@ class App {
       if (current() && this.freshness !== 'synced') this.freshness = outcome;
     };
     const sent = batch(this.pending, MAX_REQUEST_BYTES);
-    const since = this.replica.version;
-    const theme = appearance.pending;
-    this.zone = currentZone();
+    const sending: SyncRequest = {
+      since: this.replica.version,
+      zone: currentZone(),
+      changes: sent,
+      theme: appearance.pending,
+      zoneChoice: this.zoneChoice,
+    };
+    this.here = sending.zone;
     this.refresh();
     try {
-      const response = await connection.sync({
-        since,
-        zone: this.zone,
-        changes: sent,
-        theme,
-      });
+      const response = await connection.sync(sending);
       if (this.connection !== connection) return;
-      await Promise.all([
-        commit(response, since, new Set(sent.map((change) => change.opId))).then((local) => {
-          if (local.pending.length > 0) this.again = true;
-          return this.show(local);
-        }),
-        appearance.receive(response, theme),
+      const [local, zoneChoice] = await Promise.all([
+        commit(response, sending.since, new Set(sent.map((change) => change.opId))),
+        update('zoneChoice', (choice = null) => (choice?.id === sending.zoneChoice?.id ? null : choice)),
+        appearance.receive(response, sending.theme),
       ]);
+      if (local.pending.length > 0) this.again = true;
+      this.zoneChoice = zoneChoice;
+      this.show(local);
       this.online = true;
       settled('synced');
     } catch (error) {
@@ -210,14 +237,15 @@ class App {
       return;
     }
     this.freshness = 'catching-up';
-    if ((this.pending.length > 0 || appearance.pending) && this.token) {
+    if ((this.pending.length > 0 || appearance.pending || this.zoneChoice) && this.token) {
       void request(
         'sync',
         {
           since: this.replica.version,
-          zone: this.zone,
+          zone: this.here,
           changes: batch(this.pending, KEEPALIVE_BYTES),
           theme: appearance.pending,
+          zoneChoice: this.zoneChoice,
         },
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
@@ -255,7 +283,7 @@ class App {
 
   private async noteZone(): Promise<void> {
     const name = currentZone();
-    this.zone = name;
+    this.here = name;
     const seen = await update('zone', (previous) =>
       previous?.name === name ? previous : { name, since: previous ? Date.now() : 0 },
     );
@@ -263,7 +291,9 @@ class App {
   }
 
   private async reloadLocal(): Promise<void> {
-    this.show(await readLocal());
+    const [local, zoneChoice] = await Promise.all([readLocal(), get('zoneChoice')]);
+    this.zoneChoice = zoneChoice ?? null;
+    this.show(local);
   }
 
   private show(local: Local): void {
@@ -273,6 +303,9 @@ class App {
   }
 
   private refresh(): void {
+    this.plannedZone = this.replica.plannedZone();
+    this.zone = this.plannedZone ?? this.here;
+    this.zoneFixed = this.replica.zone?.fixed ?? false;
     this.reminders = this.replica.view(this.pending, this.zone);
   }
 }

@@ -91,6 +91,7 @@ describe('enrollment', () => {
       ['sync', { since: 0, zone: ZONE, changes: [{ opId: 'not-an-id', op: { type: 'delete', id: ulid() }, at: 0 }] }],
       ['test', { id: ulid(), delay: 99_999 }],
       ['sync', { since: 0, zone: ZONE, changes: [], theme: { id: ulid(), theme: 'neon', at: 0 } }],
+      ['sync', { since: 0, zone: ZONE, changes: [], zoneChoice: { id: ulid(), zone: 'Mars/Olympus', at: 0 } }],
     ] as const;
     const results = await Promise.all(malformed.map(([route, body]) => h.call(route, body, deviceId)));
     expect(results.every((result) => !result.ok && result.error === 'bad_request')).toBe(true);
@@ -98,6 +99,9 @@ describe('enrollment', () => {
     expect(await h.call('health', null, deviceId)).toMatchObject({ ok: false, error: 'unauthorized' });
   });
 });
+
+const chooseZone = (deviceId: string, zone: string | null, here = ZONE, choice = { id: ulid(), at: h.state.now }) =>
+  h.ok('sync', { since: 0, zone: here, changes: [], zoneChoice: { ...choice, zone } }, deviceId);
 
 describe('sync', () => {
   test('a replayed change never overwrites a newer edit', async () => {
@@ -276,11 +280,189 @@ describe('sync', () => {
   });
 
   test.each([
+    ['a device syncs from elsewhere', (phone: string) => h.sync(phone, [], 'America/New_York')],
+    [
+      'a new device enrolls elsewhere',
+      async (phone: string) => {
+        const { code } = await h.ok('pair', null, phone);
+        await h.ok('join', { code, device: { ...device('Windows PC'), zone: 'America/New_York' } });
+      },
+    ],
+  ])('a fixed zone stays put when %s', async (_, move) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.put(deviceId);
+    await chooseZone(deviceId, 'Europe/Paris');
+    const fixed = Date.UTC(2026, 9, 12, 7);
+    expect(h.state.alarm).toBe(fixed);
+    await move(deviceId);
+    expect(h.state.alarm).toBe(fixed);
+    expect((await h.sync(deviceId, [])).zone).toEqual({ name: 'Europe/Paris', fixed: true });
+  });
+
+  test.each([
+    {
+      name: 'fixing a zone west of a daily reminder that just fired does not fire it again',
+      now: Date.UTC(2026, 9, 12, 2),
+      start: '2026-10-12T09:00',
+      before: null,
+      choice: 'America/New_York',
+      here: ZONE,
+      through: Date.UTC(2026, 9, 13, 14),
+      due: ['2026-10-12T09:00', '2026-10-13T09:00'],
+    },
+    {
+      name: 'following again from a device east of the fixed zone fires the occurrence that already passed there',
+      now: Date.UTC(2026, 9, 12, 2),
+      start: '2026-10-12T09:00',
+      before: 'Europe/Paris',
+      choice: null,
+      here: 'Asia/Tokyo',
+      through: Date.UTC(2026, 9, 12, 23),
+      due: ['2026-10-12T09:00'],
+    },
+    {
+      name: 'fixing a zone whose clocks skip the time a daily reminder just fired at does not fire it again',
+      now: Date.UTC(2026, 2, 7, 20),
+      start: '2026-03-08T02:30',
+      before: null,
+      choice: 'America/New_York',
+      here: ZONE,
+      through: Date.UTC(2026, 2, 9, 7),
+      due: ['2026-03-08T02:30', '2026-03-09T02:30'],
+    },
+  ])('$name', async ({ now, start, before, choice, here, through, due }) => {
+    h.state.now = now;
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    if (before) await chooseZone(deviceId, before);
+    await h.put(deviceId, { start, repeat: daily });
+    if (!before) await h.runAlarm();
+    await chooseZone(deviceId, choice, here);
+    if (h.state.alarm !== null && h.state.alarm < h.state.now) await h.nudge.alarm();
+    await h.runAlarmsThrough(through);
+    expect(h.state.pushes.map((push) => push.message.notification.data.fire.split('/')[1])).toEqual([...due]);
+  });
+
+  test('fixing a zone whose clocks skip an unfired reminder and fixing it back still fires it once', async () => {
+    h.state.now = Date.UTC(2026, 2, 8, 2);
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseZone(deviceId, 'UTC');
+    await h.put(deviceId, { start: '2026-03-08T02:30' });
+    const alarms = [h.state.alarm];
+    await chooseZone(deviceId, 'America/New_York');
+    alarms.push(h.state.alarm);
+    await chooseZone(deviceId, 'UTC');
+    alarms.push(h.state.alarm);
+    await h.runAlarmsThrough(Date.UTC(2026, 2, 8, 12));
+    const due = Date.UTC(2026, 2, 8, 2, 30);
+    expect(alarms).toEqual([due, Date.UTC(2026, 2, 8, 7, 30), due]);
+    expect(h.state.pushes.map((push) => push.message.notification.data.fire.split('/')[1])).toEqual([
+      '2026-03-08T02:30',
+    ]);
+  });
+
+  const warned = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
+  const DAY_WARNING = String(-1380 * MINUTE_MS);
+
+  // A 23-hour warning across a daylight saving change: today's 09:00 and tomorrow's move west by different amounts.
+  test.each([
+    {
+      name: 'a warning still to come is not lost when the zone is fixed west the day before clocks go forward',
+      now: Date.UTC(2026, 2, 7, 8),
+      start: '2026-03-07T09:00',
+      alerts: [1380],
+      fixAt: Date.UTC(2026, 2, 7, 9, 1),
+      paused: null,
+      through: Date.UTC(2026, 2, 8, 13, 30),
+      notices: ['2026-03-07T09:00/0', `2026-03-08T09:00/${DAY_WARNING}`, '2026-03-08T09:00/0'],
+    },
+    {
+      name: 'a warning already sent is not sent again when the zone is fixed west the day before clocks go back',
+      now: Date.UTC(2026, 9, 31, 8),
+      start: '2026-10-31T09:00',
+      alerts: [1380],
+      fixAt: Date.UTC(2026, 9, 31, 10, 1),
+      paused: null,
+      through: Date.UTC(2026, 10, 1, 16),
+      notices: [
+        '2026-10-31T09:00/0',
+        `2026-11-01T09:00/${DAY_WARNING}`,
+        '2026-11-01T09:00/0',
+        `2026-11-02T09:00/${DAY_WARNING}`,
+      ],
+    },
+    {
+      name: 'a pause ending at a time the fixed zone skips still ends there after fixing the zone back',
+      now: Date.UTC(2026, 2, 7),
+      start: '2026-03-07T02:30',
+      alerts: [],
+      fixAt: Date.UTC(2026, 2, 7),
+      paused: Date.UTC(2026, 2, 8, 2),
+      through: Date.UTC(2026, 2, 8, 3),
+      notices: ['2026-03-08T02:30/0'],
+    },
+  ])('$name', async ({ now, start, alerts, fixAt, paused, through, notices }) => {
+    h.state.now = now;
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseZone(deviceId, 'UTC');
+    const id = await h.put(deviceId, { start, repeat: warned, alerts: [...alerts] });
+    if (paused !== null) await h.sync(deviceId, [{ type: 'pause', id, until: paused }]);
+    await h.runAlarmsThrough(fixAt);
+    h.state.now = fixAt;
+    await chooseZone(deviceId, 'America/New_York');
+    if (paused !== null) await chooseZone(deviceId, 'UTC');
+    await h.runAlarmsThrough(through);
+    expect(h.state.pushes.map((push) => push.message.notification.data.notice?.split(':').slice(1).join(':'))).toEqual([
+      ...notices,
+    ]);
+  });
+
+  test('resuming after the zone moved across daylight saving while paused skips what came due in the pause', async () => {
+    h.state.now = Date.UTC(2026, 2, 8);
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseZone(deviceId, 'UTC');
+    const repeat = { rule: 'FREQ=HOURLY;INTERVAL=3', anchor: 'schedule' } as const;
+    const id = await h.put(deviceId, { start: '2026-03-08T00:30', repeat, important: true });
+    await h.runAlarmsThrough(Date.UTC(2026, 2, 8, 3, 10));
+    h.state.now = Date.UTC(2026, 2, 8, 3, 10);
+    await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    await chooseZone(deviceId, 'America/New_York');
+    const sent = h.state.pushes.length;
+    h.state.now = Date.UTC(2026, 2, 8, 8, 2);
+    await h.sync(deviceId, [{ type: 'resume', id }]);
+    await h.runAlarmsThrough(Date.UTC(2026, 2, 8, 10, 31));
+    const after = h.state.pushes
+      .slice(sent)
+      .map((push) => push.message.notification.data.notice?.split(':').slice(1).join(':'));
+    expect(after).toEqual(['2026-03-08T06:30/0']);
+  });
+
+  test('a zone choice applies once, and neither its replay nor an older offline choice undoes a newer one', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.put(deviceId);
+    const madeOffline = { id: ulid(), at: h.state.now - MINUTE_MS };
+    const fixed = { id: ulid(), at: h.state.now };
+    expect((await chooseZone(deviceId, 'Europe/Paris', ZONE, fixed)).zone).toEqual({
+      name: 'Europe/Paris',
+      fixed: true,
+    });
+    h.state.now += MINUTE_MS;
+    expect((await chooseZone(deviceId, null)).zone).toEqual({ name: ZONE, fixed: false });
+    expect((await chooseZone(deviceId, 'Europe/Paris', ZONE, fixed)).zone).toEqual({ name: ZONE, fixed: false });
+    expect((await chooseZone(deviceId, 'Asia/Tokyo', ZONE, madeOffline)).zone).toEqual({ name: ZONE, fixed: false });
+    expect(h.state.alarm).toBe(DUE);
+  });
+
+  test.each([
     [
       'change',
       () => ({ changes: [{ opId: ulid(), op: { type: 'put', id: ulid(), fields: fields() }, at: h.state.now }] }),
     ],
     ['theme choice', () => ({ changes: [], theme: { id: ulid(), theme: 'rex', at: h.state.now } })],
+    ['zone choice', () => ({ changes: [], zoneChoice: { id: ulid(), zone: 'Europe/Paris', at: h.state.now } })],
   ])('a %s committed just before a failure still reaches the other devices when it is retried', async (_, write) => {
     const { phone } = await h.pair();
     const { version } = await h.ok('sync', { since: 0, zone: ZONE, changes: [] }, phone);

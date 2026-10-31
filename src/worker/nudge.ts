@@ -189,7 +189,7 @@ export class Nudge {
       const id = existing?.id ?? ulid(now);
       if (!existing) {
         this.store.devices.add(id, device, now);
-        this.scheduler.setZone(device.zone);
+        this.scheduler.follow(device.zone);
         this.store.setMeta('locale', device.locale);
       }
       this.store.devices.recordEnrollment(credential, device.key, id);
@@ -237,13 +237,20 @@ export class Nudge {
     return { at };
   }
 
-  private async sync({ since, zone, changes, theme }: SyncRequest, device: DeviceRow): Promise<SyncResponse> {
+  private async sync(
+    { since, zone, changes, theme, zoneChoice }: SyncRequest,
+    device: DeviceRow,
+  ): Promise<SyncResponse> {
     const now = this.runtime.now();
     const madeAt = (at: number) => Math.min(now, Math.max(at, now - MAX_BACKDATE_MS));
     this.runtime.transaction(() => {
+      if (zoneChoice && !this.store.applied(zoneChoice.id)) {
+        this.scheduler.chooseZone(zoneChoice.zone, zone, madeAt(zoneChoice.at));
+        this.store.recordApplied(zoneChoice.id, now);
+      }
       // The instance zone follows the device that last moved, so a device that never left home (a laptop left open)
       // cannot keep flipping it back against the one that travelled.
-      if (device.zone !== zone) this.scheduler.setZone(zone);
+      if (device.zone !== zone) this.scheduler.follow(zone);
       this.store.devices.touch(device.id, zone, now);
       for (const { opId, op, at } of changes) {
         if (!this.store.applied(opId)) this.scheduler.commit(opId, op, madeAt(at), now);
@@ -258,6 +265,12 @@ export class Nudge {
     // A retry after the commit must still reach other devices.
     if (since < version) this.runtime.broadcast({ kind: 'changed', version }, device.id);
     const reset = since > version;
-    return { version, reminders: this.store.changedSince(reset ? 0 : since), reset, theme: this.store.theme() };
+    return {
+      version,
+      reminders: this.store.changedSince(reset ? 0 : since),
+      reset,
+      theme: this.store.theme(),
+      zone: this.store.zone(),
+    };
   }
 }

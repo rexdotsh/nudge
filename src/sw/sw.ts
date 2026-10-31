@@ -20,22 +20,27 @@ declare const self: ServiceWorkerGlobalScope;
 const CACHE_PREFIX = 'nudge-';
 const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
 function isPushData(value: unknown): value is PushData {
-  return isRecord(value) && typeof value.fire === 'string';
+  return (
+    isRecord(value) &&
+    typeof value.fire === 'string' &&
+    (value.notice === undefined || typeof value.notice === 'string')
+  );
 }
 
-async function present(fire: string, show?: () => Promise<void>): Promise<void> {
+async function present(data: PushData, show?: () => Promise<void>): Promise<void> {
+  const { fire } = data;
   if (!show) {
-    await settle(fire, true);
-  } else if ((await claim(fire, Date.now())) === 'won') {
+    await settle(data, true);
+  } else if ((await claim(data, Date.now(), null)) === 'won') {
     await show().then(
-      () => settle(fire, true),
+      () => settle(data, true),
       async (error: unknown) => {
-        await settle(fire, false);
+        await settle(data, false);
         throw error;
       },
     );
   }
-  if (!(await isSeen(fire))) return;
+  if (!(await isSeen(data))) return;
   await request('receipt', { fire }).catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
     console.warn('receipt failed; the server will resend and this device will confirm then', error);
@@ -90,7 +95,7 @@ self.addEventListener('push', (event) => {
   const push = readPush(event, isPushData);
   if (!push) return;
   if (push.kind === 'declarative') {
-    waitUntilWithin(event, Promise.all([present(push.data.fire), tidy()]), SHOW_WITHIN_MS);
+    waitUntilWithin(event, Promise.all([present(push.data), tidy()]), SHOW_WITHIN_MS);
     return;
   }
   const { message } = push;
@@ -98,7 +103,7 @@ self.addEventListener('push', (event) => {
   const badge = Number(message.app_badge);
   event.waitUntil(
     Promise.all([
-      present(notification.data.fire, () => showNudge(self.registration, notification)),
+      present(notification.data, () => showNudge(self.registration, notification)),
       tidy(),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
     ]),
@@ -110,9 +115,16 @@ async function drain(): Promise<void> {
   const local = await readLocal();
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
   const since = local.replica.version;
-  const response = await request('sync', { since, zone: currentZone(), changes, theme: null });
+  const response = await request('sync', { since, zone: currentZone(), changes, theme: null, zoneChoice: null });
   const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
   if (pending.length > 0) await drain();
+}
+
+async function planned() {
+  const local = await readLocal();
+  const replica = new Replica(local.replica);
+  const zone = replica.plannedZone();
+  return { reminders: replica.view(local.pending, zone ?? currentZone()), zone };
 }
 
 // A device with Nudge closed runs nothing but this worker, so each push is its chance to drop notifications for
@@ -121,16 +133,14 @@ async function tidy(): Promise<void> {
   await drain().catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
   });
-  const local = await readLocal();
-  const reminders = new Replica(local.replica).view(local.pending, currentZone());
+  const { reminders } = await planned();
   await closeNotifications(self.registration, (tag) => isSettledTag(tag, reminders, Date.now()));
 }
 
 async function recount(): Promise<void> {
   if (!('setAppBadge' in self.navigator)) return;
-  const local = await readLocal();
-  const zone = currentZone();
-  const reminders = new Replica(local.replica).view(local.pending, zone);
+  const { reminders, zone } = await planned();
+  if (zone === null) return;
   await self.navigator.setAppBadge(lateCount(reminders, Date.now(), zone));
 }
 

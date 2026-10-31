@@ -1,5 +1,5 @@
-import { dueAt, instantOf, occurrenceAfter, resumed, type Reminder } from './reminder';
-import { HOUR_MS, MINUTE_MS } from './time';
+import { dueAt, instantOf, local, occurrenceAfter, resumed, type Reminder } from './reminder';
+import { DAY_MS, HOUR_MS, MINUTE_MS, formatLocal, toInstant, toLocal } from './time';
 
 export const NAG_INTERVAL_MS = 5 * MINUTE_MS;
 export const NAG_LIMIT = (2 * HOUR_MS) / NAG_INTERVAL_MS;
@@ -11,49 +11,73 @@ export interface Notice {
   at: number;
   due: string;
   missed: number;
+  /**
+   * Where the notice sits in its occurrence, the same in every zone: its distance from the due time, or, for what a
+   * snooze brings back, its instant. With the reminder and the due wall time it names the notice wherever it is planned.
+   */
+  slot: string;
 }
 
 interface AlertStep {
   at: number;
   alert: Alert;
   due: string;
+  slot: string;
 }
 
 type Step = { at: number; roll: string } | { at: number; resume: true } | { at: number; alerts: AlertStep[] };
 
-function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
+const slotKey = ({ due, slot }: Pick<AlertStep, 'due' | 'slot'>) => `${due}/${slot}`;
+
+function consumed(reminder: Reminder, step: AlertStep): boolean {
+  return step.at <= reminder.firedThrough || reminder.alsoFired.includes(slotKey(step));
+}
+
+/** Every notice the current occurrence can have, fired or not, a snooze's included. */
+function occurrenceSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   const comesUp = Math.max(due, quietUntil);
-  const steps: AlertStep[] = [
-    ...reminder.alerts.map((minutes): AlertStep => ({ at: due - minutes * MINUTE_MS, alert: 'early', due: wall })),
-    { at: comesUp, alert: comesUp > due ? 'snoozed' : 'due', due: wall },
+  const slot = (at: number) => (comesUp > due && at >= comesUp ? `@${at}` : String(at - due));
+  const planned = (at: number, alert: Alert): AlertStep => ({ at, alert, due: wall, slot: slot(at) });
+  return [
+    ...reminder.alerts.map((minutes) => planned(due - minutes * MINUTE_MS, 'early')),
+    planned(comesUp, comesUp > due ? 'snoozed' : 'due'),
     ...(reminder.important
-      ? Array.from({ length: NAG_LIMIT }, (_, i) => ({
-          at: comesUp + (i + 1) * NAG_INTERVAL_MS,
-          alert: 'nag' as const,
-          due: wall,
-        }))
+      ? Array.from({ length: NAG_LIMIT }, (_, i) => planned(comesUp + (i + 1) * NAG_INTERVAL_MS, 'nag'))
       : []),
   ];
-  const eligible = steps.filter((step) => step.at >= quietUntil && step.at > reminder.firedThrough);
+}
+
+function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
+  const quietUntil = reminder.snoozedUntil ?? -Infinity;
+  const steps = occurrenceSteps(reminder, due, wall);
+  const eligible = steps.filter((step) => step.at >= quietUntil && !consumed(reminder, step));
   // Flying west can push an occurrence that already notified later than now; a snooze of that notification must
   // still come back, even though it ends before the occurrence's new due time.
   const { snoozedUntil } = reminder;
-  if (snoozedUntil !== null && snoozedUntil < due && reminder.firedThrough >= due) {
-    eligible.push({ at: snoozedUntil, alert: 'snoozed', due: wall });
+  const dueStep = steps.find((step) => step.alert === 'due');
+  if (snoozedUntil !== null && snoozedUntil < due && dueStep && consumed(reminder, dueStep)) {
+    const snoozed: AlertStep = { at: snoozedUntil, alert: 'snoozed', due: wall, slot: `@${snoozedUntil}` };
+    if (!reminder.alsoFired.includes(slotKey(snoozed))) eligible.push(snoozed);
   }
   return eligible;
+}
+
+function earlyStep(reminder: Reminder, wall: string, minutes: number, zone: string): AlertStep {
+  const lead = minutes * MINUTE_MS;
+  return { at: instantOf(reminder, wall, zone) - lead, alert: 'early', due: wall, slot: String(-lead) };
 }
 
 // Later occurrences need their early alerts before the current one rolls over.
 function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   return reminder.alerts.flatMap((minutes) => {
-    const lead = minutes * MINUTE_MS;
-    const wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + lead), zone);
-    if (wall === null) return [];
-    const at = instantOf(reminder, wall, zone) - lead;
-    return at >= quietUntil ? [{ at, alert: 'early' as const, due: wall }] : [];
+    let wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + minutes * MINUTE_MS), zone);
+    while (wall !== null && consumed(reminder, earlyStep(reminder, wall, minutes, zone))) {
+      wall = occurrenceAfter(reminder, instantOf(reminder, wall, zone), zone);
+    }
+    const step = wall === null ? null : earlyStep(reminder, wall, minutes, zone);
+    return step && step.at >= quietUntil ? [step] : [];
   });
 }
 
@@ -97,9 +121,66 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
     if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
     current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
-    for (const { alert, at, due } of step.alerts) latest.set(due, { alert, at, due, missed: current.missed });
+    for (const { alert, at, due, slot } of step.alerts)
+      latest.set(due, { alert, at, due, slot, missed: current.missed });
   }
   const live = current.due;
   const notices = [...latest.values()].filter((notice) => live !== null && notice.due >= live);
   return { reminder: current, notices };
+}
+
+const MOVE_REACH_MS = DAY_MS;
+
+/** The current occurrence's notices and later occurrences' early alerts, whose instants in `zone` reach up to `until`. */
+function plannable(reminder: Reminder, zone: string, until: number): AlertStep[] {
+  const due = dueAt(reminder, zone);
+  if (reminder.due === null || due === null) return [];
+  const steps = occurrenceSteps(reminder, due, reminder.due);
+  const { snoozedUntil } = reminder;
+  if (snoozedUntil !== null)
+    steps.push({ at: snoozedUntil, alert: 'snoozed', due: reminder.due, slot: `@${snoozedUntil}` });
+  const longest = Math.max(0, ...reminder.alerts) * MINUTE_MS;
+  let wall = longest > 0 ? occurrenceAfter(reminder, due, zone) : null;
+  while (wall !== null && instantOf(reminder, wall, zone) - longest <= until) {
+    const later = wall;
+    steps.push(...reminder.alerts.map((minutes) => earlyStep(reminder, later, minutes, zone)));
+    wall = occurrenceAfter(reminder, instantOf(reminder, later, zone), zone);
+  }
+  return steps;
+}
+
+/**
+ * A floating reminder keeps its wall times when the zone changes, so what it has fired must move with them: otherwise
+ * flying west re-fires a notice and flying east skips one. Notices of different occurrences can move by different
+ * amounts across a daylight saving change, so no one instant can mark them all; each notice near the move keeps
+ * whether it fired, as a watermark just below the first one that has not and the names of any fired ones above it.
+ * What the fallback keeps quiet stays quiet, at the cost of a few notices it no longer backs up. A pause's start and
+ * end are wall times, like the occurrences they bound, so they keep those.
+ */
+export function movedZone(reminder: Reminder, from: string, to: string): Reminder {
+  const shift = (dueAt(reminder, to) ?? 0) - (dueAt(reminder, from) ?? 0);
+  const before = (step: AlertStep) =>
+    step.slot.startsWith('@') ? step.at : instantOf(reminder, step.due, from) + Number(step.slot);
+  const near = (watermark: number) =>
+    plannable(reminder, to, watermark + MOVE_REACH_MS).filter((step) => step.at >= watermark - MOVE_REACH_MS);
+  const around = reminder.firedThrough + shift;
+  const firedBefore = (step: AlertStep) => consumed(reminder, { ...step, at: before(step) });
+  const steps = near(around);
+  const firedThrough = Math.min(around, ...steps.filter((step) => !firedBefore(step)).map((step) => step.at - 1));
+  const alsoFired = steps.filter((step) => firedBefore(step) && step.at > firedThrough).map(slotKey);
+  const quiet = near(reminder.quietThrough + shift).filter((step) => before(step) <= reminder.quietThrough);
+  const quietThrough = Math.max(reminder.quietThrough + shift, ...quiet.map((step) => step.at));
+  return { ...reminder, firedThrough, alsoFired, quietThrough, paused: movedPause(reminder.paused, from, to) };
+}
+
+function movedWall(instant: number, kept: string | undefined, from: string, to: string) {
+  const wall = kept ?? formatLocal(toLocal(instant, from));
+  return { instant: toInstant(local(wall), to) + (instant % MINUTE_MS), wall };
+}
+
+function movedPause(paused: Reminder['paused'], from: string, to: string): Reminder['paused'] {
+  if (!paused) return null;
+  const start = movedWall(paused.at, paused.atWall, from, to);
+  const end = paused.until === null ? null : movedWall(paused.until, paused.untilWall, from, to);
+  return { at: start.instant, atWall: start.wall, until: end?.instant ?? null, untilWall: end?.wall };
 }
