@@ -1,46 +1,62 @@
-import type { Occurrence } from '../shared/notification';
+import type { Occurrence, PushData } from '../shared/notification';
 import type { Claim, Notices } from './schema';
 
 const LIMIT = 600;
 const CLAIM_MS = 60_000;
+const PAIRED = '#';
+
+type Shown = Pick<PushData, 'fire' | 'notice'>;
 
 /**
- * Whether a notice was seen under any key it goes by (see `noticeKeys`). A record from before notices had occurrence
- * keys is a fire id alone, which cannot say which notice of its occurrence it was once the zone has moved; given the
- * occurrence, such a record stands for every notice of it. A fire id is unpaired when its occurrence has more fire ids
- * than occurrence keys, since every newer record adds one of each.
+ * What a shown notice is recorded as: its fire id, which older bundles look for, and its occurrence key joined to that
+ * fire id. A fire id with no occurrence key joined to it was recorded by a bundle without them.
  */
-export function seenIn(seen: readonly string[], keys: readonly string[], occurrence: Occurrence | null): boolean {
-  if (keys.some((key) => seen.includes(key))) return true;
-  if (!occurrence) return false;
-  const { id, due } = occurrence;
-  const fires = seen.filter((key) => key.startsWith(`${id}@`) && key.endsWith(`/${due}`)).length;
-  return fires > seen.filter((key) => key.startsWith(`${id}:${due}/`)).length;
+function records({ fire, notice }: Shown): string[] {
+  return notice === undefined ? [fire] : [fire, `${notice}${PAIRED}${fire}`];
 }
 
-// The service worker and an open page can both try to show the same notice; whoever claims it first shows it. A notice
-// seen under one of its keys is recorded under all of them, so a fire id from before the zone moved gains the key
-// that still matches after it.
+const claimKeys = ({ fire, notice }: Shown) => (notice === undefined ? [fire] : [fire, notice]);
+
+/** Seen under its fire id or its occurrence key, which still matches once the zone has moved. */
+export function isSeenIn(seen: readonly string[], { fire, notice }: Shown): boolean {
+  return seen.includes(fire) || (notice !== undefined && seen.some((key) => key.startsWith(`${notice}${PAIRED}`)));
+}
+
+// A fire id recorded alone cannot say which notice of its occurrence it was once the zone has moved, so for the
+// fallback it stands for every notice of that occurrence.
+function legacyRecord(seen: readonly string[], { id, due }: Occurrence): boolean {
+  const paired = new Set(seen.flatMap((key) => (key.includes(PAIRED) ? [key.slice(key.indexOf(PAIRED) + 1)] : [])));
+  return seen.some((key) => key.startsWith(`${id}@`) && key.endsWith(`/${due}`) && !paired.has(key));
+}
+
+/**
+ * The service worker and an open page can both try to show the same notice; whoever claims it first shows it. A
+ * notice seen under one key is recorded under the others too. The fallback passes the occurrence, so that a record
+ * from before occurrence keys covers all of it; the service worker does not, so a real push is never held back.
+ */
 export function claimNotice(
   current: Notices,
-  keys: readonly string[],
+  shown: Shown,
   now: number,
   occurrence: Occurrence | null,
 ): { outcome: Claim; notices: Notices } {
-  if (keys.some((key) => current.seen.includes(key)))
-    return { outcome: 'seen', notices: settleNotice(current, keys, true) };
-  if (seenIn(current.seen, keys, occurrence)) return { outcome: 'seen', notices: current };
+  if (isSeenIn(current.seen, shown)) return { outcome: 'seen', notices: settleNotice(current, shown, true) };
+  if (occurrence && legacyRecord(current.seen, occurrence)) return { outcome: 'seen', notices: current };
+  const keys = claimKeys(shown);
   const busy = keys.some((key) => {
     const claimedAt = current.claims[key];
     return claimedAt !== undefined && now - claimedAt < CLAIM_MS;
   });
   if (busy) return { outcome: 'busy', notices: current };
-  const claims = { ...current.claims, ...Object.fromEntries(keys.map((key) => [key, now])) };
-  return { outcome: 'won', notices: { ...current, claims } };
+  return {
+    outcome: 'won',
+    notices: { ...current, claims: { ...current.claims, ...Object.fromEntries(keys.map((key) => [key, now])) } },
+  };
 }
 
-export function settleNotice(current: Notices, keys: readonly string[], shown: boolean): Notices {
-  const added = shown ? keys.filter((key) => !current.seen.includes(key)) : [];
+export function settleNotice(current: Notices, shown: Shown, displayed: boolean): Notices {
+  const keys = claimKeys(shown);
+  const added = displayed ? records(shown).filter((key) => !current.seen.includes(key)) : [];
   return {
     claims: Object.fromEntries(Object.entries(current.claims).filter(([key]) => !keys.includes(key))),
     seen: added.length > 0 ? [...current.seen.slice(added.length - LIMIT), ...added] : current.seen,

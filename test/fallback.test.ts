@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { Fallback } from '../src/app/lib/fallback';
-import { claimNotice, seenIn } from '../src/browser/claims';
+import { claimNotice, settleNotice } from '../src/browser/claims';
 import { Replica } from '../src/browser/replica';
 import { fire as fireReminder, movedZone, nextFireAt } from '../src/shared/fire';
 import { fireId, noticeKey, type NotificationContent } from '../src/shared/notification';
@@ -28,11 +28,15 @@ function lateReminder() {
   return created;
 }
 
+const recorded = (...shown: { fire: string; notice?: string }[]) =>
+  shown.reduce((notices, one) => settleNotice(notices, one, true), { seen: [] as string[], claims: {} }).seen;
+
+// Claims go through the production rules, on a store this harness holds instead of IndexedDB.
 function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Promise.resolve(), now = NOW) {
   const shown: string[] = [];
   const shownFires: string[] = [];
-  const seen = new Set(alreadySeen);
-  const claimed = new Set<string>(busy);
+  const store = { notices: { seen: alreadySeen, claims: Object.fromEntries(busy.map((key) => [key, now])) } };
+  const clock = { now };
   const claimingStarted = Promise.withResolvers<void>();
   const timers = new Set<() => Promise<void>>();
   const readiness: (() => void)[] = [];
@@ -46,25 +50,22 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
           }),
         );
       }),
-    claim: async (keys, occurrence) => {
-      if (seenIn([...seen], keys, occurrence)) return 'seen';
-      if (keys.some((key) => claimed.has(key))) return 'busy';
-      for (const key of keys) claimed.add(key);
+    claim: async (data) => {
+      const { outcome, notices } = claimNotice(store.notices, data, clock.now, data.reminder);
+      store.notices = notices;
+      if (outcome !== 'won') return outcome;
       claimingStarted.resolve();
       await claiming;
-      return 'won';
+      return outcome;
     },
-    settle: async (keys, displayed) => {
-      for (const key of keys) {
-        claimed.delete(key);
-        if (displayed) seen.add(key);
-      }
+    settle: async (data, displayed) => {
+      store.notices = settleNotice(store.notices, data, displayed);
     },
     wait: (run) => {
       timers.add(run);
       return () => timers.delete(run);
     },
-    now: () => now,
+    now: () => clock.now,
     origin: 'https://nudge.example',
     locale: 'en',
   });
@@ -77,7 +78,7 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
     for (const release of readiness.splice(0)) release();
     await Promise.all(checks);
   };
-  return { fallback, shown, shownFires, timers, claimed, fire, ready, claimingStarted: claimingStarted.promise };
+  return { fallback, shown, shownFires, timers, store, clock, fire, ready, claimingStarted: claimingStarted.promise };
 }
 
 test('the server having planned a push does not stop the fallback; only this device having shown it does', async () => {
@@ -114,20 +115,20 @@ test.each([
 test('a fire another context is still showing is not consumed, and is retried', async () => {
   const reminder = lateReminder();
   const key = fireId(reminder.id, { at: DUE, due: '2026-10-12T09:20' });
-  const { fallback, shown, timers, claimed, fire, ready } = harness([], [key]);
+  const { fallback, shown, timers, store, fire, ready } = harness([], [key]);
   fallback.schedule([reminder], ZONE, true);
   await ready(fire());
   expect(shown).toEqual([]);
   expect(timers.size).toBe(1);
 
-  claimed.delete(key);
+  store.notices = { ...store.notices, claims: {} };
   await ready(fire());
   expect(shown).toEqual(['Pay rent']);
 });
 
 test('settling a reminder while its fallback is claiming it does not show a stale notification', async () => {
   const claiming = Promise.withResolvers<void>();
-  const { fallback, shown, claimed, fire, ready, claimingStarted } = harness([], [], claiming.promise);
+  const { fallback, shown, store, fire, ready, claimingStarted } = harness([], [], claiming.promise);
   fallback.schedule([lateReminder()], ZONE, true);
   const showing = ready(fire());
   await claimingStarted;
@@ -135,7 +136,7 @@ test('settling a reminder while its fallback is claiming it does not show a stal
   claiming.resolve();
   await showing;
   expect(shown).toEqual([]);
-  expect(claimed.size).toBe(0);
+  expect(store.notices.claims).toEqual({});
 });
 
 const ROLL = Date.UTC(2026, 9, 29, 10, 0);
@@ -253,11 +254,13 @@ function deliveredInUtc(arrived: readonly ('early' | 'due')[], legacy: boolean) 
   const early = fireReminder(created, Date.UTC(2026, 9, 12, 8), 'UTC');
   const due = fireReminder(early.reminder, Date.UTC(2026, 9, 12, 9), 'UTC');
   const pushes = { early: early.notices, due: due.notices };
-  const seen = arrived.flatMap((alert) =>
-    pushes[alert].flatMap((notice) =>
-      legacy ? [fireId(created.id, notice)] : [fireId(created.id, notice), noticeKey(created.id, notice)],
-    ),
+  const shown = arrived.flatMap((alert) =>
+    pushes[alert].map((notice) => ({
+      fire: fireId(created.id, notice),
+      notice: legacy ? undefined : noticeKey(created.id, notice),
+    })),
   );
+  const seen = recorded(...shown);
   return { server: due.reminder, seen, pushes };
 }
 
@@ -321,9 +324,22 @@ test('a push matching a fire id recorded alone gains its occurrence key, which s
   const [notice] = pushes.due;
   if (!notice) throw new Error('no due notice');
   const [fire, key] = [fireId(server.id, notice), noticeKey(server.id, notice)];
-  const arrived = claimNotice({ seen: [fire], claims: {} }, [fire, key], NOW, null);
-  const west = fireId(server.id, { at: AT_NINE_WEST, due: notice.due });
-  expect([arrived.outcome, claimNotice(arrived.notices, [west, key], NOW, null).outcome]).toEqual(['seen', 'seen']);
+  const arrived = claimNotice({ seen: [fire], claims: {} }, { fire, notice: key }, NOW, null);
+  const west = { fire: fireId(server.id, { at: AT_NINE_WEST, due: notice.due }), notice: key };
+  expect([arrived.outcome, claimNotice(arrived.notices, west, NOW, null).outcome]).toEqual(['seen', 'seen']);
+});
+
+test('a warning seen before the zone moved and checked again after it does not hide a due push that never came', async () => {
+  const { server, seen } = deliveredInUtc(['early'], false);
+  const moved = movedZone(server, 'UTC', WEST);
+  const device = harness(seen, [], Promise.resolve(), AT_NINE_WEST - 55 * MINUTE_MS);
+  device.fallback.schedule([moved], WEST, true);
+  await device.ready(device.fire());
+  expect(device.shown).toEqual([]);
+  device.clock.now = AT_NINE_WEST + 5 * MINUTE_MS;
+  device.fallback.schedule([moved], WEST, true);
+  await device.ready(device.fire());
+  expect(device.shownFires).toEqual([fireId(server.id, { at: AT_NINE_WEST, due: '2026-10-12T09:00' })]);
 });
 
 // Another device moved the instance zone to New York; this one, left at home, must plan in New York like the server.

@@ -34,7 +34,8 @@ export interface ReminderFields {
 interface Pause {
   at: number;
   until: number | null;
-  /** The wall time `until` was picked as, once the zone has moved, so further moves keep it exactly. */
+  /** The wall times `at` and `until` stand for, kept from the first zone move on so further moves keep them exactly. */
+  atWall?: string;
   untilWall?: string;
 }
 

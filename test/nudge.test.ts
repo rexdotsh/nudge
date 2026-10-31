@@ -419,6 +419,27 @@ describe('sync', () => {
     ]);
   });
 
+  test('resuming after the zone moved across daylight saving while paused skips what came due in the pause', async () => {
+    h.state.now = Date.UTC(2026, 2, 8);
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseZone(deviceId, 'UTC');
+    const repeat = { rule: 'FREQ=HOURLY;INTERVAL=3', anchor: 'schedule' } as const;
+    const id = await h.put(deviceId, { start: '2026-03-08T00:30', repeat, important: true });
+    await h.runAlarmsThrough(Date.UTC(2026, 2, 8, 3, 10));
+    h.state.now = Date.UTC(2026, 2, 8, 3, 10);
+    await h.sync(deviceId, [{ type: 'pause', id, until: null }]);
+    await chooseZone(deviceId, 'America/New_York');
+    const sent = h.state.pushes.length;
+    h.state.now = Date.UTC(2026, 2, 8, 8, 2);
+    await h.sync(deviceId, [{ type: 'resume', id }]);
+    await h.runAlarmsThrough(Date.UTC(2026, 2, 8, 10, 31));
+    const after = h.state.pushes
+      .slice(sent)
+      .map((push) => push.message.notification.data.notice?.split(':').slice(1).join(':'));
+    expect(after).toEqual(['2026-03-08T06:30/0']);
+  });
+
   test('a zone choice applies once, and neither its replay nor an older offline choice undoes a newer one', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.put(deviceId);

@@ -153,33 +153,34 @@ function plannable(reminder: Reminder, zone: string, until: number): AlertStep[]
  * A floating reminder keeps its wall times when the zone changes, so what it has fired must move with them: otherwise
  * flying west re-fires a notice and flying east skips one. Notices of different occurrences can move by different
  * amounts across a daylight saving change, so no one instant can mark them all; each notice near the move keeps
- * whether it fired, as a watermark just below the first one that has not and the names of any fired ones above it. A
- * pause's end is a wall time someone picked, so it keeps that wall time.
+ * whether it fired, as a watermark just below the first one that has not and the names of any fired ones above it.
+ * What the fallback keeps quiet stays quiet, at the cost of a few notices it no longer backs up. A pause's start and
+ * end are wall times, like the occurrences they bound, so they keep those.
  */
 export function movedZone(reminder: Reminder, from: string, to: string): Reminder {
   const shift = (dueAt(reminder, to) ?? 0) - (dueAt(reminder, from) ?? 0);
+  const before = (step: AlertStep) =>
+    step.slot.startsWith('@') ? step.at : instantOf(reminder, step.due, from) + Number(step.slot);
+  const near = (watermark: number) =>
+    plannable(reminder, to, watermark + MOVE_REACH_MS).filter((step) => step.at >= watermark - MOVE_REACH_MS);
   const around = reminder.firedThrough + shift;
-  const firedBefore = (step: AlertStep) => {
-    const at = step.slot.startsWith('@') ? step.at : instantOf(reminder, step.due, from) + Number(step.slot);
-    return consumed(reminder, { ...step, at });
-  };
-  const near = plannable(reminder, to, around + MOVE_REACH_MS).filter((step) => step.at >= around - MOVE_REACH_MS);
-  const firedThrough = Math.min(around, ...near.filter((step) => !firedBefore(step)).map((step) => step.at - 1));
-  const alsoFired = near.filter((step) => firedBefore(step) && step.at > firedThrough).map(slotKey);
-  const { paused } = reminder;
-  return {
-    ...reminder,
-    firedThrough,
-    alsoFired,
-    quietThrough: reminder.quietThrough + shift,
-    paused: paused && {
-      at: paused.at + shift,
-      ...(paused.until === null ? { until: null } : movedUntil(paused.until, paused.untilWall, from, to)),
-    },
-  };
+  const firedBefore = (step: AlertStep) => consumed(reminder, { ...step, at: before(step) });
+  const steps = near(around);
+  const firedThrough = Math.min(around, ...steps.filter((step) => !firedBefore(step)).map((step) => step.at - 1));
+  const alsoFired = steps.filter((step) => firedBefore(step) && step.at > firedThrough).map(slotKey);
+  const quiet = near(reminder.quietThrough + shift).filter((step) => before(step) <= reminder.quietThrough);
+  const quietThrough = Math.max(reminder.quietThrough + shift, ...quiet.map((step) => step.at));
+  return { ...reminder, firedThrough, alsoFired, quietThrough, paused: movedPause(reminder.paused, from, to) };
 }
 
-function movedUntil(until: number, wall: string | undefined, from: string, to: string) {
-  const untilWall = wall ?? formatLocal(toLocal(until, from));
-  return { until: toInstant(local(untilWall), to) + (until % MINUTE_MS), untilWall };
+function movedWall(instant: number, kept: string | undefined, from: string, to: string) {
+  const wall = kept ?? formatLocal(toLocal(instant, from));
+  return { instant: toInstant(local(wall), to) + (instant % MINUTE_MS), wall };
+}
+
+function movedPause(paused: Reminder['paused'], from: string, to: string): Reminder['paused'] {
+  if (!paused) return null;
+  const start = movedWall(paused.at, paused.atWall, from, to);
+  const end = paused.until === null ? null : movedWall(paused.until, paused.untilWall, from, to);
+  return { at: start.instant, atWall: start.wall, until: end?.instant ?? null, untilWall: end?.wall };
 }

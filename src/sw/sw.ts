@@ -10,7 +10,7 @@ import { Replica } from '../browser/replica';
 import { claim, isSeen, settle } from '../browser/seen';
 import { MAX_REQUEST_BYTES } from '../shared/api';
 import { lateCount } from '../shared/reminder';
-import { isSettledTag, noticeKeys, type PushData } from '../shared/notification';
+import { isSettledTag, type PushData } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { isRecord } from '../shared/validate';
@@ -29,19 +29,18 @@ function isPushData(value: unknown): value is PushData {
 
 async function present(data: PushData, show?: () => Promise<void>): Promise<void> {
   const { fire } = data;
-  const keys = noticeKeys(data);
   if (!show) {
-    await settle(keys, true);
-  } else if ((await claim(keys, Date.now(), null)) === 'won') {
+    await settle(data, true);
+  } else if ((await claim(data, Date.now(), null)) === 'won') {
     await show().then(
-      () => settle(keys, true),
+      () => settle(data, true),
       async (error: unknown) => {
-        await settle(keys, false);
+        await settle(data, false);
         throw error;
       },
     );
   }
-  if (!(await isSeen(keys))) return;
+  if (!(await isSeen(data))) return;
   await request('receipt', { fire }).catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
     console.warn('receipt failed; the server will resend and this device will confirm then', error);

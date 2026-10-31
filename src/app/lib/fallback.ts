@@ -1,5 +1,5 @@
 import { fire, nextFireAt } from '../../shared/fire';
-import { noticeKeys, reminderMessage, type NotificationContent, type Occurrence } from '../../shared/notification';
+import { reminderMessage, type NotificationContent, type PushData } from '../../shared/notification';
 import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
@@ -14,8 +14,9 @@ type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
-  claim: (keys: readonly string[], occurrence: Occurrence | null) => Promise<Claim>;
-  settle: (keys: readonly string[], shown: boolean) => Promise<void>;
+  /** Claims a notice to show, counting what this device recorded before occurrence keys existed. */
+  claim: (data: PushData) => Promise<Claim>;
+  settle: (data: PushData, shown: boolean) => Promise<void>;
   wait: (run: () => Promise<void>, ms: number) => () => void;
   now: () => number;
   origin: string;
@@ -81,11 +82,11 @@ export class Fallback {
   }
 
   private async showOnce(content: NotificationContent, display: Display, generation: number): Promise<boolean> {
-    const keys = noticeKeys(content.data);
-    const claimed = await this.deps.claim(keys, content.data.reminder);
+    const { data } = content;
+    const claimed = await this.deps.claim(data);
     if (claimed !== 'won') return claimed === 'seen';
     if (generation !== this.generation) {
-      await this.deps.settle(keys, false);
+      await this.deps.settle(data, false);
       return false;
     }
     console.warn(`push for ${content.data.fire} did not arrive; showing it locally`);
@@ -96,7 +97,7 @@ export class Fallback {
         return false;
       },
     );
-    await this.deps.settle(keys, ok);
+    await this.deps.settle(data, ok);
     return ok;
   }
 

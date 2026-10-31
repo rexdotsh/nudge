@@ -85,7 +85,9 @@ export function applyOp(current: Reminder | undefined, op: Op, clock: Clock): Re
       if (!current.repeat || current.due === null || (op.until !== null && op.until <= now)) return null;
       return {
         ...current,
-        paused: { at: current.paused?.at ?? now, until: op.until },
+        paused: current.paused
+          ? { at: current.paused.at, atWall: current.paused.atWall, until: op.until }
+          : { at: now, until: op.until },
         revision: current.revision + 1,
         updatedAt: now,
       };

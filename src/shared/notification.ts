@@ -65,11 +65,6 @@ export function noticeKey(reminderId: string, { due, slot }: Pick<Notice, 'due' 
   return `${reminderId}:${due}/${slot}`;
 }
 
-/** Everything a device records a reminder notice as shown under. */
-export function noticeKeys(data: Pick<PushData, 'fire' | 'notice'>): string[] {
-  return data.notice === undefined ? [data.fire] : [data.fire, data.notice];
-}
-
 export type Occurrence = NonNullable<PushData['reminder']>;
 
 function occurrenceTag({ id, due }: Occurrence): string {
