@@ -28,11 +28,12 @@ export class Replica {
   }
 
   /**
-   * The zone this device plans in: the one the server last confirmed, never one guessed from where the device is now,
-   * which the server may not adopt. Before the first sync, or from a save older than the zone, its own zone stands in.
+   * The zone this device may plan notifications in: only one the server confirmed, never one guessed from where the
+   * device is now, which the server may not adopt. Null before the first sync, or after an older bundle saved the
+   * replica without it, until the next sync brings it back.
    */
-  plannedZone(here: string): string {
-    return this.zone?.name ?? here;
+  plannedZone(): string | null {
+    return this.zone?.name ?? null;
   }
 
   view(pending: readonly Change[], zone: string): Reminder[] {

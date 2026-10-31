@@ -39,8 +39,10 @@ class App {
   now = $state(Date.now());
   /** Where this device is. */
   here = $state(currentZone());
-  /** The zone reminders are planned and shown in, the same on every device. */
+  /** The zone reminders are shown in, the same on every device; before the server confirms one, this device's. */
   zone = $state(currentZone());
+  /** The zone the server confirmed, the only one notifications are planned in. */
+  plannedZone = $state<string | null>(null);
   private zoneFixed = $state(false);
   private zoneChoice = $state.raw<ZoneChoice | null>(null);
   /** The zone reminders stay in, counting a choice not yet sent; null while they follow the devices. */
@@ -301,7 +303,8 @@ class App {
   }
 
   private refresh(): void {
-    this.zone = this.replica.plannedZone(this.here);
+    this.plannedZone = this.replica.plannedZone();
+    this.zone = this.plannedZone ?? this.here;
     this.zoneFixed = this.replica.zone?.fixed ?? false;
     this.reminders = this.replica.view(this.pending, this.zone);
   }

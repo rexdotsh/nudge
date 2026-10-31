@@ -1,5 +1,5 @@
 import { fire, nextFireAt } from '../../shared/fire';
-import { noticeKeys, reminderMessage, type NotificationContent } from '../../shared/notification';
+import { noticeKeys, reminderMessage, type NotificationContent, type Occurrence } from '../../shared/notification';
 import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
@@ -14,7 +14,7 @@ type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
-  claim: (keys: readonly string[]) => Promise<Claim>;
+  claim: (keys: readonly string[], occurrence: Occurrence | null) => Promise<Claim>;
   settle: (keys: readonly string[], shown: boolean) => Promise<void>;
   wait: (run: () => Promise<void>, ms: number) => () => void;
   now: () => number;
@@ -33,12 +33,14 @@ export class Fallback {
 
   constructor(private readonly deps: FallbackDeps) {}
 
-  schedule(reminders: readonly Reminder[], zone: string, enabled: boolean): void {
+  /** Plans nothing without a zone the server confirmed: one guessed could show a notice at the wrong time. */
+  schedule(reminders: readonly Reminder[], zone: string | null, enabled: boolean): void {
     this.generation++;
     // Watermarks are instants in the zone they were reached in; after a move the claims alone tell what was shown.
     if (zone !== this.zone) this.watermarks.clear();
     this.zone = zone;
-    this.arm(reminders, zone, enabled);
+    if (zone === null) this.cancel();
+    else this.arm(reminders, zone, enabled);
   }
 
   private arm(reminders: readonly Reminder[], zone: string, enabled: boolean, atLeast = 0): void {
@@ -55,7 +57,11 @@ export class Fallback {
 
   private locally(reminder: Reminder, now: number): Reminder {
     const watermark = this.watermarks.get(reminder.id) ?? -Infinity;
-    return { ...reminder, firedThrough: Math.max(watermark, reminder.quietThrough, now - LOOKBACK_MS) };
+    return {
+      ...reminder,
+      firedThrough: Math.max(watermark, reminder.quietThrough, now - LOOKBACK_MS),
+      alsoFired: [],
+    };
   }
 
   private advance(id: string, firedThrough: number): void {
@@ -76,7 +82,7 @@ export class Fallback {
 
   private async showOnce(content: NotificationContent, display: Display, generation: number): Promise<boolean> {
     const keys = noticeKeys(content.data);
-    const claimed = await this.deps.claim(keys);
+    const claimed = await this.deps.claim(keys, content.data.reminder);
     if (claimed !== 'won') return claimed === 'seen';
     if (generation !== this.generation) {
       await this.deps.settle(keys, false);

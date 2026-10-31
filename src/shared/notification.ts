@@ -70,7 +70,7 @@ export function noticeKeys(data: Pick<PushData, 'fire' | 'notice'>): string[] {
   return data.notice === undefined ? [data.fire] : [data.fire, data.notice];
 }
 
-type Occurrence = NonNullable<PushData['reminder']>;
+export type Occurrence = NonNullable<PushData['reminder']>;
 
 function occurrenceTag({ id, due }: Occurrence): string {
   return `${id}:${due}`;

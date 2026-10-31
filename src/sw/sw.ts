@@ -32,7 +32,7 @@ async function present(data: PushData, show?: () => Promise<void>): Promise<void
   const keys = noticeKeys(data);
   if (!show) {
     await settle(keys, true);
-  } else if ((await claim(keys, Date.now())) === 'won') {
+  } else if ((await claim(keys, Date.now(), null)) === 'won') {
     await show().then(
       () => settle(keys, true),
       async (error: unknown) => {
@@ -124,8 +124,8 @@ async function drain(): Promise<void> {
 async function planned() {
   const local = await readLocal();
   const replica = new Replica(local.replica);
-  const zone = replica.plannedZone(currentZone());
-  return { reminders: replica.view(local.pending, zone), zone };
+  const zone = replica.plannedZone();
+  return { reminders: replica.view(local.pending, zone ?? currentZone()), zone };
 }
 
 // A device with Nudge closed runs nothing but this worker, so each push is its chance to drop notifications for
@@ -141,6 +141,7 @@ async function tidy(): Promise<void> {
 async function recount(): Promise<void> {
   if (!('setAppBadge' in self.navigator)) return;
   const { reminders, zone } = await planned();
+  if (zone === null) return;
   await self.navigator.setAppBadge(lateCount(reminders, Date.now(), zone));
 }
 

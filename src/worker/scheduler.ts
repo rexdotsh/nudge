@@ -1,6 +1,6 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import type { InstanceZone } from '../shared/api';
-import { fire, nextFireAt, type Notice } from '../shared/fire';
+import { fire, movedZone, nextFireAt, type Notice } from '../shared/fire';
 import {
   fireId,
   occurrenceTopic,
@@ -10,7 +10,7 @@ import {
   type PushMessage,
 } from '../shared/notification';
 import { applyOp, type Op } from '../shared/ops';
-import { lateCount, movedZone, type Reminder } from '../shared/reminder';
+import { lateCount, type Reminder } from '../shared/reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../shared/time';
 import type { DeliveryRow, Outgoing } from './deliveries';
 import type { Target } from './devices';

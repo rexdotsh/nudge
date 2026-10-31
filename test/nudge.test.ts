@@ -362,6 +362,63 @@ describe('sync', () => {
     ]);
   });
 
+  const warned = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
+  const DAY_WARNING = String(-1380 * MINUTE_MS);
+
+  // A 23-hour warning across a daylight saving change: today's 09:00 and tomorrow's move west by different amounts.
+  test.each([
+    {
+      name: 'a warning still to come is not lost when the zone is fixed west the day before clocks go forward',
+      now: Date.UTC(2026, 2, 7, 8),
+      start: '2026-03-07T09:00',
+      alerts: [1380],
+      fixAt: Date.UTC(2026, 2, 7, 9, 1),
+      paused: null,
+      through: Date.UTC(2026, 2, 8, 13, 30),
+      notices: ['2026-03-07T09:00/0', `2026-03-08T09:00/${DAY_WARNING}`, '2026-03-08T09:00/0'],
+    },
+    {
+      name: 'a warning already sent is not sent again when the zone is fixed west the day before clocks go back',
+      now: Date.UTC(2026, 9, 31, 8),
+      start: '2026-10-31T09:00',
+      alerts: [1380],
+      fixAt: Date.UTC(2026, 9, 31, 10, 1),
+      paused: null,
+      through: Date.UTC(2026, 10, 1, 16),
+      notices: [
+        '2026-10-31T09:00/0',
+        `2026-11-01T09:00/${DAY_WARNING}`,
+        '2026-11-01T09:00/0',
+        `2026-11-02T09:00/${DAY_WARNING}`,
+      ],
+    },
+    {
+      name: 'a pause ending at a time the fixed zone skips still ends there after fixing the zone back',
+      now: Date.UTC(2026, 2, 7),
+      start: '2026-03-07T02:30',
+      alerts: [],
+      fixAt: Date.UTC(2026, 2, 7),
+      paused: Date.UTC(2026, 2, 8, 2),
+      through: Date.UTC(2026, 2, 8, 3),
+      notices: ['2026-03-08T02:30/0'],
+    },
+  ])('$name', async ({ now, start, alerts, fixAt, paused, through, notices }) => {
+    h.state.now = now;
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseZone(deviceId, 'UTC');
+    const id = await h.put(deviceId, { start, repeat: warned, alerts: [...alerts] });
+    if (paused !== null) await h.sync(deviceId, [{ type: 'pause', id, until: paused }]);
+    await h.runAlarmsThrough(fixAt);
+    h.state.now = fixAt;
+    await chooseZone(deviceId, 'America/New_York');
+    if (paused !== null) await chooseZone(deviceId, 'UTC');
+    await h.runAlarmsThrough(through);
+    expect(h.state.pushes.map((push) => push.message.notification.data.notice?.split(':').slice(1).join(':'))).toEqual([
+      ...notices,
+    ]);
+  });
+
   test('a zone choice applies once, and neither its replay nor an older offline choice undoes a newer one', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.put(deviceId);

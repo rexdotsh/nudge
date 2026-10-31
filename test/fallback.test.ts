@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
 import { Fallback } from '../src/app/lib/fallback';
+import { claimNotice, seenIn } from '../src/browser/claims';
 import { Replica } from '../src/browser/replica';
-import { fire as fireReminder, nextFireAt } from '../src/shared/fire';
+import { fire as fireReminder, movedZone, nextFireAt } from '../src/shared/fire';
 import { fireId, noticeKey, type NotificationContent } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
-import { movedZone, type Reminder } from '../src/shared/reminder';
+import type { Reminder } from '../src/shared/reminder';
 import { DAY_MS, MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 
@@ -45,8 +46,8 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
           }),
         );
       }),
-    claim: async (keys) => {
-      if (keys.some((key) => seen.has(key))) return 'seen';
+    claim: async (keys, occurrence) => {
+      if (seenIn([...seen], keys, occurrence)) return 'seen';
       if (keys.some((key) => claimed.has(key))) return 'busy';
       for (const key of keys) claimed.add(key);
       claimingStarted.resolve();
@@ -237,7 +238,7 @@ const AT_NINE_WEST = Date.UTC(2026, 9, 12, 13);
 
 // Delivered in UTC, an hour's warning at 08:00 and the 09:00 itself, before the zone was fixed west or this device
 // went west; what it has seen is what the service worker recorded for the pushes that arrived.
-function deliveredInUtc(arrived: readonly ('early' | 'due')[]) {
+function deliveredInUtc(arrived: readonly ('early' | 'due')[], legacy: boolean) {
   const fields = {
     title: 'Call the bank',
     notes: '',
@@ -253,41 +254,76 @@ function deliveredInUtc(arrived: readonly ('early' | 'due')[]) {
   const due = fireReminder(early.reminder, Date.UTC(2026, 9, 12, 9), 'UTC');
   const pushes = { early: early.notices, due: due.notices };
   const seen = arrived.flatMap((alert) =>
-    pushes[alert].flatMap((notice) => [fireId(created.id, notice), noticeKey(created.id, notice)]),
+    pushes[alert].flatMap((notice) =>
+      legacy ? [fireId(created.id, notice)] : [fireId(created.id, notice), noticeKey(created.id, notice)],
+    ),
   );
-  return { server: due.reminder, seen };
+  return { server: due.reminder, seen, pushes };
 }
 
-const snapshot = (reminder: Reminder, zone: string, fixed: boolean) =>
-  new Replica({ version: 1, reminders: [reminder], zone: { name: zone, fixed } });
+const fixedWest = (server: Reminder) =>
+  new Replica({ version: 1, reminders: [movedZone(server, 'UTC', WEST)], zone: { name: WEST, fixed: true } });
 
-test.each<[string, readonly ('early' | 'due')[], (server: Reminder) => Replica, number[]]>([
-  [
-    'the zone is fixed west after both pushes arrived',
-    ['early', 'due'],
-    (r) => snapshot(movedZone(r, 'UTC', WEST), WEST, true),
-    [],
-  ],
-  [
-    'the zone is fixed west after only the warning arrived',
-    ['early'],
-    (r) => snapshot(movedZone(r, 'UTC', WEST), WEST, true),
-    [AT_NINE_WEST],
-  ],
-  [
-    'this device lands west offline and the server keeps its zone',
-    ['early', 'due'],
-    (r) => snapshot(r, 'UTC', false),
-    [],
-  ],
-])('when %s, the fallback at 09:05 there shows only what never arrived', async (_, arrived, replica, shown) => {
-  const { server, seen } = deliveredInUtc(arrived);
-  const synced = replica(server);
-  const device = harness(seen, [], Promise.resolve(), AT_NINE_WEST + 5 * MINUTE_MS);
-  const zone = synced.plannedZone(WEST);
-  device.fallback.schedule(synced.view([], zone), zone, true);
+test.each([
+  {
+    name: 'the zone is fixed west after both pushes arrived',
+    arrived: ['early', 'due'] as const,
+    legacy: false,
+    replica: fixedWest,
+    now: AT_NINE_WEST + 5 * MINUTE_MS,
+    shown: [] as number[],
+  },
+  {
+    name: 'the zone is fixed west after only the warning arrived',
+    arrived: ['early'] as const,
+    legacy: false,
+    replica: fixedWest,
+    now: AT_NINE_WEST + 5 * MINUTE_MS,
+    shown: [AT_NINE_WEST],
+  },
+  {
+    name: 'the zone is fixed west after both pushes arrived, recorded by a service worker without occurrence keys',
+    arrived: ['early', 'due'] as const,
+    legacy: true,
+    replica: fixedWest,
+    now: AT_NINE_WEST + 5 * MINUTE_MS,
+    shown: [] as number[],
+  },
+  {
+    name: 'this device lands west offline and the server keeps its zone',
+    arrived: ['early', 'due'] as const,
+    legacy: false,
+    replica: (server: Reminder) =>
+      new Replica({ version: 1, reminders: [server], zone: { name: 'UTC', fixed: false } }),
+    now: AT_NINE_WEST + 5 * MINUTE_MS,
+    shown: [] as number[],
+  },
+  {
+    name: 'an older tab saved the replica of a zone fixed west without the zone, on a device in UTC',
+    arrived: [] as const,
+    legacy: false,
+    replica: (server: Reminder) => new Replica({ version: 1, reminders: [movedZone(server, 'UTC', WEST)] }),
+    now: Date.UTC(2026, 9, 12, 9, 5),
+    shown: [] as number[],
+  },
+])('when $name, the fallback shows only what never arrived, at its time', async (row) => {
+  const { server, seen } = deliveredInUtc(row.arrived, row.legacy);
+  const synced = row.replica(server);
+  const device = harness(seen, [], Promise.resolve(), row.now);
+  const zone = synced.plannedZone();
+  device.fallback.schedule(synced.view([], zone ?? 'UTC'), zone, true);
   await device.ready(device.fire());
-  expect(device.shownFires).toEqual(shown.map((at) => fireId(server.id, { at, due: '2026-10-12T09:00' })));
+  expect(device.shownFires).toEqual(row.shown.map((at) => fireId(server.id, { at, due: '2026-10-12T09:00' })));
+});
+
+test('a push matching a fire id recorded alone gains its occurrence key, which still matches after a move', () => {
+  const { server, pushes } = deliveredInUtc([], false);
+  const [notice] = pushes.due;
+  if (!notice) throw new Error('no due notice');
+  const [fire, key] = [fireId(server.id, notice), noticeKey(server.id, notice)];
+  const arrived = claimNotice({ seen: [fire], claims: {} }, [fire, key], NOW, null);
+  const west = fireId(server.id, { at: AT_NINE_WEST, due: notice.due });
+  expect([arrived.outcome, claimNotice(arrived.notices, [west, key], NOW, null).outcome]).toEqual(['seen', 'seen']);
 });
 
 // Another device moved the instance zone to New York; this one, left at home, must plan in New York like the server.
@@ -309,7 +345,7 @@ test.each([
   const pushed = fireReminder(created, AT_NINE_WEST, WEST).notices.map((notice) => fireId(created.id, notice));
   expect(pushed).toHaveLength(1);
   const device = harness(pushed, [], Promise.resolve(), now);
-  device.fallback.schedule([created], snapshot(created, WEST, false).plannedZone(ZONE), true);
+  device.fallback.schedule([created], WEST, true);
   await device.ready(device.fire());
   expect(device.shown).toEqual([]);
 });

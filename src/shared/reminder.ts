@@ -3,7 +3,6 @@ import { nextOccurrence } from './occurrences';
 import { parseRule, type Frequency } from './rrule';
 import {
   HOUR_MS,
-  MINUTE_MS,
   addMonthsClamped,
   epochDay,
   formatLocal,
@@ -35,6 +34,8 @@ export interface ReminderFields {
 interface Pause {
   at: number;
   until: number | null;
+  /** The wall time `until` was picked as, once the zone has moved, so further moves keep it exactly. */
+  untilWall?: string;
 }
 
 interface ReminderState {
@@ -43,6 +44,8 @@ interface ReminderState {
   missed: number;
   snoozedUntil: number | null;
   firedThrough: number;
+  /** Notices after `firedThrough` that fired before a zone move reordered them, as `<due>/<slot>`. */
+  alsoFired: string[];
   completedAt: number | null;
   paused: Pause | null;
   /** Nothing planned at or before this is ever shown, even by a device's fallback: it predates the reminder or a pause. */
@@ -57,11 +60,16 @@ export interface Reminder extends ReminderFields, ReminderState {
 }
 
 /** A reminder as stored, which may predate pausing. */
-export type StoredReminder = Omit<Reminder, 'paused' | 'quietThrough'> &
-  Partial<Pick<Reminder, 'paused' | 'quietThrough'>>;
+export type StoredReminder = Omit<Reminder, 'paused' | 'quietThrough' | 'alsoFired'> &
+  Partial<Pick<Reminder, 'paused' | 'quietThrough' | 'alsoFired'>>;
 
 export function fromStored(stored: StoredReminder): Reminder {
-  return { ...stored, paused: stored.paused ?? null, quietThrough: stored.quietThrough ?? stored.createdAt };
+  return {
+    ...stored,
+    paused: stored.paused ?? null,
+    quietThrough: stored.quietThrough ?? stored.createdAt,
+    alsoFired: stored.alsoFired ?? [],
+  };
 }
 
 export function fieldsOf({ title, notes, start, zone, repeat, important, alerts }: ReminderFields): ReminderFields {
@@ -121,24 +129,6 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
   const { hour, minute } = local(reminder.start);
   const date = ADVANCE_DATE[freq](toLocal(completedAt, zoneFor(reminder, currentZone)), interval);
   return formatLocal({ year: date.year, month: date.month, day: date.day, hour, minute });
-}
-
-// A floating reminder keeps its wall times when the zone changes, so the instants it recorded must move with them:
-// otherwise flying west re-fires an occurrence, flying east silently skips one, and a pause ends at another time.
-// What was fired or kept quiet moves with the current occurrence, keeping its distance from the due time exactly:
-// going through wall time would round a time a zone skips forward, so a round trip could pass an unfired occurrence.
-// A pause's end is a wall time someone picked, so it keeps that.
-export function movedZone(reminder: Reminder, from: string, to: string): Reminder {
-  const delta = (dueAt(reminder, to) ?? 0) - (dueAt(reminder, from) ?? 0);
-  const shift = (instant: number) => instant + delta;
-  const wall = (instant: number) => toInstant(toLocal(instant, from), to) + (instant % MINUTE_MS);
-  const { paused } = reminder;
-  return {
-    ...reminder,
-    firedThrough: shift(reminder.firedThrough),
-    quietThrough: shift(reminder.quietThrough),
-    paused: paused && { at: shift(paused.at), until: paused.until === null ? null : wall(paused.until) },
-  };
 }
 
 export function isSnoozed(reminder: Reminder, now: number): boolean {

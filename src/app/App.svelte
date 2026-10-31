@@ -49,7 +49,7 @@
 
   const fallback = new Fallback({
     ready: () => navigator.serviceWorker.ready.then((registration) => (content) => showNudge(registration, content)),
-    claim: (keys) => claim(keys, Date.now()),
+    claim: (keys, occurrence) => claim(keys, Date.now(), occurrence),
     settle,
     wait: (run, ms) => {
       const timer = setTimeout(() => void run(), ms);
@@ -74,7 +74,11 @@
   });
 
   $effect(() => {
-    fallback.schedule(app.reminders, app.zone, app.notifications === 'granted' && app.freshness !== 'catching-up');
+    fallback.schedule(
+      app.reminders,
+      app.plannedZone,
+      app.notifications === 'granted' && app.freshness !== 'catching-up',
+    );
   });
 </script>
 
