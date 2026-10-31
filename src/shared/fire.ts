@@ -11,12 +11,18 @@ export interface Notice {
   at: number;
   due: string;
   missed: number;
+  /**
+   * Where the notice sits in its occurrence, the same in every zone: its distance from the due time, or, for what a
+   * snooze brings back, its instant. With the reminder and the due wall time it names the notice wherever it is planned.
+   */
+  slot: string;
 }
 
 interface AlertStep {
   at: number;
   alert: Alert;
   due: string;
+  slot: string;
 }
 
 type Step = { at: number; roll: string } | { at: number; resume: true } | { at: number; alerts: AlertStep[] };
@@ -24,15 +30,13 @@ type Step = { at: number; roll: string } | { at: number; resume: true } | { at: 
 function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   const comesUp = Math.max(due, quietUntil);
+  const slot = (at: number) => (comesUp > due && at >= comesUp ? `@${at}` : String(at - due));
+  const planned = (at: number, alert: Alert): AlertStep => ({ at, alert, due: wall, slot: slot(at) });
   const steps: AlertStep[] = [
-    ...reminder.alerts.map((minutes): AlertStep => ({ at: due - minutes * MINUTE_MS, alert: 'early', due: wall })),
-    { at: comesUp, alert: comesUp > due ? 'snoozed' : 'due', due: wall },
+    ...reminder.alerts.map((minutes) => planned(due - minutes * MINUTE_MS, 'early')),
+    planned(comesUp, comesUp > due ? 'snoozed' : 'due'),
     ...(reminder.important
-      ? Array.from({ length: NAG_LIMIT }, (_, i) => ({
-          at: comesUp + (i + 1) * NAG_INTERVAL_MS,
-          alert: 'nag' as const,
-          due: wall,
-        }))
+      ? Array.from({ length: NAG_LIMIT }, (_, i) => planned(comesUp + (i + 1) * NAG_INTERVAL_MS, 'nag'))
       : []),
   ];
   const eligible = steps.filter((step) => step.at >= quietUntil && step.at > reminder.firedThrough);
@@ -40,7 +44,7 @@ function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] 
   // still come back, even though it ends before the occurrence's new due time.
   const { snoozedUntil } = reminder;
   if (snoozedUntil !== null && snoozedUntil < due && reminder.firedThrough >= due) {
-    eligible.push({ at: snoozedUntil, alert: 'snoozed', due: wall });
+    eligible.push({ at: snoozedUntil, alert: 'snoozed', due: wall, slot: `@${snoozedUntil}` });
   }
   return eligible;
 }
@@ -53,7 +57,7 @@ function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Aler
     const wall = occurrenceAfter(reminder, Math.max(due, reminder.firedThrough + lead), zone);
     if (wall === null) return [];
     const at = instantOf(reminder, wall, zone) - lead;
-    return at >= quietUntil ? [{ at, alert: 'early' as const, due: wall }] : [];
+    return at >= quietUntil ? [{ at, alert: 'early' as const, due: wall, slot: String(-lead) }] : [];
   });
 }
 
@@ -97,7 +101,8 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
     if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
     current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
-    for (const { alert, at, due } of step.alerts) latest.set(due, { alert, at, due, missed: current.missed });
+    for (const { alert, at, due, slot } of step.alerts)
+      latest.set(due, { alert, at, due, slot, missed: current.missed });
   }
   const live = current.due;
   const notices = [...latest.values()].filter((notice) => live !== null && notice.due >= live);

@@ -79,12 +79,17 @@ test.each([
   [10, 10, 3],
   [11, 10, 3],
   [4, 10, 4],
-])('a reset to version 3 from version %i reconciles against the sent version %i', (version, since, expected) => {
-  const replica = new Replica({ version, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE }, since);
-  expect(replica.version).toBe(expected);
-  expect(replica.view([], ZONE)).toHaveLength(expected === 3 ? 0 : 1);
-});
+])(
+  'a reset to version 3 from version %i reconciles against the sent version %i, zone included',
+  (version, since, expected) => {
+    const kept = { name: 'America/New_York', fixed: true };
+    const replica = new Replica({ version, reminders: [server()], zone: kept });
+    replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE }, since);
+    expect(replica.version).toBe(expected);
+    expect(replica.view([], ZONE)).toHaveLength(expected === 3 ? 0 : 1);
+    expect(replica.zone).toEqual(expected === 3 ? INSTANCE : kept);
+  },
+);
 
 test('a snapshot saved before pausing existed loads as not paused, so its notifications are not taken as settled', () => {
   const { paused: _, ...stored } = server();

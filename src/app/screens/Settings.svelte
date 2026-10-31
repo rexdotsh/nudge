@@ -42,7 +42,7 @@
 
   const zoneOptions = $derived.by(() => {
     const now = Date.now();
-    const zones = new Set([...Intl.supportedValuesOf('timeZone'), app.zone, app.here]);
+    const zones = new Set([...Intl.supportedValuesOf('timeZone'), app.zone, app.here, app.fixedZone ?? app.zone]);
     const named = [...zones].map((zone) => ({ value: zone, label: zoneOptionLabel(zone, now) }));
     return [{ value: FOLLOW, label: 'Follow my devices' }, ...named.toSorted((a, b) => a.label.localeCompare(b.label))];
   });
@@ -167,13 +167,13 @@
     <div class="field">
       <span class="zone"
         ><span id="zone-choice">Reminder times</span><small
-          >{app.instance.fixed
-            ? `Stay on ${zonePlace(app.zone)} time`
-            : `Move with you, now ${zonePlace(app.zone)} time`}</small
+          >{app.fixedZone === null
+            ? `Move with you, now ${zonePlace(app.zone)} time`
+            : `Stay on ${zonePlace(app.fixedZone)} time`}</small
         >{#if app.away}<small>This device is on {zonePlace(app.here)} time</small>{/if}</span
       >
       <Select
-        value={app.instance.fixed ? app.zone : FOLLOW}
+        value={app.fixedZone ?? FOLLOW}
         options={zoneOptions}
         labelledby="zone-choice"
         onSelect={(value) => void app.chooseZone(value === FOLLOW ? null : value)}

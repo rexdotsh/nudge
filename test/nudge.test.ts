@@ -343,6 +343,25 @@ describe('sync', () => {
     expect(h.state.pushes.map((push) => push.message.notification.data.fire.split('/')[1])).toEqual([...due]);
   });
 
+  test('fixing a zone whose clocks skip an unfired reminder and fixing it back still fires it once', async () => {
+    h.state.now = Date.UTC(2026, 2, 8, 2);
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseZone(deviceId, 'UTC');
+    await h.put(deviceId, { start: '2026-03-08T02:30' });
+    const alarms = [h.state.alarm];
+    await chooseZone(deviceId, 'America/New_York');
+    alarms.push(h.state.alarm);
+    await chooseZone(deviceId, 'UTC');
+    alarms.push(h.state.alarm);
+    await h.runAlarmsThrough(Date.UTC(2026, 2, 8, 12));
+    const due = Date.UTC(2026, 2, 8, 2, 30);
+    expect(alarms).toEqual([due, Date.UTC(2026, 2, 8, 7, 30), due]);
+    expect(h.state.pushes.map((push) => push.message.notification.data.fire.split('/')[1])).toEqual([
+      '2026-03-08T02:30',
+    ]);
+  });
+
   test('a zone choice applies once, and neither its replay nor an older offline choice undoes a newer one', async () => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.put(deviceId);

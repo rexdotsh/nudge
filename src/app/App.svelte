@@ -49,7 +49,7 @@
 
   const fallback = new Fallback({
     ready: () => navigator.serviceWorker.ready.then((registration) => (content) => showNudge(registration, content)),
-    claim: (fire) => claim(fire, Date.now()),
+    claim: (keys) => claim(keys, Date.now()),
     settle,
     wait: (run, ms) => {
       const timer = setTimeout(() => void run(), ms);

@@ -1,16 +1,23 @@
 import { ApiRejected, Unreachable, request } from '../../browser/api';
 import { get, set, update } from '../../browser/kv';
 import { Replica } from '../../browser/replica';
-import type { Local, ZoneState } from '../../browser/schema';
+import type { Local } from '../../browser/schema';
 import { batch } from '../../browser/batch';
 import { isWorkerMessage } from '../../browser/messages';
 import { commit, currentZone, enqueue, readLocal } from '../../browser/outbox';
-import { chosenZone, instanceZone, receivedZone } from '../../browser/zone';
-import { MAX_REQUEST_BYTES, type Change, type Health, type SyncRequest, type Theme } from '../../shared/api';
+import {
+  MAX_REQUEST_BYTES,
+  type Change,
+  type Health,
+  type SyncRequest,
+  type Theme,
+  type ZoneChoice,
+} from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
 import type { Reminder } from '../../shared/reminder';
 import { DAY_MS, offsetAt } from '../../shared/time';
+import { ulid } from '../../shared/ulid';
 import { Connection } from './connection';
 import { ForegroundGate } from './gate';
 import { DEVICE_LABELS, detectPlatform } from './platform';
@@ -32,10 +39,12 @@ class App {
   now = $state(Date.now());
   /** Where this device is. */
   here = $state(currentZone());
-  private zoneState = $state.raw<ZoneState | undefined>(undefined);
   /** The zone reminders are planned and shown in, the same on every device. */
-  readonly instance = $derived(instanceZone(this.zoneState, this.here));
-  readonly zone = $derived(this.instance.name);
+  zone = $state(currentZone());
+  private zoneFixed = $state(false);
+  private zoneChoice = $state.raw<ZoneChoice | null>(null);
+  /** The zone reminders stay in, counting a choice not yet sent; null while they follow the devices. */
+  readonly fixedZone = $derived(this.zoneChoice ? this.zoneChoice.zone : this.zoneFixed ? this.zone : null);
   /** This device's clock reads another time than the zone reminders are shown in. */
   readonly away = $derived(offsetAt(this.now, this.here) !== offsetAt(this.now, this.zone));
   travelling = $state(false);
@@ -137,8 +146,9 @@ class App {
   }
 
   async chooseZone(zone: string | null): Promise<void> {
-    this.zoneState = await update('instanceZone', (state) => chosenZone(state, zone, this.here));
-    this.refresh();
+    const choice = { id: ulid(), zone, at: Date.now() };
+    await set('zoneChoice', choice);
+    this.zoneChoice = choice;
     void this.sync();
   }
 
@@ -170,20 +180,20 @@ class App {
       zone: currentZone(),
       changes: sent,
       theme: appearance.pending,
-      zoneChoice: this.zoneState?.pending ?? null,
+      zoneChoice: this.zoneChoice,
     };
     this.here = sending.zone;
     this.refresh();
     try {
       const response = await connection.sync(sending);
       if (this.connection !== connection) return;
-      const [local, zone] = await Promise.all([
+      const [local, zoneChoice] = await Promise.all([
         commit(response, sending.since, new Set(sent.map((change) => change.opId))),
-        update('instanceZone', (state) => receivedZone(state, sending, response)),
+        update('zoneChoice', (choice = null) => (choice?.id === sending.zoneChoice?.id ? null : choice)),
         appearance.receive(response, sending.theme),
       ]);
       if (local.pending.length > 0) this.again = true;
-      this.zoneState = zone;
+      this.zoneChoice = zoneChoice;
       this.show(local);
       this.online = true;
       settled('synced');
@@ -225,7 +235,7 @@ class App {
       return;
     }
     this.freshness = 'catching-up';
-    if ((this.pending.length > 0 || appearance.pending || this.zoneState?.pending) && this.token) {
+    if ((this.pending.length > 0 || appearance.pending || this.zoneChoice) && this.token) {
       void request(
         'sync',
         {
@@ -233,7 +243,7 @@ class App {
           zone: this.here,
           changes: batch(this.pending, KEEPALIVE_BYTES),
           theme: appearance.pending,
-          zoneChoice: this.zoneState?.pending ?? null,
+          zoneChoice: this.zoneChoice,
         },
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
@@ -279,8 +289,8 @@ class App {
   }
 
   private async reloadLocal(): Promise<void> {
-    const [local, zone] = await Promise.all([readLocal(), get('instanceZone')]);
-    this.zoneState = zone;
+    const [local, zoneChoice] = await Promise.all([readLocal(), get('zoneChoice')]);
+    this.zoneChoice = zoneChoice ?? null;
     this.show(local);
   }
 
@@ -291,6 +301,8 @@ class App {
   }
 
   private refresh(): void {
+    this.zone = this.replica.plannedZone(this.here);
+    this.zoneFixed = this.replica.zone?.fixed ?? false;
     this.reminders = this.replica.view(this.pending, this.zone);
   }
 }

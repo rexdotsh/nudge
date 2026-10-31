@@ -125,14 +125,19 @@ export function dueAfterCompletion(reminder: Reminder, completedAt: number, curr
 
 // A floating reminder keeps its wall times when the zone changes, so the instants it recorded must move with them:
 // otherwise flying west re-fires an occurrence, flying east silently skips one, and a pause ends at another time.
+// What was fired or kept quiet moves with the current occurrence, keeping its distance from the due time exactly:
+// going through wall time would round a time a zone skips forward, so a round trip could pass an unfired occurrence.
+// A pause's end is a wall time someone picked, so it keeps that.
 export function movedZone(reminder: Reminder, from: string, to: string): Reminder {
-  const move = (instant: number) => toInstant(toLocal(instant, from), to) + (instant % MINUTE_MS);
+  const delta = (dueAt(reminder, to) ?? 0) - (dueAt(reminder, from) ?? 0);
+  const shift = (instant: number) => instant + delta;
+  const wall = (instant: number) => toInstant(toLocal(instant, from), to) + (instant % MINUTE_MS);
   const { paused } = reminder;
   return {
     ...reminder,
-    firedThrough: move(reminder.firedThrough),
-    quietThrough: move(reminder.quietThrough),
-    paused: paused && { at: move(paused.at), until: paused.until === null ? null : move(paused.until) },
+    firedThrough: shift(reminder.firedThrough),
+    quietThrough: shift(reminder.quietThrough),
+    paused: paused && { at: shift(paused.at), until: paused.until === null ? null : wall(paused.until) },
   };
 }
 

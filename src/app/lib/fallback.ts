@@ -1,5 +1,5 @@
 import { fire, nextFireAt } from '../../shared/fire';
-import { fireId, reminderMessage, type NotificationContent } from '../../shared/notification';
+import { noticeKeys, reminderMessage, type NotificationContent } from '../../shared/notification';
 import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
 import { HOUR_MS } from '../../shared/time';
@@ -14,8 +14,8 @@ type Display = (content: NotificationContent) => Promise<void>;
 
 export interface FallbackDeps {
   ready: () => Promise<Display>;
-  claim: (fire: string) => Promise<Claim>;
-  settle: (fire: string, shown: boolean) => Promise<void>;
+  claim: (keys: readonly string[]) => Promise<Claim>;
+  settle: (keys: readonly string[], shown: boolean) => Promise<void>;
   wait: (run: () => Promise<void>, ms: number) => () => void;
   now: () => number;
   origin: string;
@@ -23,16 +23,21 @@ export interface FallbackDeps {
 }
 
 // The server advances firedThrough when it plans a push, not when the push arrives, so this ignores it and instead
-// trusts only what this device has actually shown, through the claims the service worker shares.
+// trusts only what this device has actually shown, through the claims the service worker shares. Those name a notice
+// by its occurrence, so one shown before the zone moved is not shown again at its new instant.
 export class Fallback {
   private cancel = () => {};
   private generation = 0;
+  private zone: string | null = null;
   private readonly watermarks = new Map<string, number>();
 
   constructor(private readonly deps: FallbackDeps) {}
 
   schedule(reminders: readonly Reminder[], zone: string, enabled: boolean): void {
     this.generation++;
+    // Watermarks are instants in the zone they were reached in; after a move the claims alone tell what was shown.
+    if (zone !== this.zone) this.watermarks.clear();
+    this.zone = zone;
     this.arm(reminders, zone, enabled);
   }
 
@@ -69,27 +74,23 @@ export class Fallback {
     }
   }
 
-  private async showOnce(
-    key: string,
-    content: NotificationContent,
-    display: Display,
-    generation: number,
-  ): Promise<boolean> {
-    const claimed = await this.deps.claim(key);
+  private async showOnce(content: NotificationContent, display: Display, generation: number): Promise<boolean> {
+    const keys = noticeKeys(content.data);
+    const claimed = await this.deps.claim(keys);
     if (claimed !== 'won') return claimed === 'seen';
     if (generation !== this.generation) {
-      await this.deps.settle(key, false);
+      await this.deps.settle(keys, false);
       return false;
     }
-    console.warn(`push for ${key} did not arrive; showing it locally`);
+    console.warn(`push for ${content.data.fire} did not arrive; showing it locally`);
     const ok = await display(content).then(
       () => true,
       (error: unknown) => {
-        console.error(`could not show ${key} locally`, error);
+        console.error(`could not show ${content.data.fire} locally`, error);
         return false;
       },
     );
-    await this.deps.settle(key, ok);
+    await this.deps.settle(keys, ok);
     return ok;
   }
 
@@ -112,13 +113,11 @@ export class Fallback {
     for (const reminder of reminders) {
       const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
       const shown = notices.map((notice) => {
-        const key = fireId(reminder.id, notice);
-        return this.showOnce(key, reminderMessage(advanced, notice, view).notification, display, generation).catch(
-          (error: unknown) => {
-            console.error(`could not record ${key}`, error);
-            return false;
-          },
-        );
+        const content = reminderMessage(advanced, notice, view).notification;
+        return this.showOnce(content, display, generation).catch((error: unknown) => {
+          console.error(`could not record ${content.data.fire}`, error);
+          return false;
+        });
       });
       outcomes.push(
         Promise.all(shown).then((done) => {

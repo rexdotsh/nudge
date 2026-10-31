@@ -46,7 +46,7 @@ test.each([
 });
 
 test('a reminder notification names its occurrence in its tag, which iOS keeps when it drops the data', () => {
-  const notice = { at: NOW, due: DUE, alert: 'due' as const, missed: 0, alongside: false };
+  const notice = { at: NOW, due: DUE, alert: 'due' as const, missed: 0, slot: '0', alongside: false };
   const view = { origin: 'https://nudge.example', zone: ZONE, locale: 'en', badge: 0 };
   const { tag = '' } = reminderMessage(reminder(false), notice, view).notification;
   expect(taggedOccurrence(tag)).toEqual({ id: ID, due: DUE });

@@ -8,11 +8,9 @@ import { commit, currentZone, enqueue, readLocal } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
 import { Replica } from '../browser/replica';
 import { claim, isSeen, settle } from '../browser/seen';
-import { get, update } from '../browser/kv';
-import { instanceZone, receivedZone } from '../browser/zone';
-import { MAX_REQUEST_BYTES, type SyncRequest } from '../shared/api';
+import { MAX_REQUEST_BYTES } from '../shared/api';
 import { lateCount } from '../shared/reminder';
-import { isSettledTag, type PushData } from '../shared/notification';
+import { isSettledTag, noticeKeys, type PushData } from '../shared/notification';
 import type { Op } from '../shared/ops';
 import { MINUTE_MS } from '../shared/time';
 import { isRecord } from '../shared/validate';
@@ -22,22 +20,28 @@ declare const self: ServiceWorkerGlobalScope;
 const CACHE_PREFIX = 'nudge-';
 const CACHE = `${CACHE_PREFIX}${NUDGE_BUILD}`;
 function isPushData(value: unknown): value is PushData {
-  return isRecord(value) && typeof value.fire === 'string';
+  return (
+    isRecord(value) &&
+    typeof value.fire === 'string' &&
+    (value.notice === undefined || typeof value.notice === 'string')
+  );
 }
 
-async function present(fire: string, show?: () => Promise<void>): Promise<void> {
+async function present(data: PushData, show?: () => Promise<void>): Promise<void> {
+  const { fire } = data;
+  const keys = noticeKeys(data);
   if (!show) {
-    await settle(fire, true);
-  } else if ((await claim(fire, Date.now())) === 'won') {
+    await settle(keys, true);
+  } else if ((await claim(keys, Date.now())) === 'won') {
     await show().then(
-      () => settle(fire, true),
+      () => settle(keys, true),
       async (error: unknown) => {
-        await settle(fire, false);
+        await settle(keys, false);
         throw error;
       },
     );
   }
-  if (!(await isSeen(fire))) return;
+  if (!(await isSeen(keys))) return;
   await request('receipt', { fire }).catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
     console.warn('receipt failed; the server will resend and this device will confirm then', error);
@@ -92,7 +96,7 @@ self.addEventListener('push', (event) => {
   const push = readPush(event, isPushData);
   if (!push) return;
   if (push.kind === 'declarative') {
-    waitUntilWithin(event, Promise.all([present(push.data.fire), tidy()]), SHOW_WITHIN_MS);
+    waitUntilWithin(event, Promise.all([present(push.data), tidy()]), SHOW_WITHIN_MS);
     return;
   }
   const { message } = push;
@@ -100,7 +104,7 @@ self.addEventListener('push', (event) => {
   const badge = Number(message.app_badge);
   event.waitUntil(
     Promise.all([
-      present(notification.data.fire, () => showNudge(self.registration, notification)),
+      present(notification.data, () => showNudge(self.registration, notification)),
       tidy(),
       Number.isFinite(badge) && 'setAppBadge' in self.navigator ? self.navigator.setAppBadge(badge) : undefined,
     ]),
@@ -109,27 +113,19 @@ self.addEventListener('push', (event) => {
 
 // Sends the outbox in order, so an action never overtakes the change that created what it acts on.
 async function drain(): Promise<void> {
-  const [local, zone] = await Promise.all([readLocal(), get('instanceZone')]);
+  const local = await readLocal();
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
-  const sent: SyncRequest = {
-    since: local.replica.version,
-    zone: currentZone(),
-    changes,
-    theme: null,
-    zoneChoice: zone?.pending ?? null,
-  };
-  const response = await request('sync', sent);
-  const [{ pending }] = await Promise.all([
-    commit(response, sent.since, new Set(changes.map((change) => change.opId))),
-    update('instanceZone', (state) => receivedZone(state, sent, response)),
-  ]);
+  const since = local.replica.version;
+  const response = await request('sync', { since, zone: currentZone(), changes, theme: null, zoneChoice: null });
+  const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
   if (pending.length > 0) await drain();
 }
 
 async function planned() {
-  const [local, state] = await Promise.all([readLocal(), get('instanceZone')]);
-  const zone = instanceZone(state, currentZone()).name;
-  return { reminders: new Replica(local.replica).view(local.pending, zone), zone };
+  const local = await readLocal();
+  const replica = new Replica(local.replica);
+  const zone = replica.plannedZone(currentZone());
+  return { reminders: replica.view(local.pending, zone), zone };
 }
 
 // A device with Nudge closed runs nothing but this worker, so each push is its chance to drop notifications for

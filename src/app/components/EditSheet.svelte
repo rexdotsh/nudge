@@ -81,7 +81,7 @@
           >Keep this time zone<small
             >{draft.pinned
               ? `Always ${zoneLabel(zone, app.now)}`
-              : app.instance.fixed
+              : app.fixedZone !== null
                 ? `In ${zoneLabel(zone, app.now)}, from Settings`
                 : 'Follows you when you travel'}</small
           ></span

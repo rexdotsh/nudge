@@ -4,6 +4,8 @@ import type { StoredReminder } from '../shared/reminder';
 export interface Snapshot {
   version: number;
   reminders: StoredReminder[];
+  /** The instance zone, from the same response as the reminders; absent before the first sync and in older saves. */
+  zone?: InstanceZone;
 }
 
 export interface Local {
@@ -24,14 +26,6 @@ export interface ThemeState {
   pending: ThemeChoice | null;
 }
 
-export interface ZoneState {
-  zone: InstanceZone;
-  /** Where this device was when it last told the server, so a move it has not reported yet can be foreseen. */
-  reported: string;
-  version: number;
-  pending: ZoneChoice | null;
-}
-
 export const EMPTY_LOCAL: Local = { replica: { version: 0, reminders: [] }, pending: [] };
 
 export interface Schema {
@@ -43,7 +37,8 @@ export interface Schema {
   state: Local;
   notices: Notices;
   zone: { name: string; since: number };
-  instanceZone: ZoneState;
+  /** A zone choice made on this device and not yet answered by a sync. */
+  zoneChoice: ZoneChoice | null;
   zoneControls: boolean;
   health: Health;
   theme: ThemeState;

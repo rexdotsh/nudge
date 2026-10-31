@@ -1,30 +1,39 @@
 import { get, update } from './kv';
 import type { Claim, Notices } from './schema';
 
-const LIMIT = 300;
+const LIMIT = 600;
 const CLAIM_MS = 60_000;
 const EMPTY: Notices = { seen: [], claims: {} };
 
-export async function isSeen(fire: string): Promise<boolean> {
-  return ((await get('notices')) ?? EMPTY).seen.includes(fire);
+// A notice goes by several keys (see `noticeKeys`); any one of them seen or claimed stands for the notice.
+export async function isSeen(keys: readonly string[]): Promise<boolean> {
+  const { seen } = (await get('notices')) ?? EMPTY;
+  return keys.some((key) => seen.includes(key));
 }
 
-// The service worker and an open page can both try to show the same fire; whoever claims it first shows it.
-export async function claim(fire: string, now: number): Promise<Claim> {
+// The service worker and an open page can both try to show the same notice; whoever claims it first shows it.
+export async function claim(keys: readonly string[], now: number): Promise<Claim> {
   let outcome: Claim = 'busy';
   await update('notices', (current = EMPTY) => {
-    const claimedAt = current.claims[fire];
-    if (current.seen.includes(fire)) outcome = 'seen';
-    else if (claimedAt !== undefined && now - claimedAt < CLAIM_MS) outcome = 'busy';
+    const busy = (key: string) => {
+      const claimedAt = current.claims[key];
+      return claimedAt !== undefined && now - claimedAt < CLAIM_MS;
+    };
+    if (keys.some((key) => current.seen.includes(key))) outcome = 'seen';
+    else if (keys.some(busy)) outcome = 'busy';
     else outcome = 'won';
-    return outcome === 'won' ? { ...current, claims: { ...current.claims, [fire]: now } } : current;
+    if (outcome !== 'won') return current;
+    return { ...current, claims: { ...current.claims, ...Object.fromEntries(keys.map((key) => [key, now])) } };
   });
   return outcome;
 }
 
-export async function settle(fire: string, shown: boolean): Promise<void> {
-  await update('notices', (current = EMPTY) => ({
-    claims: Object.fromEntries(Object.entries(current.claims).filter(([key]) => key !== fire)),
-    seen: shown && !current.seen.includes(fire) ? [...current.seen.slice(1 - LIMIT), fire] : current.seen,
-  }));
+export async function settle(keys: readonly string[], shown: boolean): Promise<void> {
+  await update('notices', (current = EMPTY) => {
+    const added = shown ? keys.filter((key) => !current.seen.includes(key)) : [];
+    return {
+      claims: Object.fromEntries(Object.entries(current.claims).filter(([key]) => !keys.includes(key))),
+      seen: added.length > 0 ? [...current.seen.slice(added.length - LIMIT), ...added] : current.seen,
+    };
+  });
 }

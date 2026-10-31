@@ -1,4 +1,4 @@
-import type { Change, SyncResponse } from '../shared/api';
+import type { Change, InstanceZone, SyncResponse } from '../shared/api';
 import { applyOp } from '../shared/ops';
 import { fromStored, type Reminder } from '../shared/reminder';
 import type { Snapshot } from './schema';
@@ -6,10 +6,12 @@ import type { Snapshot } from './schema';
 export class Replica {
   private readonly server = new Map<string, Reminder>();
   version = 0;
+  zone: InstanceZone | null = null;
 
   constructor(snapshot?: Snapshot) {
     if (!snapshot) return;
     this.version = snapshot.version;
+    this.zone = snapshot.zone ?? null;
     for (const reminder of snapshot.reminders) this.server.set(reminder.id, fromStored(reminder));
   }
 
@@ -18,10 +20,19 @@ export class Replica {
     if (response.reset) this.server.clear();
     for (const reminder of response.reminders) this.server.set(reminder.id, reminder);
     this.version = response.version;
+    this.zone = response.zone;
   }
 
   snapshot(): Snapshot {
-    return { version: this.version, reminders: [...this.server.values()] };
+    return { version: this.version, reminders: [...this.server.values()], zone: this.zone ?? undefined };
+  }
+
+  /**
+   * The zone this device plans in: the one the server last confirmed, never one guessed from where the device is now,
+   * which the server may not adopt. Before the first sync, or from a save older than the zone, its own zone stands in.
+   */
+  plannedZone(here: string): string {
+    return this.zone?.name ?? here;
   }
 
   view(pending: readonly Change[], zone: string): Reminder[] {
