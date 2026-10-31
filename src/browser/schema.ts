@@ -1,4 +1,4 @@
-import type { Change, Health, Session, Theme, ThemeChoice } from '../shared/api';
+import type { Change, Health, InstanceZone, Session, Theme, ThemeChoice, ZoneChoice } from '../shared/api';
 import type { StoredReminder } from '../shared/reminder';
 
 export interface Snapshot {
@@ -24,6 +24,14 @@ export interface ThemeState {
   pending: ThemeChoice | null;
 }
 
+export interface ZoneState {
+  zone: InstanceZone;
+  /** Where this device was when it last told the server, so a move it has not reported yet can be foreseen. */
+  reported: string;
+  version: number;
+  pending: ZoneChoice | null;
+}
+
 export const EMPTY_LOCAL: Local = { replica: { version: 0, reminders: [] }, pending: [] };
 
 export interface Schema {
@@ -35,6 +43,7 @@ export interface Schema {
   state: Local;
   notices: Notices;
   zone: { name: string; since: number };
+  instanceZone: ZoneState;
   zoneControls: boolean;
   health: Health;
   theme: ThemeState;

@@ -8,7 +8,9 @@ import { commit, currentZone, enqueue, readLocal } from '../browser/outbox';
 import { subscribePush } from '../browser/push';
 import { Replica } from '../browser/replica';
 import { claim, isSeen, settle } from '../browser/seen';
-import { MAX_REQUEST_BYTES } from '../shared/api';
+import { get, update } from '../browser/kv';
+import { instanceZone, receivedZone } from '../browser/zone';
+import { MAX_REQUEST_BYTES, type SyncRequest } from '../shared/api';
 import { lateCount } from '../shared/reminder';
 import { isSettledTag, type PushData } from '../shared/notification';
 import type { Op } from '../shared/ops';
@@ -107,12 +109,27 @@ self.addEventListener('push', (event) => {
 
 // Sends the outbox in order, so an action never overtakes the change that created what it acts on.
 async function drain(): Promise<void> {
-  const local = await readLocal();
+  const [local, zone] = await Promise.all([readLocal(), get('instanceZone')]);
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
-  const since = local.replica.version;
-  const response = await request('sync', { since, zone: currentZone(), changes, theme: null });
-  const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
+  const sent: SyncRequest = {
+    since: local.replica.version,
+    zone: currentZone(),
+    changes,
+    theme: null,
+    zoneChoice: zone?.pending ?? null,
+  };
+  const response = await request('sync', sent);
+  const [{ pending }] = await Promise.all([
+    commit(response, sent.since, new Set(changes.map((change) => change.opId))),
+    update('instanceZone', (state) => receivedZone(state, sent, response)),
+  ]);
   if (pending.length > 0) await drain();
+}
+
+async function planned() {
+  const [local, state] = await Promise.all([readLocal(), get('instanceZone')]);
+  const zone = instanceZone(state, currentZone()).name;
+  return { reminders: new Replica(local.replica).view(local.pending, zone), zone };
 }
 
 // A device with Nudge closed runs nothing but this worker, so each push is its chance to drop notifications for
@@ -121,16 +138,13 @@ async function tidy(): Promise<void> {
   await drain().catch((error: unknown) => {
     if (!(error instanceof Unreachable)) throw error;
   });
-  const local = await readLocal();
-  const reminders = new Replica(local.replica).view(local.pending, currentZone());
+  const { reminders } = await planned();
   await closeNotifications(self.registration, (tag) => isSettledTag(tag, reminders, Date.now()));
 }
 
 async function recount(): Promise<void> {
   if (!('setAppBadge' in self.navigator)) return;
-  const local = await readLocal();
-  const zone = currentZone();
-  const reminders = new Replica(local.replica).view(local.pending, zone);
+  const { reminders, zone } = await planned();
   await self.navigator.setAppBadge(lateCount(reminders, Date.now(), zone));
 }
 

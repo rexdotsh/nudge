@@ -20,9 +20,20 @@ const formatters = memoize((zone) => {
     longDate: style({ dateStyle: 'full' }),
     day: style({ day: 'numeric' }),
     month: style({ month: 'long', year: 'numeric' }),
-    zoneName: style({ timeZoneName: 'long' }),
   };
 });
+
+// Apart from the other formatters, since the time zone picker names every zone there is.
+const zoneNames = memoize((zone) => {
+  const style = (timeZoneName: 'long' | 'shortOffset') =>
+    new Intl.DateTimeFormat(locale, { timeZone: zone, timeZoneName });
+  return { long: style('long'), offset: style('shortOffset') };
+});
+
+function zoneName(zone: string, now: number, style: keyof ReturnType<typeof zoneNames>): string {
+  const parts = zoneNames(zone)[style].formatToParts(now);
+  return parts.find((part) => part.type === 'timeZoneName')?.value ?? zone;
+}
 
 type Style = keyof ReturnType<typeof formatters>;
 
@@ -107,8 +118,16 @@ export function shortWhen(instant: number, now: number, zone: string): string {
 }
 
 export function zoneLabel(zone: string, now: number): string {
-  const parts = formatters(zone).zoneName.formatToParts(now);
-  return parts.find((part) => part.type === 'timeZoneName')?.value ?? zone;
+  return zoneName(zone, now, 'long');
+}
+
+/** A zone by its place, like Buenos Aires for America/Argentina/Buenos_Aires. */
+export function zonePlace(zone: string): string {
+  return (zone.split('/').at(-1) ?? zone).replaceAll('_', ' ');
+}
+
+export function zoneOptionLabel(zone: string, now: number): string {
+  return `${zonePlace(zone)} · ${zoneName(zone, now, 'offset')}`;
 }
 
 export function repeatLabel(repeat: Repeat, start: string, zone: string, options?: { withTime: boolean }): string {

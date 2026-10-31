@@ -51,11 +51,29 @@ export interface ThemeChoice {
   at: number;
 }
 
+/**
+ * The zone every device plans and shows reminders without their own zone in: where a device last moved to, or, once
+ * fixed, one chosen in Settings that no device moves.
+ */
+export interface InstanceZone {
+  name: string;
+  fixed: boolean;
+}
+
+/** A zone fixed on one device, or null to follow the devices again, sent with every sync until one is answered. */
+export interface ZoneChoice {
+  id: string;
+  zone: string | null;
+  at: number;
+}
+
 export interface SyncRequest {
   since: number;
+  /** Where the sending device is. */
   zone: string;
   changes: Change[];
   theme: ThemeChoice | null;
+  zoneChoice: ZoneChoice | null;
 }
 
 export interface SyncResponse {
@@ -63,6 +81,7 @@ export interface SyncResponse {
   reminders: Reminder[];
   reset: boolean;
   theme: Theme;
+  zone: InstanceZone;
 }
 
 export interface PublicRoutes {

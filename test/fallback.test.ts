@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
 import { Fallback } from '../src/app/lib/fallback';
+import { instanceZone } from '../src/browser/zone';
 import { fire as fireReminder, nextFireAt } from '../src/shared/fire';
 import { fireId, type NotificationContent } from '../src/shared/notification';
 import { applyOp } from '../src/shared/ops';
 import { movedZone, type Reminder } from '../src/shared/reminder';
-import { MINUTE_MS } from '../src/shared/time';
+import { DAY_MS, MINUTE_MS } from '../src/shared/time';
 import { ulid } from '../src/shared/ulid';
 
 const ZONE = 'Asia/Kolkata';
@@ -225,6 +226,34 @@ test('after flying west, a fallback still keeps quiet the warning a pause held b
   expect(nextFireAt(moved, ny)).toBe(warning + 60 * MINUTE_MS);
   const device = harness([], [], Promise.resolve(), warning + 5 * MINUTE_MS);
   device.fallback.schedule([moved], ny, true);
+  await device.ready(device.fire());
+  expect(device.shown).toEqual([]);
+});
+
+// Another device moved the instance zone to New York; this one, left at home, must plan in New York like the server.
+test.each([
+  ["at this device's own 9:00", Date.UTC(2026, 9, 12, 3, 35)],
+  ["at the instance zone's 9:00, after the server's push arrived", Date.UTC(2026, 9, 12, 13, 5)],
+])('a device away from the instance zone plans its fallback there, so it shows nothing %s', async (_, now) => {
+  const away = 'America/New_York';
+  const fields = {
+    title: 'Call the bank',
+    notes: '',
+    start: '2026-10-12T09:00',
+    zone: null,
+    repeat: null,
+    important: false,
+    alerts: [],
+  };
+  const created = applyOp(undefined, { type: 'put', id: ulid(), fields }, { now: NOW - DAY_MS, zone: away });
+  if (!created) throw new Error('create failed');
+  const pushed = fireReminder(created, Date.UTC(2026, 9, 12, 13), away).notices.map((notice) =>
+    fireId(created.id, notice),
+  );
+  expect(pushed).toHaveLength(1);
+  const state = { zone: { name: away, fixed: false }, reported: ZONE, version: 1, pending: null };
+  const device = harness(pushed, [], Promise.resolve(), now);
+  device.fallback.schedule([created], instanceZone(state, ZONE).name, true);
   await device.ready(device.fire());
   expect(device.shown).toEqual([]);
 });

@@ -14,7 +14,7 @@
   import Toast from '../components/Toast.svelte';
   import { remove, reopen } from '../lib/actions';
   import { app } from '../lib/app.svelte';
-  import { dayHeading, whenLabel } from '../lib/format';
+  import { dayHeading, whenLabel, zoneLabel, zonePlace } from '../lib/format';
   import { glide } from '../lib/motion.svelte';
   import { triage } from '../../shared/triage';
   import { recentlyCompleted } from '../lib/sections';
@@ -68,7 +68,11 @@
 
 <div class="page home" bind:this={page}>
   <header>
-    <h1>{day.weekday} <span>{day.date}</span></h1>
+    <h1>
+      {day.weekday} <span>{day.date}</span>{#if app.away}<span title={zoneLabel(app.zone, app.now)}
+          >{` · Times in ${zonePlace(app.zone)}`}</span
+        >{/if}
+    </h1>
     <div class="tools">
       {#if !app.online}<span class="chip">Offline</span>{/if}
       <button class="round press" onclick={onSettings} aria-label="Settings" title={tip('Settings', SETTINGS)}

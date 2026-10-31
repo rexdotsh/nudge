@@ -7,6 +7,7 @@ import type { Reminder, ReminderFields } from '../src/shared/reminder';
 import { ulid } from '../src/shared/ulid';
 
 const ZONE = 'Asia/Kolkata';
+const INSTANCE = { name: ZONE, fixed: false };
 const NOW = Date.UTC(2026, 9, 11, 14, 0);
 const ID = ulid(NOW);
 
@@ -41,6 +42,7 @@ test('pending changes are layered over the server state until the server acknowl
     reminders: [{ ...server(), title: 'Pay rent (edited elsewhere)' }],
     reset: false,
     theme: 'classic',
+    zone: INSTANCE,
   });
   expect(replica.view([complete], ZONE)[0]).toMatchObject({ title: 'Pay rent (edited elsewhere)', due: null });
   expect(replica.view([], ZONE)[0]?.due).toBe('2026-10-12T09:00');
@@ -48,15 +50,27 @@ test('pending changes are layered over the server state until the server acknowl
 
 test('a reset drops everything the server no longer has', () => {
   const replica = new Replica({ version: 5, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic' });
+  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE });
   expect(replica.view([], ZONE)).toEqual([]);
   expect(replica.version).toBe(3);
 });
 
 test('a slower, older sync response never rolls the replica back', () => {
   const replica = new Replica({ version: 1, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [{ ...server(), title: 'Newer' }], reset: false, theme: 'classic' });
-  replica.receive({ version: 2, reminders: [{ ...server(), title: 'Older' }], reset: false, theme: 'classic' });
+  replica.receive({
+    version: 3,
+    reminders: [{ ...server(), title: 'Newer' }],
+    reset: false,
+    theme: 'classic',
+    zone: INSTANCE,
+  });
+  replica.receive({
+    version: 2,
+    reminders: [{ ...server(), title: 'Older' }],
+    reset: false,
+    theme: 'classic',
+    zone: INSTANCE,
+  });
   expect(replica.version).toBe(3);
   expect(replica.view([], ZONE)[0]?.title).toBe('Newer');
 });
@@ -67,7 +81,7 @@ test.each([
   [4, 10, 4],
 ])('a reset to version 3 from version %i reconciles against the sent version %i', (version, since, expected) => {
   const replica = new Replica({ version, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic' }, since);
+  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE }, since);
   expect(replica.version).toBe(expected);
   expect(replica.view([], ZONE)).toHaveLength(expected === 3 ? 0 : 1);
 });

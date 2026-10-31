@@ -1,4 +1,5 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
+import type { InstanceZone } from '../shared/api';
 import { fire, nextFireAt, type Notice } from '../shared/fire';
 import {
   fireId,
@@ -44,15 +45,27 @@ export class Scheduler {
   ) {}
 
   zone(): string {
-    return this.store.meta('zone') ?? 'UTC';
+    return this.store.zone().name;
   }
 
-  setZone(zone: string): void {
+  /** Moves the zone to where a device now is, unless it was fixed. */
+  follow(zone: string): void {
+    if (!this.store.zone().fixed) this.setZone({ name: zone, fixed: false });
+  }
+
+  /** The latest choice wins by when it was made, so a device coming back online cannot undo a newer one. */
+  chooseZone(choice: string | null, here: string, at: number): void {
+    if (at < Number(this.store.meta('zone_chosen_at') ?? 0)) return;
+    this.store.setMeta('zone_chosen_at', String(at));
+    this.setZone({ name: choice ?? here, fixed: choice !== null });
+  }
+
+  private setZone(zone: InstanceZone): void {
     const previous = this.store.meta('zone');
-    if (previous === zone) return;
-    this.store.setMeta('zone', zone);
+    this.store.setZone(zone);
+    if (previous === zone.name) return;
     for (const reminder of this.store.reminders()) {
-      if (reminder.zone === null) this.save(previous === null ? reminder : movedZone(reminder, previous, zone));
+      if (reminder.zone === null) this.save(previous === null ? reminder : movedZone(reminder, previous, zone.name));
     }
   }
 

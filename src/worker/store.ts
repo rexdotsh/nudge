@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, THEMES, type Theme } from '../shared/api';
+import { DEFAULT_THEME, THEMES, type InstanceZone, type Theme } from '../shared/api';
 import { fromStored, type Reminder } from '../shared/reminder';
 import { DELIVERY_SCHEMA, Deliveries } from './deliveries';
 import { DEVICE_SCHEMA, Devices } from './devices';
@@ -81,6 +81,18 @@ export class Store {
     if (theme !== this.theme()) this.nextVersion();
     this.setMeta('theme', theme);
     this.setMeta('theme_at', String(at));
+  }
+
+  zone(): InstanceZone {
+    return { name: this.meta('zone') ?? 'UTC', fixed: this.meta('zone_fixed') === 'true' };
+  }
+
+  /** A change of zone takes a version even when no reminder moves with it, so every device hears of it. */
+  setZone({ name, fixed }: InstanceZone): void {
+    const current = this.zone();
+    if (this.meta('zone') !== null && (current.name !== name || current.fixed !== fixed)) this.nextVersion();
+    this.setMeta('zone', name);
+    this.setMeta('zone_fixed', String(fixed));
   }
 
   private decoded(query: string, ...bindings: SqlValue[]): Reminder[] {

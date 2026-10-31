@@ -6,9 +6,10 @@
   import AgentConnect from '../components/AgentConnect.svelte';
   import Icon from '../components/Icon.svelte';
   import Toast from '../components/Toast.svelte';
+  import Select from '../components/Select.svelte';
   import ThemeOptions from '../components/ThemeOptions.svelte';
   import { app } from '../lib/app.svelte';
-  import { whenLabel, zoneLabel } from '../lib/format';
+  import { whenLabel, zoneOptionLabel, zonePlace } from '../lib/format';
   import { closeOnBack } from '../lib/close';
   import { installer, type Prompted } from '../lib/install.svelte';
   import type { PushPermission } from 'declarative-web-push/client';
@@ -36,6 +37,15 @@
     denied: 'Blocked',
     unsupported: 'Not supported here',
   };
+
+  const FOLLOW = 'follow';
+
+  const zoneOptions = $derived.by(() => {
+    const now = Date.now();
+    const zones = new Set([...Intl.supportedValuesOf('timeZone'), app.zone, app.here]);
+    const named = [...zones].map((zone) => ({ value: zone, label: zoneOptionLabel(zone, now) }));
+    return [{ value: FOLLOW, label: 'Follow my devices' }, ...named.toSorted((a, b) => a.label.localeCompare(b.label))];
+  });
 
   async function attempt(action: () => Promise<void>) {
     try {
@@ -155,8 +165,19 @@
   <h2 class="label">Time zone</h2>
   <div class="group">
     <div class="field">
-      <span>Reminders follow you<small>Times move with you when you travel</small></span>
-      <span class="value">{zoneLabel(app.zone, app.now)}</span>
+      <span class="zone"
+        ><span id="zone-choice">Reminder times</span><small
+          >{app.instance.fixed
+            ? `Stay on ${zonePlace(app.zone)} time`
+            : `Move with you, now ${zonePlace(app.zone)} time`}</small
+        >{#if app.away}<small>This device is on {zonePlace(app.here)} time</small>{/if}</span
+      >
+      <Select
+        value={app.instance.fixed ? app.zone : FOLLOW}
+        options={zoneOptions}
+        labelledby="zone-choice"
+        onSelect={(value) => void app.chooseZone(value === FOLLOW ? null : value)}
+      />
     </div>
     <label class="field">
       <span>Time zone per reminder<small>Let a reminder keep one time zone wherever you are</small></span>
@@ -278,6 +299,11 @@
 
   h2 {
     margin: 26px 2px 8px;
+  }
+
+  /* Takes what the picker leaves, so the picker shows its whole choice. */
+  .zone {
+    flex: 1;
   }
 
   .me {
