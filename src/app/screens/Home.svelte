@@ -169,7 +169,7 @@
 
 <style>
   .home {
-    padding-bottom: calc(env(safe-area-inset-bottom) + 120px);
+    padding-bottom: calc(var(--dock) + var(--dock-height) + 68px);
   }
 
   header {
