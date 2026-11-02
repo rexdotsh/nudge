@@ -16,8 +16,9 @@
   .toast {
     position: fixed;
     left: calc((100% - var(--pane, 0px)) / 2);
-    bottom: calc(82px + max(12px, env(safe-area-inset-bottom)));
-    translate: -50% 0;
+    bottom: calc(var(--dock) + var(--dock-height) + 30px);
+    translate: -50% var(--raise);
+    transition: translate var(--base) var(--ease);
     z-index: 30;
     display: flex;
     align-items: center;
@@ -47,6 +48,7 @@
   @media (min-width: 720px) {
     .toast {
       bottom: 28px;
+      translate: -50% 0;
     }
   }
 </style>

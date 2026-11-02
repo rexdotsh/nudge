@@ -78,6 +78,11 @@
 
 :root {
   --pane-width: 400px;
+  /* On phones the composer floats --dock above the bottom edge. While it has focus, it and the toast over it rise by
+     --raise to ride 8px over the keyboard, whose height the composer sets as --keyboard. */
+  --dock: max(12px, env(safe-area-inset-bottom));
+  --dock-height: 52px;
+  --raise: min(0px, var(--dock) - 8px - var(--keyboard, 0px));
 
   --font: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);

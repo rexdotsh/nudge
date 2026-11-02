@@ -17,7 +17,7 @@
   const SETTLE_MS = 900;
 
   let input: HTMLInputElement | undefined = $state();
-  let visibleBottom = $state(window.innerHeight);
+  let focused = $state(false);
   let lift = $state(0);
 
   const parsed = $derived(ui.composing.trim() === '' ? null : parseQuickAdd(ui.composing, app.now, app.zone));
@@ -33,24 +33,37 @@
     input?.focus();
   }
 
-  // iOS pans instead of shrinking the layout for its keyboard; anchor to the visible bottom and undo the pan.
+  // iOS lays its keyboard over the page instead of shrinking it, so while the composer has focus it rises by however
+  // much of the screen the keyboard covers. Nothing is kept once focus leaves, so a missed event can't strand it.
   $effect(() => {
     const viewport = window.visualViewport;
-    if (!viewport) return;
-    const update = () => {
-      if (document.activeElement === input && viewport.offsetTop > 0) window.scrollTo(0, 0);
-      visibleBottom = viewport.offsetTop + viewport.height;
+    if (!focused || !viewport) return;
+    const root = document.documentElement.style;
+    const stop = new AbortController();
+    let frame = 0;
+    const measure = () => {
+      const covered = window.innerHeight - viewport.height - viewport.offsetTop;
+      const keyboard = document.hidden ? 0 : Math.max(0, covered);
+      root.setProperty('--keyboard', `${keyboard}px`);
+      if (keyboard > 0) settle();
     };
-    const resized = () => {
-      settle();
-      update();
+    // iOS can skip the last event of the keyboard's animation, so each one is read again on the next frame.
+    const update = () => {
+      measure();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
     };
     update();
-    viewport.addEventListener('resize', resized);
-    viewport.addEventListener('scroll', update);
+    const options = { signal: stop.signal };
+    viewport.addEventListener('resize', update, options);
+    viewport.addEventListener('scroll', update, options);
+    window.addEventListener('resize', update, options);
+    window.addEventListener('pageshow', update, options);
+    document.addEventListener('visibilitychange', update, options);
     return () => {
-      viewport.removeEventListener('resize', resized);
-      viewport.removeEventListener('scroll', update);
+      stop.abort();
+      cancelAnimationFrame(frame);
+      root.removeProperty('--keyboard');
     };
   });
 
@@ -62,6 +75,11 @@
 
   function focusLifted() {
     if (lift !== 0) input?.focus({ preventScroll: true });
+  }
+
+  // Focus moving to the composer's own button keeps it on the keyboard, or the button would slip out from under the tap.
+  function leave(event: FocusEvent & { currentTarget: HTMLFormElement }) {
+    focused = event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget);
   }
 
   function settle() {
@@ -79,7 +97,7 @@
   });
 </script>
 
-<form class="surface composer" style:--visible-bottom="{visibleBottom}px" onsubmit={submit}>
+<form class="surface composer" onsubmit={submit} onfocusin={() => (focused = true)} onfocusout={leave}>
   <div class="bar">
     <div
       class="entry"
@@ -114,23 +132,22 @@
 <style>
   .composer {
     position: fixed;
-    top: 0;
     left: 12px;
     right: 12px;
+    bottom: var(--dock);
     z-index: 20;
     max-width: 536px;
     margin: 0 auto;
     border-radius: 18px;
-    --gap: max(12px, env(safe-area-inset-bottom));
     --surface-lift: 0 -16px 32px 12px var(--bg);
-    translate: 0 calc(var(--visible-bottom) - 100% - var(--gap));
     transition: translate var(--base) var(--ease);
   }
 
-  /* Above the keyboard the home indicator's inset no longer applies, so the composer rides 8px over the keys. */
+  /* It keeps up with the keyboard without easing, so the field is never left under the keys, and eases only back down. */
   .composer:focus-within {
     --surface-edge: var(--faint);
-    --gap: 8px;
+    translate: 0 var(--raise);
+    transition: none;
   }
 
   .bar {
@@ -138,7 +155,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 52px;
+    min-height: var(--dock-height);
     padding: 0 8px 0 16px;
   }
 

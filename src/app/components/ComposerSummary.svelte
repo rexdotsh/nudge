@@ -25,12 +25,15 @@
   onDestroy(release);
 </script>
 
+<!-- A press leaves focus, and the keyboard, on the field. Safari would blur the field without focusing the button
+     (WebKit 229895), and the composer would drop from under the press before the click. -->
 <button
   class="summary press"
   type="submit"
   title={[when, detail].filter(Boolean).join('\n')}
   aria-label={`Add, ${summary}`}
   onpointerdown={hold}
+  onmousedown={(event) => event.preventDefault()}
   onpointerup={release}
   onpointercancel={() => {
     release();
