@@ -42,7 +42,8 @@
     const stop = new AbortController();
     let frame = 0;
     const measure = () => {
-      const keyboard = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const covered = window.innerHeight - viewport.height - viewport.offsetTop;
+      const keyboard = document.hidden ? 0 : Math.max(0, covered);
       root.setProperty('--keyboard', `${keyboard}px`);
       if (keyboard > 0) settle();
     };
@@ -76,6 +77,11 @@
     if (lift !== 0) input?.focus({ preventScroll: true });
   }
 
+  // Focus moving to the composer's own button keeps it on the keyboard, or the button would slip out from under the tap.
+  function leave(event: FocusEvent & { currentTarget: HTMLFormElement }) {
+    focused = event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget);
+  }
+
   function settle() {
     lift = 0;
   }
@@ -91,7 +97,7 @@
   });
 </script>
 
-<form class="surface composer" onsubmit={submit}>
+<form class="surface composer" onsubmit={submit} onfocusin={() => (focused = true)} onfocusout={leave}>
   <div class="bar">
     <div
       class="entry"
@@ -106,11 +112,7 @@
         bind:value={ui.composing}
         spans={parsed?.spans ?? []}
         {lift}
-        onfocus={() => (focused = true)}
-        onblur={() => {
-          focused = false;
-          settle();
-        }}
+        onblur={settle}
         placeholder="Remind me to…"
         maxlength={LIMITS.title}
         aria-label="New reminder"
