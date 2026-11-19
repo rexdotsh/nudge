@@ -4,7 +4,15 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, formatLocal, toInstant, toLocal } from './t
 export const NAG_INTERVAL_MS = 5 * MINUTE_MS;
 export const NAG_LIMIT = (2 * HOUR_MS) / NAG_INTERVAL_MS;
 
-type Alert = 'early' | 'due' | 'snoozed' | 'nag';
+export const FOLLOW_UP_MINUTES = [15, 30, 60, 120, 180] as const;
+/**
+ * How long after a reminder comes up it notifies once more if it is still not done, in minutes, or never. One setting
+ * for the instance; important reminders nag instead.
+ */
+export type FollowUpSetting = 'off' | (typeof FOLLOW_UP_MINUTES)[number];
+export const DEFAULT_FOLLOW_UP: FollowUpSetting = 'off';
+
+type Alert = 'early' | 'due' | 'snoozed' | 'nag' | 'again';
 
 export interface Notice {
   alert: Alert;
@@ -13,7 +21,8 @@ export interface Notice {
   missed: number;
   /**
    * Where the notice sits in its occurrence, the same in every zone: its distance from the due time, or, for what a
-   * snooze brings back, its instant. With the reminder and the due wall time it names the notice wherever it is planned.
+   * snooze brings back, its instant. A follow-up's is that of the notice it follows with a `+`, whatever its delay. With
+   * the reminder and the due wall time it names the notice wherever it is planned.
    */
   slot: string;
 }
@@ -33,24 +42,29 @@ function consumed(reminder: Reminder, step: AlertStep): boolean {
   return step.at <= reminder.firedThrough || reminder.alsoFired.includes(slotKey(step));
 }
 
-/** Every notice the current occurrence can have, fired or not, a snooze's included. */
-function occurrenceSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
+/**
+ * Every notice the current occurrence can have, fired or not, a snooze's included. An important reminder nags; any
+ * other follows up once after it comes up, unless its next occurrence comes first and replaces it.
+ */
+function occurrenceSteps(reminder: Reminder, due: number, wall: string, followUp: FollowUpSetting): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   const comesUp = Math.max(due, quietUntil);
   const slot = (at: number) => (comesUp > due && at >= comesUp ? `@${at}` : String(at - due));
   const planned = (at: number, alert: Alert): AlertStep => ({ at, alert, due: wall, slot: slot(at) });
+  const delay = reminder.important || followUp === 'off' ? null : followUp * MINUTE_MS;
   return [
     ...reminder.alerts.map((minutes) => planned(due - minutes * MINUTE_MS, 'early')),
     planned(comesUp, comesUp > due ? 'snoozed' : 'due'),
     ...(reminder.important
       ? Array.from({ length: NAG_LIMIT }, (_, i) => planned(comesUp + (i + 1) * NAG_INTERVAL_MS, 'nag'))
       : []),
+    ...(delay === null ? [] : [{ ...planned(comesUp + delay, 'again'), slot: `${slot(comesUp)}+` }]),
   ];
 }
 
-function alertSteps(reminder: Reminder, due: number, wall: string): AlertStep[] {
+function alertSteps(reminder: Reminder, due: number, wall: string, followUp: FollowUpSetting): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
-  const steps = occurrenceSteps(reminder, due, wall);
+  const steps = occurrenceSteps(reminder, due, wall, followUp);
   const eligible = steps.filter((step) => step.at >= quietUntil && !consumed(reminder, step));
   // Flying west can push an occurrence that already notified later than now; a snooze of that notification must
   // still come back, even though it ends before the occurrence's new due time.
@@ -84,28 +98,33 @@ function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Aler
 // Everything planned for the earliest instant goes together, since firedThrough moving to it passes all of it: today's
 // due and tomorrow's one-day alert, a nag and a later occurrence's early alert, or two later occurrences' early alerts
 // can share an instant. A roll at that instant goes first, on its own, because it changes what is planned.
-function earliest(reminder: Reminder, zone: string): Step | null {
+function earliest(reminder: Reminder, zone: string, followUp: FollowUpSetting): Step | null {
   const due = dueAt(reminder, zone);
   if (reminder.deleted || reminder.due === null || due === null) return null;
   if (reminder.paused) return reminder.paused.until === null ? null : { at: reminder.paused.until, resume: true };
   const next = occurrenceAfter(reminder, due, zone);
   const roll = next === null ? null : { at: instantOf(reminder, next, zone), roll: next };
-  const alerts = [...alertSteps(reminder, due, reminder.due), ...upcomingEarlySteps(reminder, due, zone)];
+  const alerts = [...alertSteps(reminder, due, reminder.due, followUp), ...upcomingEarlySteps(reminder, due, zone)];
   const at = Math.min(roll?.at ?? Infinity, ...alerts.map((step) => step.at));
   if (roll && roll.at === at) return roll;
   return at === Infinity ? null : { at, alerts: alerts.filter((step) => step.at === at) };
 }
 
-export function nextFireAt(reminder: Reminder, zone: string): number | null {
-  return earliest(reminder, zone)?.at ?? null;
+export function nextFireAt(reminder: Reminder, zone: string, followUp: FollowUpSetting): number | null {
+  return earliest(reminder, zone, followUp)?.at ?? null;
 }
 
 // A late run sends at most one notice per occurrence (the latest step), not a burst, and only for occurrences that are
 // still current or upcoming; ones it rolled past are not announced.
-export function fire(reminder: Reminder, now: number, zone: string): { reminder: Reminder; notices: Notice[] } {
+export function fire(
+  reminder: Reminder,
+  now: number,
+  zone: string,
+  followUp: FollowUpSetting,
+): { reminder: Reminder; notices: Notice[] } {
   let current = { ...reminder };
   const latest = new Map<string, Notice>();
-  for (let step = earliest(current, zone); step && step.at <= now; step = earliest(current, zone)) {
+  for (let step = earliest(current, zone, followUp); step && step.at <= now; step = earliest(current, zone, followUp)) {
     if ('resume' in step) {
       current = resumed(current, step.at, zone);
       continue;
@@ -132,10 +151,10 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
 const MOVE_REACH_MS = DAY_MS;
 
 /** The current occurrence's notices and later occurrences' early alerts, whose instants in `zone` reach up to `until`. */
-function plannable(reminder: Reminder, zone: string, until: number): AlertStep[] {
+function plannable(reminder: Reminder, zone: string, until: number, followUp: FollowUpSetting): AlertStep[] {
   const due = dueAt(reminder, zone);
   if (reminder.due === null || due === null) return [];
-  const steps = occurrenceSteps(reminder, due, reminder.due);
+  const steps = occurrenceSteps(reminder, due, reminder.due, followUp);
   const { snoozedUntil } = reminder;
   if (snoozedUntil !== null)
     steps.push({ at: snoozedUntil, alert: 'snoozed', due: reminder.due, slot: `@${snoozedUntil}` });
@@ -157,12 +176,14 @@ function plannable(reminder: Reminder, zone: string, until: number): AlertStep[]
  * What the fallback keeps quiet stays quiet, at the cost of a few notices it no longer backs up. A pause's start and
  * end are wall times, like the occurrences they bound, so they keep those.
  */
-export function movedZone(reminder: Reminder, from: string, to: string): Reminder {
+export function movedZone(reminder: Reminder, from: string, to: string, followUp: FollowUpSetting): Reminder {
   const shift = (dueAt(reminder, to) ?? 0) - (dueAt(reminder, from) ?? 0);
   const before = (step: AlertStep) =>
-    step.slot.startsWith('@') ? step.at : instantOf(reminder, step.due, from) + Number(step.slot);
+    step.slot.startsWith('@')
+      ? step.at
+      : step.at - instantOf(reminder, step.due, to) + instantOf(reminder, step.due, from);
   const near = (watermark: number) =>
-    plannable(reminder, to, watermark + MOVE_REACH_MS).filter((step) => step.at >= watermark - MOVE_REACH_MS);
+    plannable(reminder, to, watermark + MOVE_REACH_MS, followUp).filter((step) => step.at >= watermark - MOVE_REACH_MS);
   const around = reminder.firedThrough + shift;
   const firedBefore = (step: AlertStep) => consumed(reminder, { ...step, at: before(step) });
   const steps = near(around);
@@ -171,6 +192,25 @@ export function movedZone(reminder: Reminder, from: string, to: string): Reminde
   const quiet = near(reminder.quietThrough + shift).filter((step) => before(step) <= reminder.quietThrough);
   const quietThrough = Math.max(reminder.quietThrough + shift, ...quiet.map((step) => step.at));
   return { ...reminder, firedThrough, alsoFired, quietThrough, paused: movedPause(reminder.paused, from, to) };
+}
+
+function followUpStep(reminder: Reminder, zone: string, followUp: FollowUpSetting): AlertStep | undefined {
+  const due = dueAt(reminder, zone);
+  if (reminder.due === null || due === null) return undefined;
+  return occurrenceSteps(reminder, due, reminder.due, followUp).find((step) => step.alert === 'again');
+}
+
+/** A follow-up that fired stays fired when its delay changes from `before` to `after`, so a longer one does not bring it again. */
+export function keptFollowUp(
+  reminder: Reminder,
+  zone: string,
+  before: FollowUpSetting,
+  after: FollowUpSetting,
+): Reminder {
+  const fired = followUpStep(reminder, zone, before);
+  const planned = followUpStep(reminder, zone, after);
+  if (!fired || !planned || !consumed(reminder, fired) || consumed(reminder, planned)) return reminder;
+  return { ...reminder, alsoFired: [...reminder.alsoFired, slotKey(planned)] };
 }
 
 function movedWall(instant: number, kept: string | undefined, from: string, to: string) {

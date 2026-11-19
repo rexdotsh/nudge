@@ -1,6 +1,6 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import type { InstanceZone } from '../shared/api';
-import { fire, movedZone, nextFireAt, type Notice } from '../shared/fire';
+import { fire, keptFollowUp, movedZone, nextFireAt, type FollowUpSetting, type Notice } from '../shared/fire';
 import {
   fireId,
   occurrenceTopic,
@@ -64,13 +64,27 @@ export class Scheduler {
     const previous = this.store.meta('zone');
     this.store.setZone(zone);
     if (previous === zone.name) return;
+    const followUp = this.store.followUp();
     for (const reminder of this.store.reminders()) {
-      if (reminder.zone === null) this.save(previous === null ? reminder : movedZone(reminder, previous, zone.name));
+      if (reminder.zone === null) {
+        this.save(previous === null ? reminder : movedZone(reminder, previous, zone.name, followUp));
+      }
     }
   }
 
+  /** The latest choice wins by when it was made, so a device coming back online cannot undo a newer one. */
+  chooseFollowUp(followUp: FollowUpSetting, at: number): void {
+    if (at < Number(this.store.meta('follow_up_at') ?? 0)) return;
+    this.store.setMeta('follow_up_at', String(at));
+    const previous = this.store.followUp();
+    this.store.setFollowUp(followUp);
+    if (previous === followUp) return;
+    const zone = this.zone();
+    for (const reminder of this.store.reminders()) this.save(keptFollowUp(reminder, zone, previous, followUp));
+  }
+
   save(reminder: Reminder): void {
-    this.store.saveReminder(reminder, nextFireAt(reminder, this.zone()));
+    this.store.saveReminder(reminder, nextFireAt(reminder, this.zone(), this.store.followUp()));
   }
 
   /**
@@ -175,8 +189,9 @@ export class Scheduler {
 
   private async process(now: number): Promise<void> {
     const zone = this.zone();
+    const followUp = this.store.followUp();
     const fired = this.store.dueReminders(now).map((previous) => {
-      const { reminder, notices } = fire(previous, now, zone);
+      const { reminder, notices } = fire(previous, now, zone, followUp);
       return { previous, reminder, notices };
     });
     const updated = new Map(fired.map(({ reminder }) => [reminder.id, reminder]));
@@ -194,7 +209,8 @@ export class Scheduler {
         this.saveChange(previous, reminder, false);
         for (const notice of notices) {
           const item = this.noticeFor(reminder, notice, view);
-          if (targets.length === 0) missed.push(item);
+          // Its occurrence already alerted that nothing could be sent.
+          if (targets.length === 0 && notice.alert !== 'again') missed.push(item);
           for (const target of targets) this.store.deliveries.queue(item, target.deviceId, now, now);
         }
       }

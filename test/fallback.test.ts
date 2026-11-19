@@ -84,12 +84,12 @@ function harness(alreadySeen: string[] = [], busy: string[] = [], claiming = Pro
 test('the server having planned a push does not stop the fallback; only this device having shown it does', async () => {
   const planned = { ...lateReminder(), firedThrough: NOW };
   const { fallback, shown, fire, ready } = harness();
-  fallback.schedule([planned], ZONE, true);
+  fallback.schedule([planned], ZONE, 'off', true);
   await ready(fire());
   expect(shown).toEqual(['Pay rent']);
 
   const again = harness([fireId(planned.id, { at: DUE, due: '2026-10-12T09:20' })]);
-  again.fallback.schedule([planned], ZONE, true);
+  again.fallback.schedule([planned], ZONE, 'off', true);
   await again.ready(again.fire());
   expect(again.shown).toEqual([]);
 });
@@ -100,14 +100,14 @@ test.each([
 ])('a check %s before the service worker is ready leaves the notice for the current schedule', async (_, enabled) => {
   const { fallback, shown, timers, fire, ready } = harness();
   const reminders = [lateReminder()];
-  fallback.schedule(reminders, ZONE, true);
+  fallback.schedule(reminders, ZONE, 'off', true);
   const stale = fire();
-  fallback.schedule(reminders, ZONE, enabled);
+  fallback.schedule(reminders, ZONE, 'off', enabled);
   await ready(stale);
   expect(shown).toEqual([]);
   expect(timers.size).toBe(enabled ? 1 : 0);
 
-  fallback.schedule(reminders, ZONE, true);
+  fallback.schedule(reminders, ZONE, 'off', true);
   await ready(fire());
   expect(shown).toEqual(['Pay rent']);
 });
@@ -116,7 +116,7 @@ test('a fire another context is still showing is not consumed, and is retried', 
   const reminder = lateReminder();
   const key = fireId(reminder.id, { at: DUE, due: '2026-10-12T09:20' });
   const { fallback, shown, timers, store, fire, ready } = harness([], [key]);
-  fallback.schedule([reminder], ZONE, true);
+  fallback.schedule([reminder], ZONE, 'off', true);
   await ready(fire());
   expect(shown).toEqual([]);
   expect(timers.size).toBe(1);
@@ -129,10 +129,10 @@ test('a fire another context is still showing is not consumed, and is retried', 
 test('settling a reminder while its fallback is claiming it does not show a stale notification', async () => {
   const claiming = Promise.withResolvers<void>();
   const { fallback, shown, store, fire, ready, claimingStarted } = harness([], [], claiming.promise);
-  fallback.schedule([lateReminder()], ZONE, true);
+  fallback.schedule([lateReminder()], ZONE, 'off', true);
   const showing = ready(fire());
   await claimingStarted;
-  fallback.schedule([], ZONE, true);
+  fallback.schedule([], ZONE, 'off', true);
   claiming.resolve();
   await showing;
   expect(shown).toEqual([]);
@@ -161,15 +161,19 @@ test.each([
   if (!created) throw new Error('create failed');
   let server = created;
   const sent = new Map<string, string>();
-  for (let next = nextFireAt(server, 'UTC'); next !== null && next <= ROLL; next = nextFireAt(server, 'UTC')) {
-    const fired = fireReminder(server, next, 'UTC');
+  for (
+    let next = nextFireAt(server, 'UTC', 'off');
+    next !== null && next <= ROLL;
+    next = nextFireAt(server, 'UTC', 'off')
+  ) {
+    const fired = fireReminder(server, next, 'UTC', 'off');
     for (const notice of fired.notices)
       sent.set(`${notice.alert}-${notice.due.slice(11, 13)}`, fireId(server.id, notice));
     server = fired.reminder;
   }
   const seen = [...sent].filter(([label]) => label !== missed).map(([, id]) => id);
   const device = harness(seen, [], Promise.resolve(), ROLL + MINUTE_MS);
-  device.fallback.schedule([server], 'UTC', true);
+  device.fallback.schedule([server], 'UTC', 'off', true);
   await device.ready(device.fire());
   expect([...sent.keys()]).toEqual(['early-10', 'early-11', 'due-10']);
   const labels = new Map([...sent].map(([label, id]) => [id, label]));
@@ -203,21 +207,21 @@ function pausedThenBack(until: number | null, resume: (paused: Reminder) => Remi
 
 test.each<[string, number | null, (paused: Reminder) => Reminder | null]>([
   ['by hand', null, resumeByHand],
-  ['on its date', BACK_AT, (paused) => fireReminder(paused, BACK_AT, ZONE).reminder],
+  ['on its date', BACK_AT, (paused) => fireReminder(paused, BACK_AT, ZONE, 'off').reminder],
 ])(
   'a fallback after a pause ended %s shows nothing the pause held back, only what comes after',
   async (_, until, resume) => {
     const resumed = pausedThenBack(until, resume);
-    expect(fireReminder(resumed, BACK_AT + MINUTE_MS, ZONE).notices).toEqual([]);
+    expect(fireReminder(resumed, BACK_AT + MINUTE_MS, ZONE, 'off').notices).toEqual([]);
 
     const after = harness([], [], Promise.resolve(), BACK_AT + MINUTE_MS);
-    after.fallback.schedule([resumed], ZONE, true);
+    after.fallback.schedule([resumed], ZONE, 'off', true);
     await after.ready(after.fire());
     expect(after.shown).toEqual([]);
 
     const due = Date.UTC(2026, 9, 12, 3, 30);
     const later = harness([], [], Promise.resolve(), due + MINUTE_MS);
-    later.fallback.schedule([resumed], ZONE, true);
+    later.fallback.schedule([resumed], ZONE, 'off', true);
     await later.ready(later.fire());
     expect(later.shownFires).toEqual([fireId(resumed.id, { at: due, due: '2026-10-12T09:00' })]);
   },
@@ -225,11 +229,11 @@ test.each<[string, number | null, (paused: Reminder) => Reminder | null]>([
 
 test('after flying west, a fallback still keeps quiet the warning a pause held back, as the server does', async () => {
   const ny = 'America/New_York';
-  const moved = movedZone(pausedThenBack(null, resumeByHand), ZONE, ny);
+  const moved = movedZone(pausedThenBack(null, resumeByHand), ZONE, ny, 'off');
   const warning = Date.UTC(2026, 9, 12, 12, 0);
-  expect(nextFireAt(moved, ny)).toBe(warning + 60 * MINUTE_MS);
+  expect(nextFireAt(moved, ny, 'off')).toBe(warning + 60 * MINUTE_MS);
   const device = harness([], [], Promise.resolve(), warning + 5 * MINUTE_MS);
-  device.fallback.schedule([moved], ny, true);
+  device.fallback.schedule([moved], ny, 'off', true);
   await device.ready(device.fire());
   expect(device.shown).toEqual([]);
 });
@@ -251,8 +255,8 @@ function deliveredInUtc(arrived: readonly ('early' | 'due')[], legacy: boolean) 
   };
   const created = applyOp(undefined, { type: 'put', id: ulid(), fields }, { now: NOW - DAY_MS, zone: 'UTC' });
   if (!created) throw new Error('create failed');
-  const early = fireReminder(created, Date.UTC(2026, 9, 12, 8), 'UTC');
-  const due = fireReminder(early.reminder, Date.UTC(2026, 9, 12, 9), 'UTC');
+  const early = fireReminder(created, Date.UTC(2026, 9, 12, 8), 'UTC', 'off');
+  const due = fireReminder(early.reminder, Date.UTC(2026, 9, 12, 9), 'UTC', 'off');
   const pushes = { early: early.notices, due: due.notices };
   const shown = arrived.flatMap((alert) =>
     pushes[alert].map((notice) => ({
@@ -265,7 +269,7 @@ function deliveredInUtc(arrived: readonly ('early' | 'due')[], legacy: boolean) 
 }
 
 const fixedWest = (server: Reminder) =>
-  new Replica({ version: 1, reminders: [movedZone(server, 'UTC', WEST)], zone: { name: WEST, fixed: true } });
+  new Replica({ version: 1, reminders: [movedZone(server, 'UTC', WEST, 'off')], zone: { name: WEST, fixed: true } });
 
 test.each([
   {
@@ -305,7 +309,7 @@ test.each([
     name: 'an older tab saved the replica of a zone fixed west without the zone, on a device in UTC',
     arrived: [] as const,
     legacy: false,
-    replica: (server: Reminder) => new Replica({ version: 1, reminders: [movedZone(server, 'UTC', WEST)] }),
+    replica: (server: Reminder) => new Replica({ version: 1, reminders: [movedZone(server, 'UTC', WEST, 'off')] }),
     now: Date.UTC(2026, 9, 12, 9, 5),
     shown: [] as number[],
   },
@@ -314,7 +318,7 @@ test.each([
   const synced = row.replica(server);
   const device = harness(seen, [], Promise.resolve(), row.now);
   const zone = synced.plannedZone();
-  device.fallback.schedule(synced.view([], zone ?? 'UTC'), zone, true);
+  device.fallback.schedule(synced.view([], zone ?? 'UTC'), zone, 'off', true);
   await device.ready(device.fire());
   expect(device.shownFires).toEqual(row.shown.map((at) => fireId(server.id, { at, due: '2026-10-12T09:00' })));
 });
@@ -331,13 +335,13 @@ test('a push matching a fire id recorded alone gains its occurrence key, which s
 
 test('a warning seen before the zone moved and checked again after it does not hide a due push that never came', async () => {
   const { server, seen } = deliveredInUtc(['early'], false);
-  const moved = movedZone(server, 'UTC', WEST);
+  const moved = movedZone(server, 'UTC', WEST, 'off');
   const device = harness(seen, [], Promise.resolve(), AT_NINE_WEST - 55 * MINUTE_MS);
-  device.fallback.schedule([moved], WEST, true);
+  device.fallback.schedule([moved], WEST, 'off', true);
   await device.ready(device.fire());
   expect(device.shown).toEqual([]);
   device.clock.now = AT_NINE_WEST + 5 * MINUTE_MS;
-  device.fallback.schedule([moved], WEST, true);
+  device.fallback.schedule([moved], WEST, 'off', true);
   await device.ready(device.fire());
   expect(device.shownFires).toEqual([fireId(server.id, { at: AT_NINE_WEST, due: '2026-10-12T09:00' })]);
 });
@@ -358,10 +362,47 @@ test.each([
   };
   const created = applyOp(undefined, { type: 'put', id: ulid(), fields }, { now: NOW - DAY_MS, zone: WEST });
   if (!created) throw new Error('create failed');
-  const pushed = fireReminder(created, AT_NINE_WEST, WEST).notices.map((notice) => fireId(created.id, notice));
+  const pushed = fireReminder(created, AT_NINE_WEST, WEST, 'off').notices.map((notice) => fireId(created.id, notice));
   expect(pushed).toHaveLength(1);
   const device = harness(pushed, [], Promise.resolve(), now);
-  device.fallback.schedule([created], WEST, true);
+  device.fallback.schedule([created], WEST, 'off', true);
   await device.ready(device.fire());
   expect(device.shown).toEqual([]);
+});
+
+// Due at 09:00 UTC and followed up by the server at 09:30, after a due push this device showed.
+test.each([
+  ['shows the follow-up it missed, as the server sent it', [], 30, true],
+  ['shows nothing for a follow-up it showed, though the delay grew since', ['again'], 60, false],
+  ['plans no follow-up from a replica saved without the setting', [], null, false],
+] as const)('a fallback %s', async (_, arrived, followUp, shows) => {
+  const fields = {
+    title: 'Call the bank',
+    notes: '',
+    start: '2026-10-12T09:00',
+    zone: null,
+    repeat: null,
+    important: false,
+    alerts: [],
+  };
+  const created = applyOp(undefined, { type: 'put', id: ulid(), fields }, { now: NOW - DAY_MS, zone: 'UTC' });
+  if (!created) throw new Error('create failed');
+  const due = fireReminder(created, Date.UTC(2026, 9, 12, 9), 'UTC', 30);
+  const again = fireReminder(due.reminder, Date.UTC(2026, 9, 12, 9, 30), 'UTC', 30);
+  const pushes = { due: due.notices, again: again.notices };
+  const seen = recorded(
+    ...(['due', ...arrived] as const).flatMap((kind) =>
+      pushes[kind].map((notice) => ({ fire: fireId(created.id, notice), notice: noticeKey(created.id, notice) })),
+    ),
+  );
+  const replica = new Replica({
+    version: 1,
+    reminders: [again.reminder],
+    zone: { name: 'UTC', fixed: false },
+    ...(followUp === null ? {} : { followUp }),
+  });
+  const device = harness(seen, [], Promise.resolve(), Date.UTC(2026, 9, 12, 10, 5));
+  device.fallback.schedule(replica.view([], 'UTC'), replica.plannedZone(), replica.plannedFollowUp(), true);
+  await device.ready(device.fire());
+  expect(device.shownFires).toEqual(shows ? pushes.again.map((notice) => fireId(created.id, notice)) : []);
 });

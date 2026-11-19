@@ -1,4 +1,6 @@
 import { DEFAULT_THEME, THEMES, type InstanceZone, type Theme } from '../shared/api';
+import { DEFAULT_FOLLOW_UP, type FollowUpSetting } from '../shared/fire';
+import { parseFollowUpSetting } from '../shared/input';
 import { fromStored, type Reminder } from '../shared/reminder';
 import { DELIVERY_SCHEMA, Deliveries } from './deliveries';
 import { DEVICE_SCHEMA, Devices } from './devices';
@@ -93,6 +95,16 @@ export class Store {
     if (this.meta('zone') !== null && (current.name !== name || current.fixed !== fixed)) this.nextVersion();
     this.setMeta('zone', name);
     this.setMeta('zone_fixed', String(fixed));
+  }
+
+  followUp(): FollowUpSetting {
+    return parseFollowUpSetting(JSON.parse(this.meta('follow_up') ?? 'null')) ?? DEFAULT_FOLLOW_UP;
+  }
+
+  /** A change takes a version even when no reminder moves with it, so every device hears of it. */
+  setFollowUp(followUp: FollowUpSetting): void {
+    if (followUp !== this.followUp()) this.nextVersion();
+    this.setMeta('follow_up', JSON.stringify(followUp));
   }
 
   private decoded(query: string, ...bindings: SqlValue[]): Reminder[] {

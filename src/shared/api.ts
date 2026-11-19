@@ -1,3 +1,4 @@
+import type { FollowUpSetting } from './fire';
 import type { Op } from './ops';
 import type { Reminder, ReminderFields, Repeat } from './reminder';
 
@@ -67,6 +68,13 @@ export interface ZoneChoice {
   at: number;
 }
 
+/** A follow-up setting chosen on one device, sent with every sync until one is answered. */
+export interface FollowUpChoice {
+  id: string;
+  followUp: FollowUpSetting;
+  at: number;
+}
+
 export interface SyncRequest {
   since: number;
   /** Where the sending device is. */
@@ -74,6 +82,7 @@ export interface SyncRequest {
   changes: Change[];
   theme: ThemeChoice | null;
   zoneChoice: ZoneChoice | null;
+  followUpChoice: FollowUpChoice | null;
 }
 
 export interface SyncResponse {
@@ -82,6 +91,7 @@ export interface SyncResponse {
   reset: boolean;
   theme: Theme;
   zone: InstanceZone;
+  followUp: FollowUpSetting;
 }
 
 export interface PublicRoutes {

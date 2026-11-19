@@ -92,6 +92,7 @@ describe('enrollment', () => {
       ['test', { id: ulid(), delay: 99_999 }],
       ['sync', { since: 0, zone: ZONE, changes: [], theme: { id: ulid(), theme: 'neon', at: 0 } }],
       ['sync', { since: 0, zone: ZONE, changes: [], zoneChoice: { id: ulid(), zone: 'Mars/Olympus', at: 0 } }],
+      ['sync', { since: 0, zone: ZONE, changes: [], followUpChoice: { id: ulid(), followUp: 45, at: 0 } }],
     ] as const;
     const results = await Promise.all(malformed.map(([route, body]) => h.call(route, body, deviceId)));
     expect(results.every((result) => !result.ok && result.error === 'bad_request')).toBe(true);
@@ -99,6 +100,9 @@ describe('enrollment', () => {
     expect(await h.call('health', null, deviceId)).toMatchObject({ ok: false, error: 'unauthorized' });
   });
 });
+
+const chooseFollowUp = (deviceId: string, followUp: unknown, choice = { id: ulid(), at: h.state.now }) =>
+  h.ok('sync', { since: 0, zone: ZONE, changes: [], followUpChoice: { ...choice, followUp } }, deviceId);
 
 const chooseZone = (deviceId: string, zone: string | null, here = ZONE, choice = { id: ulid(), at: h.state.now }) =>
   h.ok('sync', { since: 0, zone: here, changes: [], zoneChoice: { ...choice, zone } }, deviceId);
@@ -463,6 +467,7 @@ describe('sync', () => {
     ],
     ['theme choice', () => ({ changes: [], theme: { id: ulid(), theme: 'rex', at: h.state.now } })],
     ['zone choice', () => ({ changes: [], zoneChoice: { id: ulid(), zone: 'Europe/Paris', at: h.state.now } })],
+    ['follow-up choice', () => ({ changes: [], followUpChoice: { id: ulid(), followUp: 30, at: h.state.now } })],
   ])('a %s committed just before a failure still reaches the other devices when it is retried', async (_, write) => {
     const { phone } = await h.pair();
     const { version } = await h.ok('sync', { since: 0, zone: ZONE, changes: [] }, phone);
@@ -473,6 +478,25 @@ describe('sync', () => {
     h.state.failAlarm = false;
     await h.ok('sync', request, phone);
     expect(h.state.broadcasts.map(({ except }) => except)).toEqual([phone]);
+  });
+
+  test('follow-ups are off until chosen; a choice applies once, neither its replay nor an older offline choice undoes a newer one, and it replans what waits', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.put(deviceId);
+    expect((await h.sync(deviceId, [])).followUp).toBe('off');
+    await h.runAlarm();
+    expect(h.state.alarm).toBeNull();
+    expect((await chooseFollowUp(deviceId, 30)).followUp).toBe(30);
+    expect(h.state.alarm).toBe(DUE + 30 * MINUTE_MS);
+    h.state.now += MINUTE_MS;
+    const fast = { id: ulid(), at: h.state.now + HOUR_MS };
+    expect((await chooseFollowUp(deviceId, 60, fast)).followUp).toBe(60);
+    h.state.now += MINUTE_MS;
+    expect((await chooseFollowUp(deviceId, 120)).followUp).toBe(120);
+    expect((await chooseFollowUp(deviceId, 60, fast)).followUp).toBe(120);
+    const madeOffline = { id: ulid(), at: h.state.now - 2 * MINUTE_MS };
+    expect((await chooseFollowUp(deviceId, 'off', madeOffline)).followUp).toBe(120);
+    expect(h.state.alarm).toBe(DUE + 120 * MINUTE_MS);
   });
 
   test('socket messages run the same sync and echo their ref', async () => {
@@ -910,6 +934,47 @@ describe('delivery', () => {
     expect(reminders.find((reminder) => reminder.id === id)?.paused).toBeNull();
     await h.sync(phone, [{ type: 'pause', id, until: null }]);
     expect(h.state.alarm).toBeNull();
+  });
+
+  test.each([false, true])('a reminder not done is followed up once under its tag, done first: %s', async (done) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseFollowUp(deviceId, 30);
+    const id = await h.put(deviceId);
+    await h.runAlarm();
+    h.state.now += 10 * MINUTE_MS;
+    if (done) await h.sync(deviceId, [{ type: 'complete', id, due: TODAY }]);
+    await h.runAlarmsThrough(DUE + 4 * HOUR_MS);
+    const sent = done ? [DUE] : [DUE, DUE + 30 * MINUTE_MS];
+    const { pushes } = h.state;
+    expect(pushes.map(({ message }) => message.notification.data.fire)).toEqual(
+      sent.map((at) => fireId(id, { at, due: TODAY })),
+    );
+    expect(new Set(pushes.map(({ message }) => message.notification.tag))).toEqual(new Set([`${id}:${TODAY}`]));
+  });
+
+  test('a follow-up that went out is not sent again when its delay grows', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseFollowUp(deviceId, 30);
+    await h.put(deviceId);
+    await h.runAlarmsThrough(DUE + 40 * MINUTE_MS);
+    expect(h.sentTo(1, 'apple')).toBe(2);
+    await chooseFollowUp(deviceId, 120);
+    await h.runAlarmsThrough(DUE + 4 * HOUR_MS);
+    expect(h.sentTo(1, 'apple')).toBe(2);
+  });
+
+  test.each([
+    ['no device has notifications on', false],
+    ['no device confirms it', true],
+  ])('a follow-up raises no second alert for its occurrence when %s', async (_, subscribed) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    if (subscribed) await h.ok('subscribe', keys(1), deviceId);
+    await chooseFollowUp(deviceId, 120);
+    await h.put(deviceId);
+    await h.runAlarmsThrough(DUE + 4 * HOUR_MS);
+    expect(h.state.alerts).toHaveLength(1);
   });
 
   test('completing a reminder cancels the resends of its notification', async () => {

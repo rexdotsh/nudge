@@ -1,7 +1,7 @@
 import { closeNotifications, readPush, waitUntilWithin } from 'declarative-web-push/worker';
 import { Unreachable, request } from '../browser/api';
 import { openInPlace, type WorkerMessage } from '../browser/messages';
-import { SNOOZE_MINUTES, showNudge } from '../browser/notify';
+import { SNOOZE_MINUTES, makeRoom, showNudge } from '../browser/notify';
 import { isShown } from '../browser/shown';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue, readLocal } from '../browser/outbox';
@@ -23,7 +23,8 @@ function isPushData(value: unknown): value is PushData {
   return (
     isRecord(value) &&
     typeof value.fire === 'string' &&
-    (value.notice === undefined || typeof value.notice === 'string')
+    (value.notice === undefined || typeof value.notice === 'string') &&
+    (value.followUp === undefined || value.followUp === true)
   );
 }
 
@@ -95,7 +96,11 @@ self.addEventListener('push', (event) => {
   const push = readPush(event, isPushData);
   if (!push) return;
   if (push.kind === 'declarative') {
-    waitUntilWithin(event, Promise.all([present(push.data), tidy()]), SHOW_WITHIN_MS);
+    waitUntilWithin(
+      event,
+      Promise.all([present(push.data), tidy(), makeRoom(self.registration, push.data, push.notification.tag)]),
+      SHOW_WITHIN_MS,
+    );
     return;
   }
   const { message } = push;
@@ -115,7 +120,14 @@ async function drain(): Promise<void> {
   const local = await readLocal();
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
   const since = local.replica.version;
-  const response = await request('sync', { since, zone: currentZone(), changes, theme: null, zoneChoice: null });
+  const response = await request('sync', {
+    since,
+    zone: currentZone(),
+    changes,
+    theme: null,
+    zoneChoice: null,
+    followUpChoice: null,
+  });
   const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
   if (pending.length > 0) await drain();
 }

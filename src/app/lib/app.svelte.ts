@@ -8,6 +8,7 @@ import { commit, currentZone, enqueue, readLocal } from '../../browser/outbox';
 import {
   MAX_REQUEST_BYTES,
   type Change,
+  type FollowUpChoice,
   type Health,
   type SyncRequest,
   type Theme,
@@ -15,6 +16,7 @@ import {
 } from '../../shared/api';
 import { BASE64URL } from '../../shared/encoding';
 import type { Op } from '../../shared/ops';
+import { DEFAULT_FOLLOW_UP, type FollowUpSetting } from '../../shared/fire';
 import type { Reminder } from '../../shared/reminder';
 import { DAY_MS, offsetAt } from '../../shared/time';
 import { ulid } from '../../shared/ulid';
@@ -49,6 +51,12 @@ class App {
   readonly fixedZone = $derived(this.zoneChoice ? this.zoneChoice.zone : this.zoneFixed ? this.zone : null);
   /** This device's clock reads another time than the zone reminders are shown in. */
   readonly away = $derived(offsetAt(this.now, this.here) !== offsetAt(this.now, this.zone));
+  /** The follow-up the server confirmed, the only one notifications are planned with. */
+  plannedFollowUp = $state<FollowUpSetting>('off');
+  private confirmedFollowUp = $state<FollowUpSetting | null>(null);
+  private followUpChoice = $state.raw<FollowUpChoice | null>(null);
+  /** The instance's follow-up, counting a choice not yet sent. */
+  readonly followUp = $derived(this.followUpChoice?.followUp ?? this.confirmedFollowUp ?? DEFAULT_FOLLOW_UP);
   travelling = $state(false);
   zoneControls = $state(false);
   notifications = $state<PushPermission>(pushPermission());
@@ -154,6 +162,13 @@ class App {
     void this.sync();
   }
 
+  async chooseFollowUp(followUp: FollowUpSetting): Promise<void> {
+    const choice = { id: ulid(), followUp, at: Date.now() };
+    await set('followUpChoice', choice);
+    this.followUpChoice = choice;
+    void this.sync();
+  }
+
   sync(): Promise<void> {
     if (this.inflight) {
       this.again = true;
@@ -183,19 +198,22 @@ class App {
       changes: sent,
       theme: appearance.pending,
       zoneChoice: this.zoneChoice,
+      followUpChoice: this.followUpChoice,
     };
     this.here = sending.zone;
     this.refresh();
     try {
       const response = await connection.sync(sending);
       if (this.connection !== connection) return;
-      const [local, zoneChoice] = await Promise.all([
+      const [local, zoneChoice, followUpChoice] = await Promise.all([
         commit(response, sending.since, new Set(sent.map((change) => change.opId))),
         update('zoneChoice', (choice = null) => (choice?.id === sending.zoneChoice?.id ? null : choice)),
+        update('followUpChoice', (choice = null) => (choice?.id === sending.followUpChoice?.id ? null : choice)),
         appearance.receive(response, sending.theme),
       ]);
       if (local.pending.length > 0) this.again = true;
       this.zoneChoice = zoneChoice;
+      this.followUpChoice = followUpChoice;
       this.show(local);
       this.online = true;
       settled('synced');
@@ -237,7 +255,7 @@ class App {
       return;
     }
     this.freshness = 'catching-up';
-    if ((this.pending.length > 0 || appearance.pending || this.zoneChoice) && this.token) {
+    if ((this.pending.length > 0 || appearance.pending || this.zoneChoice || this.followUpChoice) && this.token) {
       void request(
         'sync',
         {
@@ -246,6 +264,7 @@ class App {
           changes: batch(this.pending, KEEPALIVE_BYTES),
           theme: appearance.pending,
           zoneChoice: this.zoneChoice,
+          followUpChoice: this.followUpChoice,
         },
         { keepalive: true, token: this.token },
       ).catch((error: unknown) => console.warn('flush on hide failed; it will be replayed on open', error));
@@ -291,8 +310,13 @@ class App {
   }
 
   private async reloadLocal(): Promise<void> {
-    const [local, zoneChoice] = await Promise.all([readLocal(), get('zoneChoice')]);
+    const [local, zoneChoice, followUpChoice] = await Promise.all([
+      readLocal(),
+      get('zoneChoice'),
+      get('followUpChoice'),
+    ]);
     this.zoneChoice = zoneChoice ?? null;
+    this.followUpChoice = followUpChoice ?? null;
     this.show(local);
   }
 
@@ -306,6 +330,8 @@ class App {
     this.plannedZone = this.replica.plannedZone();
     this.zone = this.plannedZone ?? this.here;
     this.zoneFixed = this.replica.zone?.fixed ?? false;
+    this.confirmedFollowUp = this.replica.followUp;
+    this.plannedFollowUp = this.replica.plannedFollowUp();
     this.reminders = this.replica.view(this.pending, this.zone);
   }
 }

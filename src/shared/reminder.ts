@@ -45,7 +45,10 @@ interface ReminderState {
   missed: number;
   snoozedUntil: number | null;
   firedThrough: number;
-  /** Notices after `firedThrough` that fired before a zone move reordered them, as `<due>/<slot>`. */
+  /**
+   * Notices after `firedThrough` that fired before a zone move reordered them or the follow-up delay grew, as
+   * `<due>/<slot>`.
+   */
   alsoFired: string[];
   completedAt: number | null;
   paused: Pause | null;

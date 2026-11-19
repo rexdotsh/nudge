@@ -238,7 +238,7 @@ export class Nudge {
   }
 
   private async sync(
-    { since, zone, changes, theme, zoneChoice }: SyncRequest,
+    { since, zone, changes, theme, zoneChoice, followUpChoice }: SyncRequest,
     device: DeviceRow,
   ): Promise<SyncResponse> {
     const now = this.runtime.now();
@@ -259,6 +259,10 @@ export class Nudge {
         this.store.chooseTheme(theme.theme, madeAt(theme.at));
         this.store.recordApplied(theme.id, now);
       }
+      if (followUpChoice && !this.store.applied(followUpChoice.id)) {
+        this.scheduler.chooseFollowUp(followUpChoice.followUp, madeAt(followUpChoice.at));
+        this.store.recordApplied(followUpChoice.id, now);
+      }
     });
     const version = this.store.version();
     await this.scheduler.rearm();
@@ -271,6 +275,7 @@ export class Nudge {
       reset,
       theme: this.store.theme(),
       zone: this.store.zone(),
+      followUp: this.store.followUp(),
     };
   }
 }

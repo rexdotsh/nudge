@@ -1,4 +1,5 @@
 import type { Op } from './ops';
+import { FOLLOW_UP_MINUTES, type FollowUpSetting } from './fire';
 import type { ReminderFields, Repeat } from './reminder';
 import { RuleError, parseRule, type Rule } from './rrule';
 import { isTimeZone, parseLocal } from './time';
@@ -37,6 +38,10 @@ function isAlerts(value: unknown): value is number[] {
     value.every((minutes) => isInteger(minutes, 1, LIMITS.alertMinutes)) &&
     new Set(value).size === value.length
   );
+}
+
+export function parseFollowUpSetting(value: unknown): FollowUpSetting | null {
+  return value === 'off' ? value : (FOLLOW_UP_MINUTES.find((minutes) => minutes === value) ?? null);
 }
 
 export function parseFields(value: unknown): ReminderFields | null {

@@ -1,4 +1,4 @@
-import { fire, nextFireAt } from '../../shared/fire';
+import { fire, nextFireAt, type FollowUpSetting } from '../../shared/fire';
 import { reminderMessage, type NotificationContent, type PushData } from '../../shared/notification';
 import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
@@ -30,16 +30,18 @@ export class Fallback {
   private cancel = () => {};
   private generation = 0;
   private zone: string | null = null;
+  private followUp: FollowUpSetting = 'off';
   private readonly watermarks = new Map<string, number>();
 
   constructor(private readonly deps: FallbackDeps) {}
 
   /** Plans nothing without a zone the server confirmed: one guessed could show a notice at the wrong time. */
-  schedule(reminders: readonly Reminder[], zone: string | null, enabled: boolean): void {
+  schedule(reminders: readonly Reminder[], zone: string | null, followUp: FollowUpSetting, enabled: boolean): void {
     this.generation++;
     // Watermarks are instants in the zone they were reached in; after a move the claims alone tell what was shown.
     if (zone !== this.zone) this.watermarks.clear();
     this.zone = zone;
+    this.followUp = followUp;
     if (zone === null) this.cancel();
     else this.arm(reminders, zone, enabled);
   }
@@ -49,7 +51,9 @@ export class Fallback {
     if (!enabled) return;
     const now = this.deps.now();
     let next = Infinity;
-    for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder, now), zone) ?? Infinity);
+    for (const reminder of reminders) {
+      next = Math.min(next, nextFireAt(this.locally(reminder, now), zone, this.followUp) ?? Infinity);
+    }
     if (next === Infinity) return;
     const generation = this.generation;
     const wait = Math.min(Math.max(atLeast, next + GRACE_MS - now), MAX_WAIT_MS);
@@ -118,7 +122,7 @@ export class Fallback {
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
     const outcomes: Promise<boolean>[] = [];
     for (const reminder of reminders) {
-      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
+      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone, this.followUp);
       const shown = notices.map((notice) => {
         const content = reminderMessage(advanced, notice, view).notification;
         return this.showOnce(content, display, generation).catch((error: unknown) => {
