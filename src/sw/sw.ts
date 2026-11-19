@@ -23,7 +23,8 @@ function isPushData(value: unknown): value is PushData {
   return (
     isRecord(value) &&
     typeof value.fire === 'string' &&
-    (value.notice === undefined || typeof value.notice === 'string')
+    (value.notice === undefined || typeof value.notice === 'string') &&
+    (value.followUp === undefined || value.followUp === true)
   );
 }
 
@@ -91,11 +92,24 @@ self.addEventListener('fetch', (event) => {
 
 const SHOW_WITHIN_MS = 3000;
 
+/**
+ * iOS never lets a notification replace another with its tag, so a follow-up closes what its occurrence showed before.
+ * Safari shows a declarative push only once its event settles, so closing the tag during the event spares the follow-up
+ * itself. Other browsers replace by tag on their own. Best effort: iOS keeps a notification younger than 30 seconds.
+ */
+async function makeRoom({ followUp }: PushData, tag: string): Promise<void> {
+  if (followUp) await closeNotifications(self.registration, (shown) => shown === tag);
+}
+
 self.addEventListener('push', (event) => {
   const push = readPush(event, isPushData);
   if (!push) return;
   if (push.kind === 'declarative') {
-    waitUntilWithin(event, Promise.all([present(push.data), tidy()]), SHOW_WITHIN_MS);
+    waitUntilWithin(
+      event,
+      Promise.all([present(push.data), tidy(), makeRoom(push.data, push.notification.tag)]),
+      SHOW_WITHIN_MS,
+    );
     return;
   }
   const { message } = push;
@@ -115,7 +129,14 @@ async function drain(): Promise<void> {
   const local = await readLocal();
   const changes = batch(local.pending, MAX_REQUEST_BYTES);
   const since = local.replica.version;
-  const response = await request('sync', { since, zone: currentZone(), changes, theme: null, zoneChoice: null });
+  const response = await request('sync', {
+    since,
+    zone: currentZone(),
+    changes,
+    theme: null,
+    zoneChoice: null,
+    followUpChoice: null,
+  });
   const { pending } = await commit(response, since, new Set(changes.map((change) => change.opId)));
   if (pending.length > 0) await drain();
 }

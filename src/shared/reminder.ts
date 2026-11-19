@@ -30,6 +30,13 @@ export interface ReminderFields {
   alerts: number[];
 }
 
+/** The last notice that was the reminder itself, due or back from a snooze, and whether it was followed up. */
+interface CameUp {
+  due: string;
+  at: number;
+  followedUp: boolean;
+}
+
 /** A paused series fires nothing from `at`, until `until` or, when that is null, until it is resumed. */
 interface Pause {
   at: number;
@@ -49,6 +56,7 @@ interface ReminderState {
   alsoFired: string[];
   completedAt: number | null;
   paused: Pause | null;
+  cameUp: CameUp | null;
   /** Nothing planned at or before this is ever shown, even by a device's fallback: it predates the reminder or a pause. */
   quietThrough: number;
 }
@@ -60,9 +68,9 @@ export interface Reminder extends ReminderFields, ReminderState {
   deleted: boolean;
 }
 
-/** A reminder as stored, which may predate pausing. */
-export type StoredReminder = Omit<Reminder, 'paused' | 'quietThrough' | 'alsoFired'> &
-  Partial<Pick<Reminder, 'paused' | 'quietThrough' | 'alsoFired'>>;
+/** A reminder as stored, which may predate pausing or follow-ups. */
+export type StoredReminder = Omit<Reminder, 'paused' | 'quietThrough' | 'alsoFired' | 'cameUp'> &
+  Partial<Pick<Reminder, 'paused' | 'quietThrough' | 'alsoFired' | 'cameUp'>>;
 
 export function fromStored(stored: StoredReminder): Reminder {
   return {
@@ -70,6 +78,7 @@ export function fromStored(stored: StoredReminder): Reminder {
     paused: stored.paused ?? null,
     quietThrough: stored.quietThrough ?? stored.createdAt,
     alsoFired: stored.alsoFired ?? [],
+    cameUp: stored.cameUp ?? null,
   };
 }
 
@@ -163,6 +172,8 @@ export function resumed(reminder: Reminder, at: number, currentZone: string): Re
   const unpaused = {
     ...reminder,
     paused: null,
+    // A pause cancels a follow-up, so resuming starts with nothing to follow up.
+    cameUp: null,
     revision: reminder.revision + 1,
     // A snooze is a span of elapsed time and `at` is a real instant, unlike the pause's start, which moves with the
     // wall clock: only a wake-up still ahead survives.

@@ -42,6 +42,7 @@ test('pending changes are layered over the server state until the server acknowl
     reminders: [{ ...server(), title: 'Pay rent (edited elsewhere)' }],
     reset: false,
     theme: 'classic',
+    followUp: 30,
     zone: INSTANCE,
   });
   expect(replica.view([complete], ZONE)[0]).toMatchObject({ title: 'Pay rent (edited elsewhere)', due: null });
@@ -50,7 +51,7 @@ test('pending changes are layered over the server state until the server acknowl
 
 test('a reset drops everything the server no longer has', () => {
   const replica = new Replica({ version: 5, reminders: [server()] });
-  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE });
+  replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE, followUp: 30 });
   expect(replica.view([], ZONE)).toEqual([]);
   expect(replica.version).toBe(3);
 });
@@ -62,6 +63,7 @@ test('a slower, older sync response never rolls the replica back', () => {
     reminders: [{ ...server(), title: 'Newer' }],
     reset: false,
     theme: 'classic',
+    followUp: 30,
     zone: INSTANCE,
   });
   replica.receive({
@@ -69,6 +71,7 @@ test('a slower, older sync response never rolls the replica back', () => {
     reminders: [{ ...server(), title: 'Older' }],
     reset: false,
     theme: 'classic',
+    followUp: 30,
     zone: INSTANCE,
   });
   expect(replica.version).toBe(3);
@@ -84,7 +87,7 @@ test.each([
   (version, since, expected) => {
     const kept = { name: 'America/New_York', fixed: true };
     const replica = new Replica({ version, reminders: [server()], zone: kept });
-    replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE }, since);
+    replica.receive({ version: 3, reminders: [], reset: true, theme: 'classic', zone: INSTANCE, followUp: 30 }, since);
     expect(replica.version).toBe(expected);
     expect(replica.view([], ZONE)).toHaveLength(expected === 3 ? 0 : 1);
     expect(replica.zone).toEqual(expected === 3 ? INSTANCE : kept);

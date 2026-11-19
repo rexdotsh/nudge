@@ -45,6 +45,7 @@ function put(current: Reminder | undefined, id: string, fields: ReminderFields, 
     firedThrough: Math.max(current?.firedThrough ?? now, now),
     alsoFired: [],
     completedAt: null,
+    cameUp: null,
     paused: fields.repeat && due !== null ? (current?.paused ?? null) : null,
     quietThrough: current?.quietThrough ?? now,
   };
@@ -58,6 +59,7 @@ function settle(current: Reminder, due: string | null, now: number): Reminder {
     missed: 0,
     snoozedUntil: null,
     firedThrough: Math.max(current.firedThrough, now),
+    cameUp: null,
     updatedAt: now,
   };
 }
@@ -97,9 +99,16 @@ export function applyOp(current: Reminder | undefined, op: Op, clock: Clock): Re
     case 'unpause':
       if (!current.paused || current.revision !== op.revision) return null;
       return { ...current, paused: null, revision: current.revision + 1, updatedAt: now };
+    // Deleting cancels a follow-up, and restoring does not bring it back.
     case 'delete':
     case 'restore':
-      return { ...current, deleted: op.type === 'delete', revision: current.revision + 1, updatedAt: now };
+      return {
+        ...current,
+        deleted: op.type === 'delete',
+        cameUp: null,
+        revision: current.revision + 1,
+        updatedAt: now,
+      };
     default: {
       const unhandled: never = op;
       return unhandled;

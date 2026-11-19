@@ -1,4 +1,4 @@
-import { showUnlessOnScreen } from 'declarative-web-push/worker';
+import { showUnlessOnScreen, type Shower } from 'declarative-web-push/worker';
 import type { NotificationContent } from '../shared/notification';
 import { isRecord } from '../shared/validate';
 import type { Shown } from './shown';
@@ -12,7 +12,7 @@ const ACTIONS = [
 
 // Safari shows declarative pushes before the service worker hears about them; an identical fire already on screen must
 // not be shown (and alert) again, while other fires of the same occurrence still replace it.
-export async function showNudge(registration: ServiceWorkerRegistration, content: NotificationContent): Promise<void> {
+export async function showNudge(registration: Shower, content: NotificationContent): Promise<void> {
   const { fire, reminder } = content.data;
   const data: Shown = { ...content.data, navigate: content.navigate };
   await showUnlessOnScreen(registration, content, {

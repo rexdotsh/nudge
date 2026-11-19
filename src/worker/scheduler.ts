@@ -1,6 +1,6 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import type { InstanceZone } from '../shared/api';
-import { fire, movedZone, nextFireAt, type Notice } from '../shared/fire';
+import { fire, followUpFrom, movedZone, nextFireAt, type FollowUpSetting, type Notice } from '../shared/fire';
 import {
   fireId,
   occurrenceTopic,
@@ -30,8 +30,8 @@ const ALERT_RETRY_MS = 5 * MINUTE_MS;
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-function outgoing(id: string, title: string, topic: string, message: PushMessage): Outgoing {
-  return { fire: id, title, topic, payload: JSON.stringify(message) };
+function outgoing(id: string, title: string, topic: string, message: PushMessage, followUp = false): Outgoing {
+  return { fire: id, title, topic, payload: JSON.stringify(message), follow_up: Number(followUp) };
 }
 
 function occurrenceAlertKey(problem: string, delivery: Pick<Outgoing, 'topic'>): string {
@@ -69,20 +69,34 @@ export class Scheduler {
     }
   }
 
+  /** The latest choice wins by when it was made, so a device coming back online cannot undo a newer one. */
+  chooseFollowUp(followUp: FollowUpSetting, at: number): void {
+    if (at < Number(this.store.meta('follow_up_at') ?? 0)) return;
+    this.store.setMeta('follow_up_at', String(at));
+    const previous = this.store.followUp();
+    this.store.setFollowUp(followUp);
+    if (previous === followUp) return;
+    // A follow-up already sent stays the only one for what it follows; a new delay does not stop it arriving, Off does.
+    if (followUp === 'off') this.store.deliveries.cancelFollowUps();
+    const now = this.runtime.now();
+    for (const reminder of this.store.reminders()) this.save(followUpFrom(reminder, followUp, now));
+  }
+
   save(reminder: Reminder): void {
-    this.store.saveReminder(reminder, nextFireAt(reminder, this.zone()));
+    this.store.saveReminder(reminder, nextFireAt(reminder, this.zone(), this.store.followUp()));
   }
 
   /**
    * Saves a change and settles what is queued for the reminder: a pause holds it, ending the pause goes on with it if
-   * the same occurrence is still due, and any other change that settles the occurrence cancels it.
+   * the same occurrence is still due (and with its follow-up only if the reminder still has one to follow, as after
+   * undoing the pause), and any other change that settles the occurrence cancels it.
    */
   saveChange(previous: Reminder | undefined, next: Reminder, settles: boolean): void {
     this.save(next);
     const { deliveries } = this.store;
     if (next.paused && !next.deleted) deliveries.holdForReminder(next.id);
     else if (previous?.paused && !next.paused && previous.due === next.due && next.due !== null) {
-      deliveries.releaseForReminder(next.id, occurrenceTopic(next.id, next.due));
+      deliveries.releaseForReminder(next.id, occurrenceTopic(next.id, next.due), next.cameUp !== null);
     } else if (settles || previous?.paused) deliveries.cancelForReminder(next.id);
   }
 
@@ -170,13 +184,15 @@ export class Scheduler {
       reminder.title,
       occurrenceTopic(reminder.id, notice.due),
       reminderMessage(reminder, notice, view),
+      notice.alert === 'again',
     );
   }
 
   private async process(now: number): Promise<void> {
     const zone = this.zone();
+    const followUp = this.store.followUp();
     const fired = this.store.dueReminders(now).map((previous) => {
-      const { reminder, notices } = fire(previous, now, zone);
+      const { reminder, notices } = fire(previous, now, zone, followUp);
       return { previous, reminder, notices };
     });
     const updated = new Map(fired.map(({ reminder }) => [reminder.id, reminder]));
@@ -206,6 +222,9 @@ export class Scheduler {
         this.alertOnce(
           occurrenceAlertKey('unreached', item),
           `No device has notifications on, so "${item.title}" was not sent.`,
+          // A follow-up adds nothing to what its occurrence already raised, however long ago, but alerts on its own
+          // when a late run sent it in place of the notice it follows.
+          item.follow_up ? Infinity : ALERT_COOLDOWN_MS,
         ),
       ),
     );

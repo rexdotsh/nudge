@@ -8,6 +8,8 @@ export interface PushData {
   /** The notice by its occurrence, from `noticeKey`; test pushes and pushes queued before it existed have none. */
   notice?: string;
   reminder: { id: string; due: string } | null;
+  /** A follow-up, which takes the place of what its occurrence showed before. */
+  followUp?: true;
 }
 
 export type NotificationContent = DeclarativeNotification<PushData> & { data: PushData };
@@ -45,6 +47,8 @@ function bodyFor(reminder: Reminder, notice: Notice, due: number, view: Presenta
       return `Snoozed · was due ${time}`;
     case 'nag':
       return `Still waiting · was due ${time}`;
+    case 'again':
+      return `Was due ${time}`;
     default: {
       const unhandled: never = notice.alert;
       return unhandled;
@@ -102,7 +106,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
   const due = dueAt({ ...reminder, due: notice.due }, view.zone) ?? notice.at;
   return declarative(
     {
-      title: reminder.title,
+      title: notice.alert === 'again' ? `Still to do: ${reminder.title}` : reminder.title,
       body: bodyFor(reminder, notice, due, view),
       navigate: `${view.origin}/?open=${reminder.id}`,
       tag: occurrenceTag({ id: reminder.id, due: notice.due }),
@@ -111,6 +115,7 @@ export function reminderMessage(reminder: Reminder, notice: Notice, view: Presen
         fire: fireId(reminder.id, notice),
         notice: noticeKey(reminder.id, notice),
         reminder: { id: reminder.id, due: notice.due },
+        ...(notice.alert === 'again' && { followUp: true }),
       },
     },
     view.badge,

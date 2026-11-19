@@ -4,7 +4,15 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, formatLocal, toInstant, toLocal } from './t
 export const NAG_INTERVAL_MS = 5 * MINUTE_MS;
 export const NAG_LIMIT = (2 * HOUR_MS) / NAG_INTERVAL_MS;
 
-type Alert = 'early' | 'due' | 'snoozed' | 'nag';
+export const FOLLOW_UP_MINUTES = [15, 30, 60, 120, 180] as const;
+/**
+ * How long after a reminder comes up it notifies once more if it is still not done, in minutes, or never. One setting
+ * for the instance; important reminders nag instead.
+ */
+export type FollowUpSetting = 'off' | (typeof FOLLOW_UP_MINUTES)[number];
+export const DEFAULT_FOLLOW_UP: FollowUpSetting = 'off';
+
+type Alert = 'early' | 'due' | 'snoozed' | 'nag' | 'again';
 
 export interface Notice {
   alert: Alert;
@@ -13,7 +21,8 @@ export interface Notice {
   missed: number;
   /**
    * Where the notice sits in its occurrence, the same in every zone: its distance from the due time, or, for what a
-   * snooze brings back, its instant. With the reminder and the due wall time it names the notice wherever it is planned.
+   * snooze brings back, its instant. A follow-up's is the instant of the notice it follows with a `+`, whatever its
+   * delay. With the reminder and the due wall time it names the notice wherever it is planned.
    */
   slot: string;
 }
@@ -81,31 +90,60 @@ function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Aler
   });
 }
 
+/**
+ * A follow-up follows the notice that last came up for the current occurrence, the due one or a snooze's, from the
+ * instant it actually came up, and comes once for it. Its record, unlike the watermarks, is never moved with the wall
+ * clock, so neither a zone move nor a change of setting can send it twice or swallow it. A snooze still to end holds it
+ * back, and an important reminder nags instead.
+ */
+function followUpStep(reminder: Reminder, followUp: FollowUpSetting): AlertStep[] {
+  const { cameUp, due, snoozedUntil, important } = reminder;
+  if (!cameUp || cameUp.followedUp || cameUp.due !== due || important || followUp === 'off') return [];
+  if (snoozedUntil !== null && snoozedUntil > cameUp.at) return [];
+  return [{ at: cameUp.at + followUp * MINUTE_MS, alert: 'again', due: cameUp.due, slot: `@${cameUp.at}+` }];
+}
+
+/** A new setting applies from now on: a follow-up whose time under it has already passed is not sent late. */
+export function followUpFrom(reminder: Reminder, followUp: FollowUpSetting, now: number): Reminder {
+  const [step] = followUpStep(reminder, followUp);
+  if (!step || !reminder.cameUp || step.at > now) return reminder;
+  return { ...reminder, cameUp: { ...reminder.cameUp, followedUp: true } };
+}
+
 // Everything planned for the earliest instant goes together, since firedThrough moving to it passes all of it: today's
 // due and tomorrow's one-day alert, a nag and a later occurrence's early alert, or two later occurrences' early alerts
 // can share an instant. A roll at that instant goes first, on its own, because it changes what is planned.
-function earliest(reminder: Reminder, zone: string): Step | null {
+function earliest(reminder: Reminder, zone: string, followUp: FollowUpSetting): Step | null {
   const due = dueAt(reminder, zone);
   if (reminder.deleted || reminder.due === null || due === null) return null;
   if (reminder.paused) return reminder.paused.until === null ? null : { at: reminder.paused.until, resume: true };
   const next = occurrenceAfter(reminder, due, zone);
   const roll = next === null ? null : { at: instantOf(reminder, next, zone), roll: next };
-  const alerts = [...alertSteps(reminder, due, reminder.due), ...upcomingEarlySteps(reminder, due, zone)];
+  const alerts = [
+    ...alertSteps(reminder, due, reminder.due),
+    ...followUpStep(reminder, followUp),
+    ...upcomingEarlySteps(reminder, due, zone),
+  ];
   const at = Math.min(roll?.at ?? Infinity, ...alerts.map((step) => step.at));
   if (roll && roll.at === at) return roll;
   return at === Infinity ? null : { at, alerts: alerts.filter((step) => step.at === at) };
 }
 
-export function nextFireAt(reminder: Reminder, zone: string): number | null {
-  return earliest(reminder, zone)?.at ?? null;
+export function nextFireAt(reminder: Reminder, zone: string, followUp: FollowUpSetting): number | null {
+  return earliest(reminder, zone, followUp)?.at ?? null;
 }
 
 // A late run sends at most one notice per occurrence (the latest step), not a burst, and only for occurrences that are
 // still current or upcoming; ones it rolled past are not announced.
-export function fire(reminder: Reminder, now: number, zone: string): { reminder: Reminder; notices: Notice[] } {
+export function fire(
+  reminder: Reminder,
+  now: number,
+  zone: string,
+  followUp: FollowUpSetting,
+): { reminder: Reminder; notices: Notice[] } {
   let current = { ...reminder };
   const latest = new Map<string, Notice>();
-  for (let step = earliest(current, zone); step && step.at <= now; step = earliest(current, zone)) {
+  for (let step = earliest(current, zone, followUp); step && step.at <= now; step = earliest(current, zone, followUp)) {
     if ('resume' in step) {
       current = resumed(current, step.at, zone);
       continue;
@@ -121,12 +159,19 @@ export function fire(reminder: Reminder, now: number, zone: string): { reminder:
     if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
     current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
-    for (const { alert, at, due, slot } of step.alerts)
+    for (const { alert, at, due, slot } of step.alerts) {
       latest.set(due, { alert, at, due, slot, missed: current.missed });
+      if (due === current.due) current.cameUp = cameUpAfter(current.cameUp, alert, due, at);
+    }
   }
   const live = current.due;
   const notices = [...latest.values()].filter((notice) => live !== null && notice.due >= live);
   return { reminder: current, notices };
+}
+
+function cameUpAfter(cameUp: Reminder['cameUp'], alert: Alert, due: string, at: number): Reminder['cameUp'] {
+  if (alert === 'due' || alert === 'snoozed') return { due, at, followedUp: false };
+  return alert === 'again' && cameUp ? { ...cameUp, followedUp: true } : cameUp;
 }
 
 const MOVE_REACH_MS = DAY_MS;

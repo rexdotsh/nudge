@@ -92,6 +92,7 @@ describe('enrollment', () => {
       ['test', { id: ulid(), delay: 99_999 }],
       ['sync', { since: 0, zone: ZONE, changes: [], theme: { id: ulid(), theme: 'neon', at: 0 } }],
       ['sync', { since: 0, zone: ZONE, changes: [], zoneChoice: { id: ulid(), zone: 'Mars/Olympus', at: 0 } }],
+      ['sync', { since: 0, zone: ZONE, changes: [], followUpChoice: { id: ulid(), followUp: 45, at: 0 } }],
     ] as const;
     const results = await Promise.all(malformed.map(([route, body]) => h.call(route, body, deviceId)));
     expect(results.every((result) => !result.ok && result.error === 'bad_request')).toBe(true);
@@ -463,6 +464,7 @@ describe('sync', () => {
     ],
     ['theme choice', () => ({ changes: [], theme: { id: ulid(), theme: 'rex', at: h.state.now } })],
     ['zone choice', () => ({ changes: [], zoneChoice: { id: ulid(), zone: 'Europe/Paris', at: h.state.now } })],
+    ['follow-up choice', () => ({ changes: [], followUpChoice: { id: ulid(), followUp: 30, at: h.state.now } })],
   ])('a %s committed just before a failure still reaches the other devices when it is retried', async (_, write) => {
     const { phone } = await h.pair();
     const { version } = await h.ok('sync', { since: 0, zone: ZONE, changes: [] }, phone);
@@ -893,6 +895,7 @@ describe('delivery', () => {
     await h.runAlarm();
     h.db.run('ALTER TABLE deliveries DROP COLUMN held_at');
     h.db.run('ALTER TABLE devices DROP COLUMN kind');
+    h.db.run('ALTER TABLE deliveries DROP COLUMN follow_up');
     h.db.run('DROP TABLE agent_keys');
     h.db.run("UPDATE meta SET value = '1' WHERE key = 'schema'");
     h.restart();

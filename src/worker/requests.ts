@@ -9,6 +9,7 @@ import {
   type DeviceInput,
   type DeviceRoute,
   type DeviceRoutes,
+  type FollowUpChoice,
   type PublicRoute,
   type PublicRoutes,
   type PushKeys,
@@ -17,7 +18,7 @@ import {
   type ZoneChoice,
 } from '../shared/api';
 import { BASE64URL } from '../shared/encoding';
-import { parseOp } from '../shared/input';
+import { parseFollowUpSetting, parseOp } from '../shared/input';
 import { isTimeZone } from '../shared/time';
 import { isUlid } from '../shared/ulid';
 import { isInteger, isRecord, isText } from '../shared/validate';
@@ -117,11 +118,27 @@ function zoneChoice(value: unknown): ZoneChoice | null {
   return { id, zone, at };
 }
 
+function followUpChoice(value: unknown): FollowUpChoice | null {
+  // Bundles from before follow-ups leave it out.
+  if (value === undefined || value === null) return null;
+  const { id, followUp, at } = record(value);
+  const known = parseFollowUpSetting(followUp);
+  if (!isUlid(id) || known === null || !isInteger(at, 0, Number.MAX_SAFE_INTEGER)) invalid();
+  return { id, followUp: known, at };
+}
+
 function syncRequest(value: unknown): SyncRequest {
-  const { since, zone, changes, theme, zoneChoice: choice } = record(value);
+  const { since, zone, changes, theme, zoneChoice: zoned, followUpChoice: followUp } = record(value);
   if (!isInteger(since, 0, Number.MAX_SAFE_INTEGER) || !isZone(zone)) invalid();
   if (!Array.isArray(changes) || changes.length > MAX_CHANGES) invalid();
-  return { since, zone, changes: changes.map(change), theme: themeChoice(theme), zoneChoice: zoneChoice(choice) };
+  return {
+    since,
+    zone,
+    changes: changes.map(change),
+    theme: themeChoice(theme),
+    zoneChoice: zoneChoice(zoned),
+    followUpChoice: followUpChoice(followUp),
+  };
 }
 
 export const PUBLIC_REQUESTS: { [R in PublicRoute]: (body: unknown) => PublicRoutes[R]['request'] } = {

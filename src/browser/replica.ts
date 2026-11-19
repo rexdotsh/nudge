@@ -1,5 +1,6 @@
 import type { Change, InstanceZone, SyncResponse } from '../shared/api';
 import { applyOp } from '../shared/ops';
+import type { FollowUpSetting } from '../shared/fire';
 import { fromStored, type Reminder } from '../shared/reminder';
 import type { Snapshot } from './schema';
 
@@ -7,11 +8,13 @@ export class Replica {
   private readonly server = new Map<string, Reminder>();
   version = 0;
   zone: InstanceZone | null = null;
+  followUp: FollowUpSetting | null = null;
 
   constructor(snapshot?: Snapshot) {
     if (!snapshot) return;
     this.version = snapshot.version;
     this.zone = snapshot.zone ?? null;
+    this.followUp = snapshot.followUp ?? null;
     for (const reminder of snapshot.reminders) this.server.set(reminder.id, fromStored(reminder));
   }
 
@@ -21,10 +24,16 @@ export class Replica {
     for (const reminder of response.reminders) this.server.set(reminder.id, reminder);
     this.version = response.version;
     this.zone = response.zone;
+    this.followUp = response.followUp;
   }
 
   snapshot(): Snapshot {
-    return { version: this.version, reminders: [...this.server.values()], zone: this.zone ?? undefined };
+    return {
+      version: this.version,
+      reminders: [...this.server.values()],
+      zone: this.zone ?? undefined,
+      followUp: this.followUp ?? undefined,
+    };
   }
 
   /**

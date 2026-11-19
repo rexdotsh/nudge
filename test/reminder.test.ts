@@ -1,57 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt, type Notice } from '../src/shared/fire';
+import { NAG_INTERVAL_MS, NAG_LIMIT, fire, nextFireAt } from '../src/shared/fire';
 import { fireId } from '../src/shared/notification';
 import { LIMITS, parseFields, parseOp } from '../src/shared/input';
-import { applyOp, type Clock, type Op } from '../src/shared/ops';
+import { applyOp, type Op } from '../src/shared/ops';
 import { dueAt, isLate, type Reminder, type ReminderFields, type Repeat } from '../src/shared/reminder';
-import { MINUTE_MS, toInstant, parseLocal } from '../src/shared/time';
+import { MINUTE_MS } from '../src/shared/time';
+import { ID, ZONE, apply, at, create, daily, fields, fireThrough } from './planning';
 
-const ZONE = 'Asia/Kolkata';
-const ID = '01JA0000000000000000000000';
-
-function at(wall: string, zone = ZONE): number {
-  const parsed = parseLocal(wall);
-  if (!parsed) throw new Error(wall);
-  return toInstant(parsed, zone);
-}
-
-function fields(overrides: Partial<ReminderFields> = {}): ReminderFields {
-  return {
-    title: 'Water the plants',
-    notes: '',
-    start: '2026-10-12T09:00',
-    zone: null,
-    repeat: null,
-    important: false,
-    alerts: [],
-    ...overrides,
-  };
-}
-
-function apply(current: Reminder | undefined, op: Op, now: string): Reminder {
-  const clock: Clock = { now: at(now), zone: ZONE };
-  const next = applyOp(current, op, clock);
-  if (!next) throw new Error(`op ${op.type} was rejected`);
-  return next;
-}
-
-function create(overrides: Partial<ReminderFields> = {}, now = '2026-10-11T20:00'): Reminder {
-  return apply(undefined, { type: 'put', id: ID, fields: fields(overrides) }, now);
-}
-
-const daily = { rule: 'FREQ=DAILY', anchor: 'schedule' } as const;
 const days = (count: number) => count * 24 * 60;
-
-function fireThrough(reminder: Reminder, until: number, zone = ZONE): { reminder: Reminder; notices: Notice[] } {
-  const notices: Notice[] = [];
-  let current = reminder;
-  for (let next = nextFireAt(current, zone); next !== null && next <= until; next = nextFireAt(current, zone)) {
-    const fired = fire(current, next, zone);
-    notices.push(...fired.notices);
-    current = fired.reminder;
-  }
-  return { reminder: current, notices };
-}
+const aroundNine = (ms: number) => ({ now: at('2026-10-12T09:00') + ms, zone: ZONE });
 
 describe('put', () => {
   test('a one-off is due at its start, even in the past', () => {
@@ -155,7 +112,7 @@ describe('complete, skip, snooze, reopen', () => {
     const series = create({ start: '2026-10-12T09:00', repeat: daily, alerts: [60] });
     const done = apply(series, { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:05');
     const undo = { type: 'reopen', id: ID, due: '2026-10-12T09:00', revision: done.revision } as const;
-    const alerted = fire(done, at('2026-10-13T08:00'), ZONE).reminder;
+    const alerted = fire(done, at('2026-10-13T08:00'), ZONE, 'off').reminder;
     expect(applyOp(alerted, undo, { now: at('2026-10-13T08:01'), zone: ZONE })).toBeNull();
   });
 
@@ -180,7 +137,7 @@ describe('complete, skip, snooze, reopen', () => {
     if (!done) throw new Error('complete failed');
     expect(done.due).not.toBe('2026-11-01T00:30');
     expect(dueAt(done, ny)).toBeGreaterThanOrEqual(Date.UTC(2026, 10, 1, 6, 30));
-    expect(nextFireAt(done, ny)).not.toBeNull();
+    expect(nextFireAt(done, ny, 'off')).not.toBeNull();
   });
 
   test('every applied op and roll bumps the revision', () => {
@@ -188,7 +145,7 @@ describe('complete, skip, snooze, reopen', () => {
     expect(reminder.revision).toBe(1);
     const snoozed = apply(reminder, { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: 0 }, '2026-10-12T09:01');
     expect(snoozed.revision).toBe(2);
-    expect(fire(snoozed, at('2026-10-13T09:00'), ZONE).reminder.revision).toBeGreaterThan(2);
+    expect(fire(snoozed, at('2026-10-13T09:00'), ZONE, 'off').reminder.revision).toBeGreaterThan(2);
   });
 
   test('delete and restore only toggle the tombstone', () => {
@@ -203,50 +160,52 @@ describe('replayed writes never swallow notices', () => {
   test('replaying an identical put after the due time still lets the due notice fire', () => {
     const reminder = create();
     const replayed = apply(reminder, { type: 'put', id: ID, fields: fields() }, '2026-10-12T09:03');
-    expect(fire(replayed, at('2026-10-12T09:04'), ZONE).notices.at(-1)?.alert).toBe('due');
+    expect(fire(replayed, at('2026-10-12T09:04'), ZONE, 'off').notices.at(-1)?.alert).toBe('due');
   });
 
   test('adding an early alert that is already past does not fire it, but keeps the due notice', () => {
     const reminder = create();
     const edited = apply(reminder, { type: 'put', id: ID, fields: fields({ alerts: [60] }) }, '2026-10-12T08:30');
-    expect(nextFireAt(edited, ZONE)).toBe(at('2026-10-12T09:00'));
+    expect(nextFireAt(edited, ZONE, 'off')).toBe(at('2026-10-12T09:00'));
     const late = apply(reminder, { type: 'put', id: ID, fields: fields({ alerts: [60] }) }, '2026-10-12T09:30');
-    expect(fire(late, at('2026-10-12T09:31'), ZONE).notices.at(-1)?.alert).toBe('due');
+    expect(fire(late, at('2026-10-12T09:31'), ZONE, 'off').notices.at(-1)?.alert).toBe('due');
   });
 
   test('replaying a snooze after it ended still lets the wake-up fire once', () => {
-    const fired = fire(create(), at('2026-10-12T09:00'), ZONE).reminder;
+    const fired = fire(create(), at('2026-10-12T09:00'), ZONE, 'off').reminder;
     const snooze = { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-12T09:15') } as const;
     const snoozed = apply(fired, snooze, '2026-10-12T09:01');
     const replayed = apply(snoozed, snooze, '2026-10-12T09:20');
-    const woke = fire(replayed, at('2026-10-12T09:21'), ZONE);
+    const woke = fire(replayed, at('2026-10-12T09:21'), ZONE, 'off');
     expect(woke.notices.at(-1)?.alert).toBe('snoozed');
-    expect(fire(apply(woke.reminder, snooze, '2026-10-12T09:22'), at('2026-10-12T09:23'), ZONE).notices).toEqual([]);
+    expect(fire(apply(woke.reminder, snooze, '2026-10-12T09:22'), at('2026-10-12T09:23'), ZONE, 'off').notices).toEqual(
+      [],
+    );
   });
 });
 
 describe('firing', () => {
   test('early alert, then due, then nothing', () => {
     let reminder = create({ alerts: [60] });
-    expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-12T08:00'));
+    expect(nextFireAt(reminder, ZONE, 'off')).toBe(at('2026-10-12T08:00'));
 
-    const early = fire(reminder, at('2026-10-12T08:00'), ZONE);
+    const early = fire(reminder, at('2026-10-12T08:00'), ZONE, 'off');
     expect(early.notices.at(-1)).toMatchObject({ alert: 'early', due: '2026-10-12T09:00' });
     reminder = early.reminder;
-    expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-12T09:00'));
+    expect(nextFireAt(reminder, ZONE, 'off')).toBe(at('2026-10-12T09:00'));
 
-    const due = fire(reminder, at('2026-10-12T09:00'), ZONE);
+    const due = fire(reminder, at('2026-10-12T09:00'), ZONE, 'off');
     expect(due.notices.at(-1)?.alert).toBe('due');
-    expect(nextFireAt(due.reminder, ZONE)).toBeNull();
+    expect(nextFireAt(due.reminder, ZONE, 'off')).toBeNull();
   });
 
   test("an unfinished daily reminder still gets the next day's early alert", () => {
     let reminder = create({ repeat: daily, alerts: [60] });
     const notices: unknown[] = [];
     for (const wall of ['2026-10-12T08:00', '2026-10-12T09:00', '2026-10-13T08:00', '2026-10-13T09:00']) {
-      const next = nextFireAt(reminder, ZONE) ?? Number.NaN;
+      const next = nextFireAt(reminder, ZONE, 'off') ?? Number.NaN;
       expect(next - (next % MINUTE_MS)).toBe(at(wall));
-      const fired = fire(reminder, next, ZONE);
+      const fired = fire(reminder, next, ZONE, 'off');
       notices.push(...fired.notices.map(({ alert, due }) => ({ alert, due })));
       reminder = fired.reminder;
     }
@@ -262,9 +221,9 @@ describe('firing', () => {
     let reminder = create({ repeat: { rule: 'FREQ=HOURLY', anchor: 'schedule' }, alerts: [1440] }, '2026-10-11T08:59');
     const warned: string[] = [];
     for (let i = 0; i < 4; i++) {
-      const next = nextFireAt(reminder, ZONE);
+      const next = nextFireAt(reminder, ZONE, 'off');
       if (next === null) throw new Error('nothing planned');
-      const fired = fire(reminder, next, ZONE);
+      const fired = fire(reminder, next, ZONE, 'off');
       warned.push(...fired.notices.filter(({ alert }) => alert === 'early').map(({ due }) => due));
       reminder = fired.reminder;
     }
@@ -325,9 +284,9 @@ describe('firing', () => {
     const warned: [string, number][] = [];
     const ids = new Set<string>();
     for (let step = 0; reminder && warned.length < expected.length; step++) {
-      const next = nextFireAt(reminder, ny);
+      const next = nextFireAt(reminder, ny, 'off');
       if (next === null || step > 50) throw new Error('nothing planned');
-      const fired = fire(reminder, next, ny);
+      const fired = fire(reminder, next, ny, 'off');
       for (const notice of fired.notices) {
         const ahead = (dueAt({ ...fired.reminder, due: notice.due }, ny) ?? Number.NaN) - notice.at;
         if (notice.alert !== 'early') continue;
@@ -381,7 +340,7 @@ describe('firing', () => {
 
   test("one late run that catches a due notice and the next occurrence's early alert sends both", () => {
     const reminder = create({ repeat: daily, alerts: [1440] }, '2026-10-12T08:59');
-    const late = fire(reminder, at('2026-10-12T09:00') + MINUTE_MS, ZONE);
+    const late = fire(reminder, at('2026-10-12T09:00') + MINUTE_MS, ZONE, 'off');
     expect(late.notices.map(({ alert, due }) => [alert, due])).toEqual([
       ['due', '2026-10-12T09:00'],
       ['early', '2026-10-13T09:00'],
@@ -389,25 +348,25 @@ describe('firing', () => {
   });
 
   test('a snooze across the next occurrence also holds back its early alert', () => {
-    const fired = fire(create({ repeat: daily, alerts: [60] }), at('2026-10-12T09:00'), ZONE).reminder;
+    const fired = fire(create({ repeat: daily, alerts: [60] }), at('2026-10-12T09:00'), ZONE, 'off').reminder;
     const snoozed = apply(
       fired,
       { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-13T12:00') },
       '2026-10-12T09:05',
     );
-    expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-13T09:00'));
+    expect(nextFireAt(snoozed, ZONE, 'off')).toBe(at('2026-10-13T09:00'));
   });
 
   test('alerts that were already in the past at creation never fire', () => {
     const reminder = create({ start: '2026-10-11T20:30', alerts: [60] }, '2026-10-11T20:00');
-    expect(nextFireAt(reminder, ZONE)).toBe(at('2026-10-11T20:30'));
+    expect(nextFireAt(reminder, ZONE, 'off')).toBe(at('2026-10-11T20:30'));
   });
 
   test('important reminders nag evenly until two hours after they came up, then stop', () => {
-    let reminder = fire(create({ important: true }), at('2026-10-12T09:00'), ZONE).reminder;
+    let reminder = fire(create({ important: true }), at('2026-10-12T09:00'), ZONE, 'off').reminder;
     const nags: number[] = [];
-    for (let next = nextFireAt(reminder, ZONE); next !== null; next = nextFireAt(reminder, ZONE)) {
-      const fired = fire(reminder, next, ZONE);
+    for (let next = nextFireAt(reminder, ZONE, 'off'); next !== null; next = nextFireAt(reminder, ZONE, 'off')) {
+      const fired = fire(reminder, next, ZONE, 'off');
       expect(fired.notices.map(({ alert }) => alert)).toEqual(['nag']);
       nags.push(next);
       reminder = fired.reminder;
@@ -425,44 +384,44 @@ describe('firing', () => {
       { repeat: daily, op: 'skip', next: '2026-10-13T09:00' },
     ];
     for (const { repeat, op, next } of cases) {
-      const nagging = fire(create({ important: true, repeat }), at('2026-10-12T09:10'), ZONE).reminder;
+      const nagging = fire(create({ important: true, repeat }), at('2026-10-12T09:10'), ZONE, 'off').reminder;
       const finished = apply(nagging, { type: op, id: ID, due: '2026-10-12T09:00' }, '2026-10-12T09:12');
-      expect(nextFireAt(finished, ZONE)).toBe(next === null ? null : at(next));
+      expect(nextFireAt(finished, ZONE, 'off')).toBe(next === null ? null : at(next));
     }
   });
 
   test('snoozing silences until the snooze ends, then nagging restarts from there', () => {
-    const fired = fire(create({ important: true }), at('2026-10-12T09:00'), ZONE).reminder;
+    const fired = fire(create({ important: true }), at('2026-10-12T09:00'), ZONE, 'off').reminder;
     const snoozed = apply(
       fired,
       { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-12T11:00') },
       '2026-10-12T09:01',
     );
-    expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-12T11:00'));
-    const woke = fire(snoozed, at('2026-10-12T11:00'), ZONE);
+    expect(nextFireAt(snoozed, ZONE, 'off')).toBe(at('2026-10-12T11:00'));
+    const woke = fire(snoozed, at('2026-10-12T11:00'), ZONE, 'off');
     expect(woke.notices.at(-1)?.alert).toBe('snoozed');
-    expect(nextFireAt(woke.reminder, ZONE)).toBe(at('2026-10-12T11:00') + NAG_INTERVAL_MS);
+    expect(nextFireAt(woke.reminder, ZONE, 'off')).toBe(at('2026-10-12T11:00') + NAG_INTERVAL_MS);
   });
 
   test('an unfinished occurrence rolls into the next one and counts as missed', () => {
-    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE).reminder;
-    expect(nextFireAt(series, ZONE)).toBe(at('2026-10-13T09:00'));
-    const rolled = fire(series, at('2026-10-13T09:00'), ZONE);
+    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE, 'off').reminder;
+    expect(nextFireAt(series, ZONE, 'off')).toBe(at('2026-10-13T09:00'));
+    const rolled = fire(series, at('2026-10-13T09:00'), ZONE, 'off');
     expect(rolled.reminder.due).toBe('2026-10-13T09:00');
     expect(rolled.notices.at(-1)).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
   });
 
   test('a snooze longer than the repeat interval holds through the roll', () => {
-    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE).reminder;
+    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE, 'off').reminder;
     const snoozed = apply(
       series,
       { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-13T12:00') },
       '2026-10-12T09:05',
     );
-    const rolled = fire(snoozed, at('2026-10-13T09:00'), ZONE);
+    const rolled = fire(snoozed, at('2026-10-13T09:00'), ZONE, 'off');
     expect(rolled.notices).toEqual([]);
     expect(rolled.reminder).toMatchObject({ due: '2026-10-13T09:00', missed: 1, snoozedUntil: at('2026-10-13T12:00') });
-    const woke = fire(rolled.reminder, at('2026-10-13T12:00'), ZONE);
+    const woke = fire(rolled.reminder, at('2026-10-13T12:00'), ZONE, 'off');
     expect(woke.notices.at(-1)).toMatchObject({ alert: 'snoozed', due: '2026-10-13T09:00', missed: 1 });
   });
 
@@ -472,34 +431,38 @@ describe('firing', () => {
       { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-12T08:30') },
       '2026-10-12T07:00',
     );
-    expect(nextFireAt(snoozed, ZONE)).toBe(at('2026-10-12T09:00'));
-    const due = fire(snoozed, at('2026-10-12T09:00'), ZONE);
+    expect(nextFireAt(snoozed, ZONE, 'off')).toBe(at('2026-10-12T09:00'));
+    const due = fire(snoozed, at('2026-10-12T09:00'), ZONE, 'off');
     expect(due.notices.at(-1)?.alert).toBe('due');
-    expect(nextFireAt(due.reminder, ZONE)).toBeNull();
+    expect(nextFireAt(due.reminder, ZONE, 'off')).toBeNull();
   });
 
   test('when a snooze ends exactly at the next occurrence, the notice is for the new occurrence', () => {
-    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE).reminder;
+    const series = fire(create({ repeat: daily }), at('2026-10-12T09:00'), ZONE, 'off').reminder;
     const snoozed = apply(
       series,
       { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: at('2026-10-13T09:00') },
       '2026-10-12T09:05',
     );
-    const result = fire(snoozed, at('2026-10-13T09:00'), ZONE);
+    const result = fire(snoozed, at('2026-10-13T09:00'), ZONE, 'off');
     expect(result.reminder.due).toBe('2026-10-13T09:00');
     expect(result.notices.at(-1)).toMatchObject({ alert: 'due', due: '2026-10-13T09:00', missed: 1 });
   });
 
   test('a late alarm sends one notice for the latest step, not a burst', () => {
-    const late = fire(create({ repeat: daily, alerts: [30] }), at('2026-10-15T09:10'), ZONE);
+    const late = fire(create({ repeat: daily, alerts: [30] }), at('2026-10-15T09:10'), ZONE, 'off');
     expect(late.reminder.due).toBe('2026-10-15T09:00');
     expect(late.notices.at(-1)).toMatchObject({ alert: 'due', due: '2026-10-15T09:00', missed: 3 });
   });
 
   test('deleted and finished reminders never fire', () => {
-    expect(nextFireAt(apply(create(), { type: 'delete', id: ID }, '2026-10-11T21:00'), ZONE)).toBeNull();
+    expect(nextFireAt(apply(create(), { type: 'delete', id: ID }, '2026-10-11T21:00'), ZONE, 'off')).toBeNull();
     expect(
-      nextFireAt(apply(create(), { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-11T21:00'), ZONE),
+      nextFireAt(
+        apply(create(), { type: 'complete', id: ID, due: '2026-10-12T09:00' }, '2026-10-11T21:00'),
+        ZONE,
+        'off',
+      ),
     ).toBeNull();
   });
 });
@@ -640,7 +603,7 @@ describe('pause and resume', () => {
       expect(held.notices).toEqual([]);
       reminder = step(held.reminder, { type: 'resume', id: ID }, resume);
     } else {
-      expect(nextFireAt(reminder, zone)).toBe(until ? at(until, zone) : null);
+      expect(nextFireAt(reminder, zone, 'off')).toBe(until ? at(until, zone) : null);
     }
     const after = fireThrough(reminder, at(end, zone), zone);
     expect(after.notices.map(({ alert, due, missed }) => [alert, due, missed])).toEqual(sent);
@@ -649,7 +612,7 @@ describe('pause and resume', () => {
 
   test('an indefinite pause plans nothing and is never late', () => {
     const paused = apply(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, '2026-10-12T09:30');
-    expect(nextFireAt(paused, ZONE)).toBeNull();
+    expect(nextFireAt(paused, ZONE, 'off')).toBeNull();
     expect(isLate(paused, at('2026-10-20T09:00'), ZONE)).toBe(false);
   });
 
@@ -663,22 +626,21 @@ describe('pause and resume', () => {
   });
 
   test('undoing a pause brings back the occurrence that came due meanwhile, but never over a change made since', () => {
-    const clock = (ms: number) => ({ now: at('2026-10-12T09:00') + ms, zone: ZONE });
-    const paused = applyOp(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, clock(-1000));
+    const paused = applyOp(create({ repeat: daily }), { type: 'pause', id: ID, until: null }, aroundNine(-1000));
     if (!paused) throw new Error('pause was rejected');
     const undo = { type: 'unpause', id: ID, revision: paused.revision } as const;
-    const undone = applyOp(paused, undo, clock(1000));
+    const undone = applyOp(paused, undo, aroundNine(1000));
     expect(undone?.due).toBe('2026-10-12T09:00');
-    expect(undone && fire(undone, at('2026-10-12T09:00') + 2000, ZONE).notices.map(({ alert }) => alert)).toEqual([
-      'due',
-    ]);
-    expect(undone && applyOp(undone, undo, clock(2000))).toBeNull();
+    expect(
+      undone && fire(undone, at('2026-10-12T09:00') + 2000, ZONE, 'off').notices.map(({ alert }) => alert),
+    ).toEqual(['due']);
+    expect(undone && applyOp(undone, undo, aroundNine(2000))).toBeNull();
     const edited = apply(
       paused,
       { type: 'put', id: ID, fields: fields({ title: 'Mist', repeat: daily }) },
       '2026-10-12T09:00',
     );
-    expect(applyOp(edited, undo, clock(2000))).toBeNull();
+    expect(applyOp(edited, undo, aroundNine(2000))).toBeNull();
   });
 
   test.each<[string, Partial<ReminderFields>, Op]>([
@@ -713,14 +675,14 @@ describe('pause and resume', () => {
       '2026-10-12T07:02',
     );
     expect([renamed.paused, moved.paused]).toEqual([paused.paused, paused.paused]);
-    expect(nextFireAt(moved, ZONE)).toBeNull();
+    expect(nextFireAt(moved, ZONE, 'off')).toBeNull();
     const once = apply(
       moved,
       { type: 'put', id: ID, fields: fields({ start: '2026-10-13T10:00' }) },
       '2026-10-12T07:03',
     );
     expect(once.paused).toBeNull();
-    expect(nextFireAt(once, ZONE)).toBe(at('2026-10-13T10:00'));
+    expect(nextFireAt(once, ZONE, 'off')).toBe(at('2026-10-13T10:00'));
   });
 });
 

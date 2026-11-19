@@ -9,6 +9,12 @@ const MAX_WAIT_MS = HOUR_MS;
 const LOOKBACK_MS = HOUR_MS;
 const READY_TIMEOUT_MS = 10_000;
 const RETRY_MS = 60_000;
+/**
+ * The fallback stands in for a push that did not arrive, so that a reminder is never missed. A follow-up is only a
+ * second notice of what already came up here, and planning one would need an anchor this device cannot settle on its
+ * own: it would either lose a follow-up or show it twice. The server's push and its resends carry follow-ups alone.
+ */
+const NO_FOLLOW_UP = 'off';
 
 type Display = (content: NotificationContent) => Promise<void>;
 
@@ -49,7 +55,9 @@ export class Fallback {
     if (!enabled) return;
     const now = this.deps.now();
     let next = Infinity;
-    for (const reminder of reminders) next = Math.min(next, nextFireAt(this.locally(reminder, now), zone) ?? Infinity);
+    for (const reminder of reminders) {
+      next = Math.min(next, nextFireAt(this.locally(reminder, now), zone, NO_FOLLOW_UP) ?? Infinity);
+    }
     if (next === Infinity) return;
     const generation = this.generation;
     const wait = Math.min(Math.max(atLeast, next + GRACE_MS - now), MAX_WAIT_MS);
@@ -118,7 +126,7 @@ export class Fallback {
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
     const outcomes: Promise<boolean>[] = [];
     for (const reminder of reminders) {
-      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone);
+      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone, NO_FOLLOW_UP);
       const shown = notices.map((notice) => {
         const content = reminderMessage(advanced, notice, view).notification;
         return this.showOnce(content, display, generation).catch((error: unknown) => {

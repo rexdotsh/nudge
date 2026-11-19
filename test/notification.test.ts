@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { OPENED, isWorkerMessage, openInPlace } from '../src/browser/messages';
+import { showNudge } from '../src/browser/notify';
 import { isSettled, reminderMessage, taggedOccurrence } from '../src/shared/notification';
 import { applyOp, type Op } from '../src/shared/ops';
 import type { Reminder } from '../src/shared/reminder';
@@ -62,4 +63,27 @@ test('a notification tap opens in place only where the window answers, so an old
   const older = { postMessage: () => undefined };
   expect(await openInPlace(capable, '/?open=x', new Promise(() => undefined))).toBe(true);
   expect(await openInPlace(older, '/?open=x', Promise.resolve())).toBe(false);
+});
+
+test('showing a follow-up again leaves its copy already on screen alone', async () => {
+  const content = reminderMessage(
+    reminder(false),
+    { alert: 'again', at: NOW, due: DUE, slot: `@${NOW - HOUR_MS}+`, missed: 0 },
+    { origin: 'https://nudge.example', zone: ZONE, locale: 'en', badge: 0 },
+  ).notification;
+  const events: string[] = [];
+  const onScreen = {
+    title: content.title,
+    tag: content.tag ?? '',
+    data: content.data,
+    close: () => events.push('closed'),
+  };
+  const tray = {
+    getNotifications: async () => [onScreen],
+    showNotification: async () => {
+      events.push('shown');
+    },
+  };
+  await showNudge(tray, content);
+  expect(events).toEqual([]);
 });

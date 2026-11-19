@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Unreachable, request, windowsInstaller } from '../../browser/api';
   import type { DeviceInfo } from '../../shared/api';
+  import { FOLLOW_UP_MINUTES, type FollowUpSetting } from '../../shared/fire';
   import { MINUTE_MS } from '../../shared/time';
   import { ulid } from '../../shared/ulid';
   import AgentConnect from '../components/AgentConnect.svelte';
@@ -9,7 +10,7 @@
   import Select from '../components/Select.svelte';
   import ThemeOptions from '../components/ThemeOptions.svelte';
   import { app } from '../lib/app.svelte';
-  import { whenLabel, zoneOptionLabel, zonePlace } from '../lib/format';
+  import { alertLabel, whenLabel, zoneOptionLabel, zonePlace } from '../lib/format';
   import { closeOnBack } from '../lib/close';
   import { installer, type Prompted } from '../lib/install.svelte';
   import type { PushPermission } from 'declarative-web-push/client';
@@ -39,6 +40,12 @@
   };
 
   const FOLLOW = 'follow';
+
+  const FOLLOW_UPS: readonly FollowUpSetting[] = ['off', ...FOLLOW_UP_MINUTES];
+  const followUpOptions = FOLLOW_UPS.map((setting) => ({
+    value: String(setting),
+    label: setting === 'off' ? 'Off' : alertLabel(setting),
+  }));
 
   const zoneOptions = $derived.by(() => {
     const now = Date.now();
@@ -160,12 +167,25 @@
     {:else if app.notifications === 'granted'}
       <button class="field action" onclick={test}>Send a test notification</button>
     {/if}
+    <div class="field">
+      <span class="grow"><span id="follow-up-choice">Remind me again</span><small>If a reminder isn't done</small></span
+      >
+      <Select
+        value={String(app.followUp)}
+        options={followUpOptions}
+        labelledby="follow-up-choice"
+        onSelect={(value) => {
+          const picked = FOLLOW_UPS.find((setting) => String(setting) === value);
+          if (picked !== undefined) void app.chooseFollowUp(picked);
+        }}
+      />
+    </div>
   </div>
 
   <h2 class="label">Time zone</h2>
   <div class="group">
     <div class="field">
-      <span class="zone"
+      <span class="grow"
         ><span id="zone-choice">Reminder times</span><small
           >{app.fixedZone === null
             ? `Move with you, now ${zonePlace(app.zone)} time`
@@ -302,7 +322,7 @@
   }
 
   /* Takes what the picker leaves, so the picker shows its whole choice. */
-  .zone {
+  .grow {
     flex: 1;
   }
 
