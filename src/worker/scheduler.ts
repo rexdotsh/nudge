@@ -88,14 +88,15 @@ export class Scheduler {
 
   /**
    * Saves a change and settles what is queued for the reminder: a pause holds it, ending the pause goes on with it if
-   * the same occurrence is still due, and any other change that settles the occurrence cancels it.
+   * the same occurrence is still due (and with its follow-up only if the reminder still has one to follow, as after
+   * undoing the pause), and any other change that settles the occurrence cancels it.
    */
   saveChange(previous: Reminder | undefined, next: Reminder, settles: boolean): void {
     this.save(next);
     const { deliveries } = this.store;
     if (next.paused && !next.deleted) deliveries.holdForReminder(next.id);
     else if (previous?.paused && !next.paused && previous.due === next.due && next.due !== null) {
-      deliveries.releaseForReminder(next.id, occurrenceTopic(next.id, next.due));
+      deliveries.releaseForReminder(next.id, occurrenceTopic(next.id, next.due), next.cameUp !== null);
     } else if (settles || previous?.paused) deliveries.cancelForReminder(next.id);
   }
 

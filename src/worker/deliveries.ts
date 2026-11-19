@@ -188,12 +188,17 @@ export class Deliveries {
     );
   }
 
-  /** Goes on with what a pause held for the occurrence still due, and drops what it held for any other. */
-  releaseForReminder(reminderId: string, topic: string): void {
+  /**
+   * Goes on with what a pause held for the occurrence still due, and drops what it held for any other. A follow-up goes
+   * on only with `followUps`, when the pause was undone rather than ended, since ending a pause cancels it.
+   */
+  releaseForReminder(reminderId: string, topic: string, followUps: boolean): void {
     this.sql.exec(
-      `UPDATE deliveries SET next_at = CASE WHEN topic = ? AND receipt_at IS NULL THEN held_at END, held_at = NULL
+      `UPDATE deliveries
+       SET next_at = CASE WHEN topic = ? AND receipt_at IS NULL AND (follow_up = 0 OR ?) THEN held_at END, held_at = NULL
        WHERE held_at IS NOT NULL AND substr(fire, 1, length(?) + 1) = ? || '@'`,
       topic,
+      Number(followUps),
       reminderId,
       reminderId,
     );

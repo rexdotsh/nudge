@@ -122,6 +122,38 @@ describe('follow-up delivery', () => {
     expect(later).toEqual(Array.from({ length: resent }, () => followUp));
   });
 
+  const PAUSED_AT = DUE + 31 * MINUTE_MS;
+  const ENDS_AT = PAUSED_AT + MINUTE_MS / 2;
+  test.each<[string, number | null, (deviceId: string, id: string, revision: number) => Promise<unknown>, number]>([
+    ['resuming it drops it', null, (deviceId, id) => h.sync(deviceId, [{ type: 'resume', id }]), 0],
+    ['the pause ending on its date drops it', ENDS_AT, () => h.runAlarm(), 0],
+    [
+      'undoing the pause goes on with it',
+      null,
+      (deviceId, id, revision) => h.sync(deviceId, [{ type: 'unpause', id, revision }]),
+      1,
+    ],
+  ])('a follow-up being resent when its series is paused: %s', async (_, until, end, resent) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1), deviceId);
+    await chooseFollowUp(deviceId, 30);
+    const id = await h.put(deviceId, { repeat: { rule: 'FREQ=DAILY', anchor: 'schedule' } });
+    await h.runAlarm();
+    await h.ok('receipt', { fire: fireId(id, { at: DUE, due: TODAY }) }, deviceId);
+    h.state.status = () => 503;
+    await h.runAlarmsThrough(DUE + 30 * MINUTE_MS);
+    h.state.now = PAUSED_AT;
+    const { reminders } = await h.sync(deviceId, [{ type: 'pause', id, until }]);
+    const revision = reminders.find((reminder) => reminder.id === id)?.revision ?? 0;
+    h.state.now = ENDS_AT;
+    h.state.status = () => 201;
+    const before = h.state.pushes.length;
+    await end(deviceId, id, revision);
+    await h.runAlarmsThrough(DUE + 4 * HOUR_MS);
+    const later = h.state.pushes.slice(before).map(({ message }) => message.notification.data.fire);
+    expect(later).toEqual(Array.from({ length: resent }, () => fireId(id, { at: DUE + 30 * MINUTE_MS, due: TODAY })));
+  });
+
   test.each([
     ['no device has notifications on', false, 120, 0],
     ['no device confirms it', true, 120, 0],
