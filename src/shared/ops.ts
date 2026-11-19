@@ -45,6 +45,7 @@ function put(current: Reminder | undefined, id: string, fields: ReminderFields, 
     firedThrough: Math.max(current?.firedThrough ?? now, now),
     alsoFired: [],
     completedAt: null,
+    cameUp: null,
     paused: fields.repeat && due !== null ? (current?.paused ?? null) : null,
     quietThrough: current?.quietThrough ?? now,
   };
@@ -58,6 +59,7 @@ function settle(current: Reminder, due: string | null, now: number): Reminder {
     missed: 0,
     snoozedUntil: null,
     firedThrough: Math.max(current.firedThrough, now),
+    cameUp: null,
     updatedAt: now,
   };
 }

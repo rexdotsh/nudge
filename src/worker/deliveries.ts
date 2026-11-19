@@ -16,6 +16,7 @@ export const DELIVERY_SCHEMA = [
     receipt_at INTEGER,
     next_at INTEGER,
     held_at INTEGER,
+    follow_up INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (fire, device_id)
   )`,
   `CREATE INDEX IF NOT EXISTS deliveries_by_next_at ON deliveries (next_at) WHERE next_at IS NOT NULL`,
@@ -36,17 +37,18 @@ export type DeliveryRow = {
   receipt_at: number | null;
   next_at: number | null;
   held_at: number | null;
+  follow_up: number;
 };
 
-export type Outgoing = Pick<DeliveryRow, 'fire' | 'title' | 'topic' | 'payload'>;
+export type Outgoing = Pick<DeliveryRow, 'fire' | 'title' | 'topic' | 'payload' | 'follow_up'>;
 
 export class Deliveries {
   constructor(private readonly sql: Sql) {}
 
   queue(outgoing: Outgoing, deviceId: string, at: number, now: number): void {
     this.sql.exec(
-      `INSERT INTO deliveries (fire, device_id, title, topic, payload, created_at, scheduled_at, next_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO deliveries (fire, device_id, title, topic, payload, created_at, scheduled_at, next_at, follow_up)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (fire, device_id) DO NOTHING`,
       outgoing.fire,
       deviceId,
@@ -56,6 +58,7 @@ export class Deliveries {
       now,
       at,
       at,
+      outgoing.follow_up,
     );
   }
 
@@ -193,6 +196,14 @@ export class Deliveries {
       topic,
       reminderId,
       reminderId,
+    );
+  }
+
+  /** Revokes leases too, so a run that claimed one before can neither record it nor have it claimed again. */
+  cancelFollowUps(): void {
+    this.sql.exec(
+      `UPDATE deliveries SET next_at = NULL, held_at = NULL, lease = NULL
+       WHERE follow_up = 1 AND (next_at IS NOT NULL OR held_at IS NOT NULL)`,
     );
   }
 

@@ -23,8 +23,8 @@ export interface FallbackDeps {
   locale: string;
 }
 
-// The server advances firedThrough when it plans a push, not when the push arrives, so this ignores it and instead
-// trusts only what this device has actually shown, through the claims the service worker shares. Those name a notice
+// The server advances firedThrough and marks a follow-up as sent when it plans a push, not when the push arrives, so
+// this ignores both and instead trusts only what this device has actually shown, through the claims the service worker shares. Those name a notice
 // by its occurrence, so one shown before the zone moved is not shown again at its new instant.
 export class Fallback {
   private cancel = () => {};
@@ -66,6 +66,7 @@ export class Fallback {
       ...reminder,
       firedThrough: Math.max(watermark, reminder.quietThrough, now - LOOKBACK_MS),
       alsoFired: [],
+      cameUp: reminder.cameUp && { ...reminder.cameUp, followedUp: false },
     };
   }
 

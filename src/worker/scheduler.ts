@@ -1,6 +1,6 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import type { InstanceZone } from '../shared/api';
-import { fire, keptFollowUp, movedZone, nextFireAt, type FollowUpSetting, type Notice } from '../shared/fire';
+import { fire, movedZone, nextFireAt, type FollowUpSetting, type Notice } from '../shared/fire';
 import {
   fireId,
   occurrenceTopic,
@@ -30,8 +30,8 @@ const ALERT_RETRY_MS = 5 * MINUTE_MS;
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-function outgoing(id: string, title: string, topic: string, message: PushMessage): Outgoing {
-  return { fire: id, title, topic, payload: JSON.stringify(message) };
+function outgoing(id: string, title: string, topic: string, message: PushMessage, followUp = false): Outgoing {
+  return { fire: id, title, topic, payload: JSON.stringify(message), follow_up: Number(followUp) };
 }
 
 function occurrenceAlertKey(problem: string, delivery: Pick<Outgoing, 'topic'>): string {
@@ -79,8 +79,9 @@ export class Scheduler {
     const previous = this.store.followUp();
     this.store.setFollowUp(followUp);
     if (previous === followUp) return;
-    const zone = this.zone();
-    for (const reminder of this.store.reminders()) this.save(keptFollowUp(reminder, zone, previous, followUp));
+    // A follow-up already sent stays the only one for what it follows; a new delay does not stop it arriving, Off does.
+    if (followUp === 'off') this.store.deliveries.cancelFollowUps();
+    for (const reminder of this.store.reminders()) this.save(reminder);
   }
 
   save(reminder: Reminder): void {
@@ -184,6 +185,7 @@ export class Scheduler {
       reminder.title,
       occurrenceTopic(reminder.id, notice.due),
       reminderMessage(reminder, notice, view),
+      notice.alert === 'again',
     );
   }
 
@@ -209,8 +211,7 @@ export class Scheduler {
         this.saveChange(previous, reminder, false);
         for (const notice of notices) {
           const item = this.noticeFor(reminder, notice, view);
-          // Its occurrence already alerted that nothing could be sent.
-          if (targets.length === 0 && notice.alert !== 'again') missed.push(item);
+          if (targets.length === 0) missed.push(item);
           for (const target of targets) this.store.deliveries.queue(item, target.deviceId, now, now);
         }
       }
@@ -222,6 +223,9 @@ export class Scheduler {
         this.alertOnce(
           occurrenceAlertKey('unreached', item),
           `No device has notifications on, so "${item.title}" was not sent.`,
+          // A follow-up adds nothing to what its occurrence already raised, however long ago, but alerts on its own
+          // when a late run sent it in place of the notice it follows.
+          item.follow_up ? Infinity : ALERT_COOLDOWN_MS,
         ),
       ),
     );

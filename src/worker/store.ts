@@ -33,6 +33,7 @@ const UPGRADES = [
   'ALTER TABLE deliveries ADD COLUMN held_at INTEGER',
   "ALTER TABLE devices ADD COLUMN kind TEXT NOT NULL DEFAULT 'device'",
   AGENT_KEYS,
+  'ALTER TABLE deliveries ADD COLUMN follow_up INTEGER NOT NULL DEFAULT 0',
 ];
 const SCHEMA_VERSION = String(UPGRADES.length + 1);
 

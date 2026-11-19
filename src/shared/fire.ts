@@ -21,8 +21,8 @@ export interface Notice {
   missed: number;
   /**
    * Where the notice sits in its occurrence, the same in every zone: its distance from the due time, or, for what a
-   * snooze brings back, its instant. A follow-up's is that of the notice it follows with a `+`, whatever its delay. With
-   * the reminder and the due wall time it names the notice wherever it is planned.
+   * snooze brings back, its instant. A follow-up's is the instant of the notice it follows with a `+`, whatever its
+   * delay. With the reminder and the due wall time it names the notice wherever it is planned.
    */
   slot: string;
 }
@@ -39,26 +39,34 @@ type Step = { at: number; roll: string } | { at: number; resume: true } | { at: 
 const slotKey = ({ due, slot }: Pick<AlertStep, 'due' | 'slot'>) => `${due}/${slot}`;
 
 function consumed(reminder: Reminder, step: AlertStep): boolean {
+  if (step.alert === 'again' && reminder.cameUp?.followedUp) return true;
   return step.at <= reminder.firedThrough || reminder.alsoFired.includes(slotKey(step));
 }
 
 /**
- * Every notice the current occurrence can have, fired or not, a snooze's included. An important reminder nags; any
- * other follows up once after it comes up, unless its next occurrence comes first and replaces it.
+ * A follow-up follows the notice that last came up, the due one or a snooze's, at the instant it came up whatever the
+ * zone does since, and comes once for it whatever the setting does since. A snooze still to end holds it back, and an
+ * important reminder nags instead.
  */
+function followUpStep({ cameUp, snoozedUntil, important }: Reminder, wall: string, followUp: FollowUpSetting) {
+  if (!cameUp || cameUp.due !== wall || important || followUp === 'off') return [];
+  if (snoozedUntil !== null && snoozedUntil > cameUp.at) return [];
+  return [{ at: cameUp.at + followUp * MINUTE_MS, alert: 'again' as const, due: wall, slot: `@${cameUp.at}+` }];
+}
+
+/** Every notice the current occurrence can have, fired or not, a snooze's included. */
 function occurrenceSteps(reminder: Reminder, due: number, wall: string, followUp: FollowUpSetting): AlertStep[] {
   const quietUntil = reminder.snoozedUntil ?? -Infinity;
   const comesUp = Math.max(due, quietUntil);
   const slot = (at: number) => (comesUp > due && at >= comesUp ? `@${at}` : String(at - due));
   const planned = (at: number, alert: Alert): AlertStep => ({ at, alert, due: wall, slot: slot(at) });
-  const delay = reminder.important || followUp === 'off' ? null : followUp * MINUTE_MS;
   return [
     ...reminder.alerts.map((minutes) => planned(due - minutes * MINUTE_MS, 'early')),
     planned(comesUp, comesUp > due ? 'snoozed' : 'due'),
     ...(reminder.important
       ? Array.from({ length: NAG_LIMIT }, (_, i) => planned(comesUp + (i + 1) * NAG_INTERVAL_MS, 'nag'))
       : []),
-    ...(delay === null ? [] : [{ ...planned(comesUp + delay, 'again'), slot: `${slot(comesUp)}+` }]),
+    ...followUpStep(reminder, wall, followUp),
   ];
 }
 
@@ -140,12 +148,19 @@ export function fire(
     if (consumesSnooze && current.snoozedUntil !== null && current.snoozedUntil <= step.at) current.snoozedUntil = null;
     current.firedThrough = Math.max(current.firedThrough, step.at);
     current.revision += 1;
-    for (const { alert, at, due, slot } of step.alerts)
+    for (const { alert, at, due, slot } of step.alerts) {
       latest.set(due, { alert, at, due, slot, missed: current.missed });
+      if (due === current.due) current.cameUp = cameUpAfter(current.cameUp, alert, due, at);
+    }
   }
   const live = current.due;
   const notices = [...latest.values()].filter((notice) => live !== null && notice.due >= live);
   return { reminder: current, notices };
+}
+
+function cameUpAfter(cameUp: Reminder['cameUp'], alert: Alert, due: string, at: number): Reminder['cameUp'] {
+  if (alert === 'due' || alert === 'snoozed') return { due, at, followedUp: false };
+  return alert === 'again' && cameUp ? { ...cameUp, followedUp: true } : cameUp;
 }
 
 const MOVE_REACH_MS = DAY_MS;
@@ -179,9 +194,7 @@ function plannable(reminder: Reminder, zone: string, until: number, followUp: Fo
 export function movedZone(reminder: Reminder, from: string, to: string, followUp: FollowUpSetting): Reminder {
   const shift = (dueAt(reminder, to) ?? 0) - (dueAt(reminder, from) ?? 0);
   const before = (step: AlertStep) =>
-    step.slot.startsWith('@')
-      ? step.at
-      : step.at - instantOf(reminder, step.due, to) + instantOf(reminder, step.due, from);
+    step.slot.startsWith('@') ? step.at : instantOf(reminder, step.due, from) + Number(step.slot);
   const near = (watermark: number) =>
     plannable(reminder, to, watermark + MOVE_REACH_MS, followUp).filter((step) => step.at >= watermark - MOVE_REACH_MS);
   const around = reminder.firedThrough + shift;
@@ -192,25 +205,6 @@ export function movedZone(reminder: Reminder, from: string, to: string, followUp
   const quiet = near(reminder.quietThrough + shift).filter((step) => before(step) <= reminder.quietThrough);
   const quietThrough = Math.max(reminder.quietThrough + shift, ...quiet.map((step) => step.at));
   return { ...reminder, firedThrough, alsoFired, quietThrough, paused: movedPause(reminder.paused, from, to) };
-}
-
-function followUpStep(reminder: Reminder, zone: string, followUp: FollowUpSetting): AlertStep | undefined {
-  const due = dueAt(reminder, zone);
-  if (reminder.due === null || due === null) return undefined;
-  return occurrenceSteps(reminder, due, reminder.due, followUp).find((step) => step.alert === 'again');
-}
-
-/** A follow-up that fired stays fired when its delay changes from `before` to `after`, so a longer one does not bring it again. */
-export function keptFollowUp(
-  reminder: Reminder,
-  zone: string,
-  before: FollowUpSetting,
-  after: FollowUpSetting,
-): Reminder {
-  const fired = followUpStep(reminder, zone, before);
-  const planned = followUpStep(reminder, zone, after);
-  if (!fired || !planned || !consumed(reminder, fired) || consumed(reminder, planned)) return reminder;
-  return { ...reminder, alsoFired: [...reminder.alsoFired, slotKey(planned)] };
 }
 
 function movedWall(instant: number, kept: string | undefined, from: string, to: string) {

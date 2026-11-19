@@ -1,7 +1,7 @@
 import { closeNotifications, readPush, waitUntilWithin } from 'declarative-web-push/worker';
 import { Unreachable, request } from '../browser/api';
 import { openInPlace, type WorkerMessage } from '../browser/messages';
-import { SNOOZE_MINUTES, makeRoom, showNudge } from '../browser/notify';
+import { SNOOZE_MINUTES, showNudge } from '../browser/notify';
 import { isShown } from '../browser/shown';
 import { batch } from '../browser/batch';
 import { commit, currentZone, enqueue, readLocal } from '../browser/outbox';
@@ -92,13 +92,22 @@ self.addEventListener('fetch', (event) => {
 
 const SHOW_WITHIN_MS = 3000;
 
+/**
+ * iOS never lets a notification replace another with its tag, so a follow-up closes what its occurrence showed before.
+ * Safari shows a declarative push only once its event settles, so closing the tag during the event spares the follow-up
+ * itself. Other browsers replace by tag on their own. Best effort: iOS keeps a notification younger than 30 seconds.
+ */
+async function makeRoom({ followUp }: PushData, tag: string): Promise<void> {
+  if (followUp) await closeNotifications(self.registration, (shown) => shown === tag);
+}
+
 self.addEventListener('push', (event) => {
   const push = readPush(event, isPushData);
   if (!push) return;
   if (push.kind === 'declarative') {
     waitUntilWithin(
       event,
-      Promise.all([present(push.data), tidy(), makeRoom(self.registration, push.data, push.notification.tag)]),
+      Promise.all([present(push.data), tidy(), makeRoom(push.data, push.notification.tag)]),
       SHOW_WITHIN_MS,
     );
     return;
