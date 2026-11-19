@@ -1,4 +1,4 @@
-import { fire, nextFireAt, type FollowUpSetting } from '../../shared/fire';
+import { fire, nextFireAt } from '../../shared/fire';
 import { reminderMessage, type NotificationContent, type PushData } from '../../shared/notification';
 import type { Claim } from '../../browser/schema';
 import { lateCount, type Reminder } from '../../shared/reminder';
@@ -9,6 +9,12 @@ const MAX_WAIT_MS = HOUR_MS;
 const LOOKBACK_MS = HOUR_MS;
 const READY_TIMEOUT_MS = 10_000;
 const RETRY_MS = 60_000;
+/**
+ * The fallback stands in for a push that did not arrive, so that a reminder is never missed. A follow-up is only a
+ * second notice of what already came up here, and planning one would need an anchor this device cannot settle on its
+ * own: it would either lose a follow-up or show it twice. The server's push and its resends carry follow-ups alone.
+ */
+const NO_FOLLOW_UP = 'off';
 
 type Display = (content: NotificationContent) => Promise<void>;
 
@@ -23,25 +29,23 @@ export interface FallbackDeps {
   locale: string;
 }
 
-// The server advances firedThrough and marks a follow-up as sent when it plans a push, not when the push arrives, so
-// this ignores both and instead trusts only what this device has actually shown, through the claims the service worker shares. Those name a notice
+// The server advances firedThrough when it plans a push, not when the push arrives, so this ignores it and instead
+// trusts only what this device has actually shown, through the claims the service worker shares. Those name a notice
 // by its occurrence, so one shown before the zone moved is not shown again at its new instant.
 export class Fallback {
   private cancel = () => {};
   private generation = 0;
   private zone: string | null = null;
-  private followUp: FollowUpSetting = 'off';
   private readonly watermarks = new Map<string, number>();
 
   constructor(private readonly deps: FallbackDeps) {}
 
   /** Plans nothing without a zone the server confirmed: one guessed could show a notice at the wrong time. */
-  schedule(reminders: readonly Reminder[], zone: string | null, followUp: FollowUpSetting, enabled: boolean): void {
+  schedule(reminders: readonly Reminder[], zone: string | null, enabled: boolean): void {
     this.generation++;
     // Watermarks are instants in the zone they were reached in; after a move the claims alone tell what was shown.
     if (zone !== this.zone) this.watermarks.clear();
     this.zone = zone;
-    this.followUp = followUp;
     if (zone === null) this.cancel();
     else this.arm(reminders, zone, enabled);
   }
@@ -52,7 +56,7 @@ export class Fallback {
     const now = this.deps.now();
     let next = Infinity;
     for (const reminder of reminders) {
-      next = Math.min(next, nextFireAt(this.locally(reminder, now), zone, this.followUp) ?? Infinity);
+      next = Math.min(next, nextFireAt(this.locally(reminder, now), zone, NO_FOLLOW_UP) ?? Infinity);
     }
     if (next === Infinity) return;
     const generation = this.generation;
@@ -66,7 +70,6 @@ export class Fallback {
       ...reminder,
       firedThrough: Math.max(watermark, reminder.quietThrough, now - LOOKBACK_MS),
       alsoFired: [],
-      cameUp: reminder.cameUp && { ...reminder.cameUp, followedUp: false },
     };
   }
 
@@ -123,7 +126,7 @@ export class Fallback {
     const view = { origin, zone, locale, badge: lateCount(reminders, now, zone) };
     const outcomes: Promise<boolean>[] = [];
     for (const reminder of reminders) {
-      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone, this.followUp);
+      const { reminder: advanced, notices } = fire(this.locally(reminder, now), now - GRACE_MS, zone, NO_FOLLOW_UP);
       const shown = notices.map((notice) => {
         const content = reminderMessage(advanced, notice, view).notification;
         return this.showOnce(content, display, generation).catch((error: unknown) => {

@@ -56,6 +56,22 @@ describe('follow-up delivery', () => {
     expect(new Set(pushes.map(({ message }) => message.notification.tag))).toEqual(new Set([`${id}:${TODAY}`]));
   });
 
+  test.each([
+    ['before its time sends it then', 10 * MINUTE_MS, [DUE, DUE + 30 * MINUTE_MS]],
+    ['after its time does not send it late', 40 * MINUTE_MS, [DUE]],
+  ])('turning follow-ups on after a reminder came up %s', async (_, after, sent) => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    const id = await h.put(deviceId);
+    await h.runAlarm();
+    h.state.now = DUE + after;
+    await chooseFollowUp(deviceId, 30);
+    await h.runAlarmsThrough(DUE + 4 * HOUR_MS);
+    expect(h.state.pushes.map(({ message }) => message.notification.data.fire)).toEqual(
+      sent.map((at) => fireId(id, { at, due: TODAY })),
+    );
+  });
+
   test.each<[string, (deviceId: string) => Promise<unknown>]>([
     ['its delay grows', (deviceId) => chooseFollowUp(deviceId, 120)],
     [

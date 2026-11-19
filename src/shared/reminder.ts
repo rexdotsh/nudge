@@ -172,6 +172,8 @@ export function resumed(reminder: Reminder, at: number, currentZone: string): Re
   const unpaused = {
     ...reminder,
     paused: null,
+    // A pause cancels a follow-up, so resuming starts with nothing to follow up.
+    cameUp: null,
     revision: reminder.revision + 1,
     // A snooze is a span of elapsed time and `at` is a real instant, unlike the pause's start, which moves with the
     // wall clock: only a wake-up still ahead survives.

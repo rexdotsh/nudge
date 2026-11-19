@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { NAG_INTERVAL_MS, NAG_LIMIT, movedZone, type FollowUpSetting, type Notice } from '../src/shared/fire';
+import {
+  NAG_INTERVAL_MS,
+  NAG_LIMIT,
+  followUpFrom,
+  movedZone,
+  type FollowUpSetting,
+  type Notice,
+} from '../src/shared/fire';
 import { noticeKey } from '../src/shared/notification';
 import { applyOp, type Op } from '../src/shared/ops';
 import { dueAt, type ReminderFields } from '../src/shared/reminder';
@@ -140,6 +147,28 @@ describe('follow-up', () => {
       ],
     ],
     [
+      'is cancelled by a pause, and resuming does not bring it back',
+      { repeat: daily },
+      30,
+      [
+        ['2026-10-12T09:05', { type: 'pause', id: ID, until: null }],
+        ['2026-10-12T09:10', { type: 'resume', id: ID }],
+      ],
+      '2026-10-12T23:00',
+      [['due', '2026-10-12T09:00']],
+    ],
+    [
+      'is cancelled by a delete, and restoring does not bring it back',
+      {},
+      30,
+      [
+        ['2026-10-12T09:05', { type: 'delete', id: ID }],
+        ['2026-10-12T09:10', { type: 'restore', id: ID }],
+      ],
+      '2026-10-12T23:00',
+      [['due', '2026-10-12T09:00']],
+    ],
+    [
       'comes for each occurrence that leaves it time',
       { repeat: hourly },
       30,
@@ -172,16 +201,30 @@ describe('follow-up', () => {
     'a zone move neither repeats a follow-up nor moves it off the instant it follows: %s',
     (_, to, moveAt, expected) => {
       const fired = fireThrough(create({}, '2026-10-12T08:00'), at(moveAt), ZONE, 30);
-      const moved = movedZone(fired.reminder, ZONE, to, 30);
+      const moved = movedZone(fired.reminder, ZONE, to);
       expect(wallTimes(fireThrough(moved, at('2026-10-12T23:00'), to, 30).notices, to)).toEqual(expected);
     },
   );
+
+  test.each<[string, FollowUpSetting, FollowUpSetting, number, number[]]>([
+    ['turned on after flying west, it comes at its time', 'off', 30, utc(9, 10), [utc(9, 30)]],
+    ['shortened after flying west, it comes at its new time', 30, 15, utc(9, 10), [utc(9, 15)]],
+    ['turned on once its time has passed, it is not sent late', 'off', 30, utc(9, 40), []],
+  ])('a follow-up setting chosen later: %s', (_, before, after, chosenAt, expected) => {
+    const created = applyOp(undefined, { type: 'put', id: ID, fields: fields() }, { now: utc(8, 0), zone: 'UTC' });
+    if (!created) throw new Error('create failed');
+    const ny = 'America/New_York';
+    const moved = movedZone(fireThrough(created, utc(9, 0), 'UTC', before).reminder, 'UTC', ny);
+    const chosen = followUpFrom(moved, after, chosenAt);
+    const { notices } = fireThrough(chosen, utc(23, 0), ny, after);
+    expect(notices.filter(({ alert }) => alert === 'again').map(({ at: instant }) => instant)).toEqual(expected);
+  });
 
   test('a snooze made after flying west past a notice that fired is followed up from when it wakes', () => {
     const ny = 'America/New_York';
     const created = applyOp(undefined, { type: 'put', id: ID, fields: fields() }, { now: utc(8, 0), zone: 'UTC' });
     if (!created) throw new Error('create failed');
-    const moved = movedZone(fireThrough(created, utc(9, 0), 'UTC', 30).reminder, 'UTC', ny, 30);
+    const moved = movedZone(fireThrough(created, utc(9, 0), 'UTC', 30).reminder, 'UTC', ny);
     const quiet: Op = { type: 'snooze', id: ID, due: '2026-10-12T09:00', until: utc(9, 25) };
     const snoozed = applyOp(moved, quiet, { now: utc(9, 10), zone: ny });
     if (!snoozed) throw new Error('snooze was rejected');

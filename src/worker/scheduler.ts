@@ -1,6 +1,6 @@
 import { canReplace, pushOutcome, type SendResult } from 'declarative-web-push/server';
 import type { InstanceZone } from '../shared/api';
-import { fire, movedZone, nextFireAt, type FollowUpSetting, type Notice } from '../shared/fire';
+import { fire, followUpFrom, movedZone, nextFireAt, type FollowUpSetting, type Notice } from '../shared/fire';
 import {
   fireId,
   occurrenceTopic,
@@ -64,11 +64,8 @@ export class Scheduler {
     const previous = this.store.meta('zone');
     this.store.setZone(zone);
     if (previous === zone.name) return;
-    const followUp = this.store.followUp();
     for (const reminder of this.store.reminders()) {
-      if (reminder.zone === null) {
-        this.save(previous === null ? reminder : movedZone(reminder, previous, zone.name, followUp));
-      }
+      if (reminder.zone === null) this.save(previous === null ? reminder : movedZone(reminder, previous, zone.name));
     }
   }
 
@@ -81,7 +78,8 @@ export class Scheduler {
     if (previous === followUp) return;
     // A follow-up already sent stays the only one for what it follows; a new delay does not stop it arriving, Off does.
     if (followUp === 'off') this.store.deliveries.cancelFollowUps();
-    for (const reminder of this.store.reminders()) this.save(reminder);
+    const now = this.runtime.now();
+    for (const reminder of this.store.reminders()) this.save(followUpFrom(reminder, followUp, now));
   }
 
   save(reminder: Reminder): void {

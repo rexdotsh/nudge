@@ -51,8 +51,6 @@ class App {
   readonly fixedZone = $derived(this.zoneChoice ? this.zoneChoice.zone : this.zoneFixed ? this.zone : null);
   /** This device's clock reads another time than the zone reminders are shown in. */
   readonly away = $derived(offsetAt(this.now, this.here) !== offsetAt(this.now, this.zone));
-  /** The follow-up the server confirmed, the only one notifications are planned with. */
-  plannedFollowUp = $state<FollowUpSetting>('off');
   private confirmedFollowUp = $state<FollowUpSetting | null>(null);
   private followUpChoice = $state.raw<FollowUpChoice | null>(null);
   /** The instance's follow-up, counting a choice not yet sent. */
@@ -331,7 +329,6 @@ class App {
     this.zone = this.plannedZone ?? this.here;
     this.zoneFixed = this.replica.zone?.fixed ?? false;
     this.confirmedFollowUp = this.replica.followUp;
-    this.plannedFollowUp = this.replica.plannedFollowUp();
     this.reminders = this.replica.view(this.pending, this.zone);
   }
 }

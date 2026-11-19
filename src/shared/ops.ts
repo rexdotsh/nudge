@@ -99,9 +99,16 @@ export function applyOp(current: Reminder | undefined, op: Op, clock: Clock): Re
     case 'unpause':
       if (!current.paused || current.revision !== op.revision) return null;
       return { ...current, paused: null, revision: current.revision + 1, updatedAt: now };
+    // Deleting cancels a follow-up, and restoring does not bring it back.
     case 'delete':
     case 'restore':
-      return { ...current, deleted: op.type === 'delete', revision: current.revision + 1, updatedAt: now };
+      return {
+        ...current,
+        deleted: op.type === 'delete',
+        cameUp: null,
+        revision: current.revision + 1,
+        updatedAt: now,
+      };
     default: {
       const unhandled: never = op;
       return unhandled;

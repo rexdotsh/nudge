@@ -45,14 +45,6 @@ export class Replica {
     return this.zone?.name ?? null;
   }
 
-  /**
-   * The follow-up this device may plan notifications with: none until the server confirms one, so the fallback never
-   * shows a follow-up the server would not send.
-   */
-  plannedFollowUp(): FollowUpSetting {
-    return this.followUp ?? 'off';
-  }
-
   view(pending: readonly Change[], zone: string): Reminder[] {
     const merged = new Map(this.server);
     for (const { op, at } of pending) {

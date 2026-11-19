@@ -77,7 +77,6 @@
     fallback.schedule(
       app.reminders,
       app.plannedZone,
-      app.plannedFollowUp,
       app.notifications === 'granted' && app.freshness !== 'catching-up',
     );
   });
