@@ -102,10 +102,13 @@ export class Store {
     return parseFollowUpSetting(JSON.parse(this.meta('follow_up') ?? 'null')) ?? DEFAULT_FOLLOW_UP;
   }
 
-  /** A change takes a version even when no reminder moves with it, so every device hears of it. */
-  setFollowUp(followUp: FollowUpSetting): void {
-    if (followUp !== this.followUp()) this.nextVersion();
-    this.setMeta('follow_up', JSON.stringify(followUp));
+  /** A change takes a version even when no reminder moves with it, so every device hears of it. Returns whether it changed. */
+  setFollowUp(followUp: FollowUpSetting): boolean {
+    const stored = JSON.stringify(followUp);
+    if (stored === JSON.stringify(this.followUp())) return false;
+    this.nextVersion();
+    this.setMeta('follow_up', stored);
+    return true;
   }
 
   private decoded(query: string, ...bindings: SqlValue[]): Reminder[] {

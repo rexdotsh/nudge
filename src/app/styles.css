@@ -349,9 +349,35 @@ button:disabled {
   font-size: 12.5px;
 }
 
+/* Plain text reads as information; what can be changed sits in a chip. */
 .field .value {
-  color: var(--ink-2);
+  color: var(--muted);
   text-align: right;
+}
+
+/* A row that is one choice: anywhere on it opens the chip's menu. */
+.field.choice {
+  position: relative;
+}
+
+.group > .choice:first-child {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+
+.group > .choice:last-child {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
+.choice:active {
+  background: var(--edge);
+}
+
+@media (hover: hover) {
+  .choice:hover {
+    background: var(--edge);
+  }
 }
 
 .field.action {

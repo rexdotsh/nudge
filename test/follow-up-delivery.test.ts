@@ -36,9 +36,56 @@ describe('the follow-up setting', () => {
     expect((await chooseFollowUp(deviceId, 'off', madeOffline)).followUp).toBe(120);
     expect(h.state.alarm).toBe(DUE + 120 * MINUTE_MS);
   });
+
+  test('a repeating choice applies once, and neither its replay nor an older once choice undoes a newer one', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    const every = { id: ulid(), at: h.state.now };
+    expect((await chooseFollowUp(deviceId, { every: 15 }, every)).followUp).toEqual({ every: 15 });
+    h.state.now += MINUTE_MS;
+    expect((await chooseFollowUp(deviceId, 60)).followUp).toBe(60);
+    expect((await chooseFollowUp(deviceId, { every: 15 }, every)).followUp).toBe(60);
+    const madeOffline = { id: ulid(), at: h.state.now - 2 * MINUTE_MS };
+    expect((await chooseFollowUp(deviceId, { every: 30 }, madeOffline)).followUp).toBe(60);
+  });
+
+  test('a setting stored before follow-ups could repeat still reads as once', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    h.db.query("INSERT INTO meta (key, value) VALUES ('follow_up', '120')").run();
+    expect((await h.sync(deviceId, [])).followUp).toBe(120);
+  });
+
+  test.each([45, '30', { every: 45 }, { every: '30' }, { every: 120 }, {}])(
+    'a choice of %p is rejected',
+    async (followUp) => {
+      const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+      expect(
+        await h.call(
+          'sync',
+          { since: 0, zone: ZONE, changes: [], followUpChoice: { id: ulid(), followUp, at: 0 } },
+          deviceId,
+        ),
+      ).toMatchObject({ ok: false, error: 'bad_request' });
+    },
+  );
 });
 
 describe('follow-up delivery', () => {
+  test('repeating follow-ups come under the same tag until the reminder is done', async () => {
+    const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
+    await h.ok('subscribe', keys(1, 'apple'), deviceId);
+    await chooseFollowUp(deviceId, { every: 30 });
+    const id = await h.put(deviceId);
+    await h.runAlarmsThrough(DUE + 95 * MINUTE_MS);
+    await h.sync(deviceId, [{ type: 'complete', id, due: TODAY }]);
+    await h.runAlarmsThrough(DUE + 4 * HOUR_MS);
+    const { pushes } = h.state;
+    expect(pushes.map(({ message }) => message.notification.data.fire)).toEqual(
+      [0, 30, 60, 90].map((minutes) => fireId(id, { at: DUE + minutes * MINUTE_MS, due: TODAY })),
+    );
+    expect(new Set(pushes.map(({ message }) => message.notification.tag))).toEqual(new Set([`${id}:${TODAY}`]));
+    expect(h.state.alarm).toBeNull();
+  });
+
   test.each([false, true])('a reminder not done is followed up once under its tag, done first: %s', async (done) => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1, 'apple'), deviceId);
@@ -94,14 +141,15 @@ describe('follow-up delivery', () => {
     expect(h.sentTo(1, 'apple')).toBe(2);
   });
 
-  test.each<[string, FollowUpSetting, boolean, number]>([
-    ['turning follow-ups off stops it', 'off', false, 0],
-    ['turning follow-ups off stops it, even when a crashed run holds its lease', 'off', true, 0],
-    ['a new delay lets it go on, and brings no other follow-up', 120, false, 1],
-  ])('a follow-up still being resent: %s', async (_, setting, crashed, resent) => {
+  test.each<[string, FollowUpSetting, FollowUpSetting, boolean, number]>([
+    ['turning follow-ups off stops it', 30, 'off', false, 0],
+    ['turning follow-ups off stops it, even when a crashed run holds its lease', 30, 'off', true, 0],
+    ['turning repeating follow-ups off stops it and those to come', { every: 30 }, 'off', false, 0],
+    ['a new delay lets it go on, and brings no other follow-up', 30, 120, false, 1],
+  ])('a follow-up still being resent: %s', async (_, initial, setting, crashed, resent) => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     await h.ok('subscribe', keys(1), deviceId);
-    await chooseFollowUp(deviceId, 30);
+    await chooseFollowUp(deviceId, initial);
     const id = await h.put(deviceId);
     await h.runAlarm();
     await h.ok('receipt', { fire: fireId(id, { at: DUE, due: TODAY }) }, deviceId);
@@ -158,6 +206,7 @@ describe('follow-up delivery', () => {
     ['no device has notifications on', false, 120, 0],
     ['no device confirms it', true, 120, 0],
     ['no device has notifications on and the first run comes after the follow-up', false, 30, 40 * MINUTE_MS],
+    ['no device has notifications on and follow-ups repeat', false, { every: 15 }, 0],
   ])('an occurrence raises one alert, follow-up included, when %s', async (_, subscribed, setting, late) => {
     const { deviceId } = await h.ok('setup', { code: SETUP_CODE, device: device('iPhone') });
     if (subscribed) await h.ok('subscribe', keys(1), deviceId);

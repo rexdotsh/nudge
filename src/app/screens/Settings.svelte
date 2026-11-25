@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Unreachable, request, windowsInstaller } from '../../browser/api';
   import type { DeviceInfo } from '../../shared/api';
-  import { FOLLOW_UP_MINUTES, type FollowUpSetting } from '../../shared/fire';
   import { MINUTE_MS } from '../../shared/time';
   import { ulid } from '../../shared/ulid';
   import AgentConnect from '../components/AgentConnect.svelte';
@@ -10,7 +9,8 @@
   import Select from '../components/Select.svelte';
   import ThemeOptions from '../components/ThemeOptions.svelte';
   import { app } from '../lib/app.svelte';
-  import { alertLabel, whenLabel, zoneOptionLabel, zonePlace } from '../lib/format';
+  import { distinctZones, whenLabel, zoneOptionLabel, zonePlace } from '../lib/format';
+  import { FOLLOW_UP_OPTIONS, followUpKey, followUpNote, pickedFollowUp } from '../lib/follow-up';
   import { closeOnBack } from '../lib/close';
   import { installer, type Prompted } from '../lib/install.svelte';
   import type { PushPermission } from 'declarative-web-push/client';
@@ -41,16 +41,11 @@
 
   const FOLLOW = 'follow';
 
-  const FOLLOW_UPS: readonly FollowUpSetting[] = ['off', ...FOLLOW_UP_MINUTES];
-  const followUpOptions = FOLLOW_UPS.map((setting) => ({
-    value: String(setting),
-    label: setting === 'off' ? 'Off' : alertLabel(setting),
-  }));
-
   const zoneOptions = $derived.by(() => {
     const now = Date.now();
-    const zones = new Set([...Intl.supportedValuesOf('timeZone'), app.zone, app.here, app.fixedZone ?? app.zone]);
-    const named = [...zones].map((zone) => ({ value: zone, label: zoneOptionLabel(zone, now) }));
+    // The chosen zone comes first so its own name is the one listed and the picker still shows it as chosen.
+    const zones = distinctZones([app.fixedZone ?? app.zone, app.zone, app.here, ...Intl.supportedValuesOf('timeZone')]);
+    const named = zones.map((zone) => ({ value: zone, label: zoneOptionLabel(zone, now) }));
     return [{ value: FOLLOW, label: 'Follow my devices' }, ...named.toSorted((a, b) => a.label.localeCompare(b.label))];
   });
 
@@ -167,15 +162,16 @@
     {:else if app.notifications === 'granted'}
       <button class="field action" onclick={test}>Send a test notification</button>
     {/if}
-    <div class="field">
-      <span class="grow"><span id="follow-up-choice">Remind me again</span><small>If a reminder isn't done</small></span
+    <div class="field choice">
+      <span class="grow"
+        ><span id="follow-up-choice">Remind me again</span><small>{followUpNote(app.followUp)}</small></span
       >
       <Select
-        value={String(app.followUp)}
-        options={followUpOptions}
+        value={followUpKey(app.followUp)}
+        options={FOLLOW_UP_OPTIONS}
         labelledby="follow-up-choice"
         onSelect={(value) => {
-          const picked = FOLLOW_UPS.find((setting) => String(setting) === value);
+          const picked = pickedFollowUp(value);
           if (picked !== undefined) void app.chooseFollowUp(picked);
         }}
       />
@@ -184,7 +180,7 @@
 
   <h2 class="label">Time zone</h2>
   <div class="group">
-    <div class="field">
+    <div class="field choice">
       <span class="grow"
         ><span id="zone-choice">Reminder times</span><small
           >{app.fixedZone === null

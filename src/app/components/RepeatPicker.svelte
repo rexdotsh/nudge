@@ -32,7 +32,7 @@
   }
 </script>
 
-<div class="field" bind:this={row}>
+<div class="field choice" bind:this={row}>
   <span {id}>Repeat</span>
   <Select value={choice.selected} {options} labelledby={id} onSelect={(value) => choice.select(value)} />
 </div>

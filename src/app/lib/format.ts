@@ -121,9 +121,33 @@ export function zoneLabel(zone: string, now: number): string {
   return zoneName(zone, now, 'long');
 }
 
-/** A zone by its place, like Buenos Aires for America/Argentina/Buenos_Aires. */
+/** Old names browsers still report for zones renamed since, shown (never stored or sent) under their current ones. */
+const RENAMED_ZONES: Record<string, string> = {
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Asia/Katmandu': 'Asia/Kathmandu',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'America/Godthab': 'America/Nuuk',
+  'Atlantic/Faeroe': 'Atlantic/Faroe',
+  'Pacific/Truk': 'Pacific/Chuuk',
+  'Pacific/Ponape': 'Pacific/Pohnpei',
+  'Pacific/Enderbury': 'Pacific/Kanton',
+};
+
+const currentName = (zone: string) => RENAMED_ZONES[zone] ?? zone;
+
+/** A zone by its place, like Buenos Aires for America/Argentina/Buenos_Aires, under its current name. */
 export function zonePlace(zone: string): string {
-  return (zone.split('/').at(-1) ?? zone).replaceAll('_', ' ');
+  const name = currentName(zone);
+  return (name.split('/').at(-1) ?? name).replaceAll('_', ' ');
+}
+
+/** One of each zone, whatever names it goes by; the first name listed for it is the one kept. */
+export function distinctZones(zones: Iterable<string>): string[] {
+  const kept = new Map<string, string>();
+  for (const zone of zones) if (!kept.has(currentName(zone))) kept.set(currentName(zone), zone);
+  return [...kept.values()];
 }
 
 export function zoneOptionLabel(zone: string, now: number): string {

@@ -2,6 +2,7 @@ import { memoize } from './memoize';
 import { nextOccurrence } from './occurrences';
 import { parseRule, type Frequency } from './rrule';
 import {
+  DAY_MS,
   HOUR_MS,
   addMonthsClamped,
   epochDay,
@@ -30,11 +31,24 @@ export interface ReminderFields {
   alerts: number[];
 }
 
-/** The last notice that was the reminder itself, due or back from a snooze, and whether it was followed up. */
+/** How long after the notice they follow follow-ups can go on, so a forgotten one-off cannot ping forever. */
+export const FOLLOW_UP_SPAN_MS = DAY_MS;
+
+/** The last notice that was the reminder itself, due or back from a snooze, and how far its follow-ups have come. */
 interface CameUp {
   due: string;
   at: number;
-  followedUp: boolean;
+  /** When the last follow-up of it went out, or when a change of setting passed over those already due. */
+  followedUpAt: number | null;
+}
+
+/** Before follow-ups could repeat, a notice only recorded whether its one follow-up had gone out. */
+type StoredCameUp = CameUp | { due: string; at: number; followedUp: boolean };
+
+function cameUpFrom(stored: StoredCameUp): CameUp {
+  if (!('followedUp' in stored)) return stored;
+  const { due, at, followedUp } = stored;
+  return { due, at, followedUpAt: followedUp ? at + FOLLOW_UP_SPAN_MS : null };
 }
 
 /** A paused series fires nothing from `at`, until `until` or, when that is null, until it is resumed. */
@@ -70,7 +84,7 @@ export interface Reminder extends ReminderFields, ReminderState {
 
 /** A reminder as stored, which may predate pausing or follow-ups. */
 export type StoredReminder = Omit<Reminder, 'paused' | 'quietThrough' | 'alsoFired' | 'cameUp'> &
-  Partial<Pick<Reminder, 'paused' | 'quietThrough' | 'alsoFired' | 'cameUp'>>;
+  Partial<Pick<Reminder, 'paused' | 'quietThrough' | 'alsoFired'>> & { cameUp?: StoredCameUp | null };
 
 export function fromStored(stored: StoredReminder): Reminder {
   return {
@@ -78,7 +92,7 @@ export function fromStored(stored: StoredReminder): Reminder {
     paused: stored.paused ?? null,
     quietThrough: stored.quietThrough ?? stored.createdAt,
     alsoFired: stored.alsoFired ?? [],
-    cameUp: stored.cameUp ?? null,
+    cameUp: stored.cameUp ? cameUpFrom(stored.cameUp) : null,
   };
 }
 
