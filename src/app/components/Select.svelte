@@ -1,7 +1,8 @@
 <script lang="ts" generics="T extends string">
   import { composing } from '../lib/shortcuts';
   import { ui } from '../lib/ui.svelte';
-  import Listbox, { optionId } from './Listbox.svelte';
+  import Icon from './Icon.svelte';
+  import Listbox, { optionId, sections, type Option } from './Listbox.svelte';
   import Popover from './Popover.svelte';
 
   let {
@@ -11,7 +12,7 @@
     onSelect,
   }: {
     value: T;
-    options: readonly { value: T; label: string }[];
+    options: readonly Option<T>[];
     labelledby: string;
     onSelect: (value: T) => void;
   } = $props();
@@ -26,6 +27,7 @@
       options.findIndex((option) => option.value === value),
     ),
   );
+  const shown = $derived(options[selected]?.label);
   let trigger: HTMLButtonElement | undefined = $state();
   let open = $state(false);
   let active = $state(0);
@@ -82,10 +84,11 @@
   }
 </script>
 
+<!-- A chip like the editor's pickers; a row marked `.choice` opens it from anywhere on the row. -->
 {#if ui.fine}
   <button
     type="button"
-    class="trigger press"
+    class="trigger picker"
     role="combobox"
     aria-labelledby="{labelledby} {id}"
     aria-haspopup="listbox"
@@ -95,7 +98,7 @@
     bind:this={trigger}
     onclick={() => (open ? (open = false) : show(selected))}
     onkeydown={keydown}
-    onblur={() => (open = false)}><span {id}>{options[selected]?.label}</span></button
+    onblur={() => (open = false)}><span {id}>{shown}</span><Icon name="chevronDown" size={14} /></button
   >
   {#each open && trigger ? [trigger] : [] as anchor (anchor)}
     <Popover {anchor} onClose={() => (open = false)}>
@@ -110,47 +113,76 @@
     </Popover>
   {/each}
 {:else}
-  <select
-    aria-labelledby={labelledby}
-    {value}
-    onchange={(event) => {
-      const option = options.find((candidate) => candidate.value === event.currentTarget.value);
-      if (option) onSelect(option.value);
-    }}
-  >
-    {#each options as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
-  </select>
+  <span class="native picker">
+    <span aria-hidden="true">{shown}</span><Icon name="chevronDown" size={14} />
+    <select
+      aria-labelledby={labelledby}
+      {value}
+      onchange={(event) => {
+        const option = options.find((candidate) => candidate.value === event.currentTarget.value);
+        if (option) onSelect(option.value);
+      }}
+    >
+      {#each sections(options) as { group, items }, section (items[0]?.index ?? section)}
+        {#if group === undefined}
+          {#each items as { option } (option.value)}<option value={option.value}>{option.label}</option>{/each}
+        {:else}
+          <optgroup label={group}>
+            {#each items as { option } (option.value)}<option value={option.value}>{option.label}</option>{/each}
+          </optgroup>
+        {/if}
+      {/each}
+    </select>
+  </span>
 {/if}
 
 <style>
   .trigger,
-  select {
-    appearance: none;
+  .native {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
     max-width: 60%;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--ink-2);
-    text-align: right;
-    outline: none;
     cursor: pointer;
   }
 
-  .trigger span {
-    display: block;
+  .trigger {
+    appearance: none;
+    border: 0;
+    outline: none;
+  }
+
+  .trigger > span,
+  .native > span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .trigger[aria-expanded='true'] {
-    color: var(--ink);
+  :is(.trigger, .native) > :global(svg) {
+    flex: none;
+    color: var(--muted);
   }
 
-  :is(.trigger, select):focus-visible {
-    border-radius: 4px;
-    outline: 2px solid var(--ring);
-    outline-offset: 3px;
+  .native select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    appearance: none;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  /* The trigger's own box stays the chip the menu opens from, while its click area covers the row. */
+  :global(.choice) .trigger,
+  :global(.choice) .native {
+    position: static;
+  }
+
+  :global(.choice) .trigger::after {
+    content: '';
+    position: absolute;
+    inset: 0;
   }
 </style>

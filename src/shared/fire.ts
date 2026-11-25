@@ -1,15 +1,20 @@
-import { dueAt, instantOf, local, occurrenceAfter, resumed, type Reminder } from './reminder';
+import { FOLLOW_UP_SPAN_MS, dueAt, instantOf, local, occurrenceAfter, resumed, type Reminder } from './reminder';
 import { DAY_MS, HOUR_MS, MINUTE_MS, formatLocal, toInstant, toLocal } from './time';
 
 export const NAG_INTERVAL_MS = 5 * MINUTE_MS;
 export const NAG_LIMIT = (2 * HOUR_MS) / NAG_INTERVAL_MS;
 
 export const FOLLOW_UP_MINUTES = [15, 30, 60, 120, 180] as const;
+export const FOLLOW_UP_EVERY_MINUTES = [15, 30, 60] as const;
 /**
- * How long after a reminder comes up it notifies once more if it is still not done, in minutes, or never. One setting
- * for the instance; important reminders nag instead.
+ * What a reminder that came up and is still not done does next: nothing, notify once more after so many minutes, or
+ * notify every so many minutes until it is done. One setting for the instance; important reminders nag instead. Once is
+ * a bare number, as it was stored and synced before follow-ups could repeat.
  */
-export type FollowUpSetting = 'off' | (typeof FOLLOW_UP_MINUTES)[number];
+export type FollowUpSetting =
+  | 'off'
+  | (typeof FOLLOW_UP_MINUTES)[number]
+  | { every: (typeof FOLLOW_UP_EVERY_MINUTES)[number] };
 export const DEFAULT_FOLLOW_UP: FollowUpSetting = 'off';
 
 type Alert = 'early' | 'due' | 'snoozed' | 'nag' | 'again';
@@ -92,22 +97,30 @@ function upcomingEarlySteps(reminder: Reminder, due: number, zone: string): Aler
 
 /**
  * A follow-up follows the notice that last came up for the current occurrence, the due one or a snooze's, from the
- * instant it actually came up, and comes once for it. Its record, unlike the watermarks, is never moved with the wall
- * clock, so neither a zone move nor a change of setting can send it twice or swallow it. A snooze still to end holds it
- * back, and an important reminder nags instead.
+ * instant it actually came up: once, or every so often from the last one until a day has passed. Its record, unlike the
+ * watermarks, is never moved with the wall clock, so neither a zone move nor a change of setting can send one twice or
+ * swallow one. A snooze still to end holds it back, and an important reminder nags instead.
  */
 function followUpStep(reminder: Reminder, followUp: FollowUpSetting): AlertStep[] {
   const { cameUp, due, snoozedUntil, important } = reminder;
-  if (!cameUp || cameUp.followedUp || cameUp.due !== due || important || followUp === 'off') return [];
+  if (!cameUp || cameUp.due !== due || important || followUp === 'off') return [];
   if (snoozedUntil !== null && snoozedUntil > cameUp.at) return [];
-  return [{ at: cameUp.at + followUp * MINUTE_MS, alert: 'again', due: cameUp.due, slot: `@${cameUp.at}+` }];
+  const { followedUpAt } = cameUp;
+  if (typeof followUp === 'number' && followedUpAt !== null) return [];
+  const minutes = typeof followUp === 'number' ? followUp : followUp.every;
+  const at = (followedUpAt ?? cameUp.at) + minutes * MINUTE_MS;
+  if (at > cameUp.at + FOLLOW_UP_SPAN_MS) return [];
+  return [{ at, alert: 'again', due: cameUp.due, slot: `@${cameUp.at}+${at - cameUp.at}` }];
 }
 
-/** A new setting applies from now on: a follow-up whose time under it has already passed is not sent late. */
+/**
+ * A new setting applies from now on: a follow-up whose time under it has already passed is not sent late, and the
+ * next of repeating ones counts from now.
+ */
 export function followUpFrom(reminder: Reminder, followUp: FollowUpSetting, now: number): Reminder {
   const [step] = followUpStep(reminder, followUp);
   if (!step || !reminder.cameUp || step.at > now) return reminder;
-  return { ...reminder, cameUp: { ...reminder.cameUp, followedUp: true } };
+  return { ...reminder, cameUp: { ...reminder.cameUp, followedUpAt: now } };
 }
 
 // Everything planned for the earliest instant goes together, since firedThrough moving to it passes all of it: today's
@@ -170,8 +183,8 @@ export function fire(
 }
 
 function cameUpAfter(cameUp: Reminder['cameUp'], alert: Alert, due: string, at: number): Reminder['cameUp'] {
-  if (alert === 'due' || alert === 'snoozed') return { due, at, followedUp: false };
-  return alert === 'again' && cameUp ? { ...cameUp, followedUp: true } : cameUp;
+  if (alert === 'due' || alert === 'snoozed') return { due, at, followedUpAt: null };
+  return alert === 'again' && cameUp ? { ...cameUp, followedUpAt: at } : cameUp;
 }
 
 const MOVE_REACH_MS = DAY_MS;

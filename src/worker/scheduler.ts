@@ -73,10 +73,8 @@ export class Scheduler {
   chooseFollowUp(followUp: FollowUpSetting, at: number): void {
     if (at < Number(this.store.meta('follow_up_at') ?? 0)) return;
     this.store.setMeta('follow_up_at', String(at));
-    const previous = this.store.followUp();
-    this.store.setFollowUp(followUp);
-    if (previous === followUp) return;
-    // A follow-up already sent stays the only one for what it follows; a new delay does not stop it arriving, Off does.
+    if (!this.store.setFollowUp(followUp)) return;
+    // A follow-up already sent still arrives under a new setting, which only decides what comes next; Off stops it.
     if (followUp === 'off') this.store.deliveries.cancelFollowUps();
     const now = this.runtime.now();
     for (const reminder of this.store.reminders()) this.save(followUpFrom(reminder, followUp, now));

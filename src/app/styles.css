@@ -349,9 +349,45 @@ button:disabled {
   font-size: 12.5px;
 }
 
+/* Plain text reads as information; what can be changed sits in a chip. */
 .field .value {
-  color: var(--ink-2);
+  color: var(--muted);
   text-align: right;
+}
+
+/* A row that is one choice: anywhere on it opens the chip's menu. */
+.field.choice {
+  position: relative;
+}
+
+.group > .choice:first-child {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+
+.group > .choice:last-child {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
+/* The row lights up as a raised surface and its chip sinks to the surface, so the chip still stands out and the row's
+   notes keep their contrast in every theme. */
+.choice:active {
+  background: var(--raised);
+}
+
+.choice:active .picker {
+  background: var(--surface);
+}
+
+@media (hover: hover) {
+  .choice:hover {
+    background: var(--raised);
+  }
+
+  .choice:hover .picker {
+    background: var(--surface);
+  }
 }
 
 .field.action {
