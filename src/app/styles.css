@@ -370,13 +370,23 @@ button:disabled {
   border-bottom-right-radius: inherit;
 }
 
+/* The row lights up as a raised surface and its chip sinks to the surface, so the chip still stands out and the row's
+   notes keep their contrast in every theme. */
 .choice:active {
-  background: var(--edge);
+  background: var(--raised);
+}
+
+.choice:active .picker {
+  background: var(--surface);
 }
 
 @media (hover: hover) {
   .choice:hover {
-    background: var(--edge);
+    background: var(--raised);
+  }
+
+  .choice:hover .picker {
+    background: var(--surface);
   }
 }
 
