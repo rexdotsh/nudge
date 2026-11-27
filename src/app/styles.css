@@ -78,6 +78,7 @@
 
 :root {
   --pane-width: 400px;
+  --top-gap: 16px;
   /* On phones the composer floats --dock above the bottom edge. While it has focus, it and the toast over it rise by
      --raise to ride 8px over the keyboard, whose height the composer sets as --keyboard. */
   --dock: max(12px, env(safe-area-inset-bottom));
@@ -187,7 +188,7 @@ button:disabled {
 .page {
   max-width: 560px;
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top) + env(titlebar-area-height, 0px) + 16px) 18px
+  padding: calc(env(safe-area-inset-top) + env(titlebar-area-height, 0px) + var(--top-gap)) 18px
     calc(env(safe-area-inset-bottom) + 40px);
 }
 

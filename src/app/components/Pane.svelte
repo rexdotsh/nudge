@@ -38,11 +38,13 @@
 </aside>
 
 <style>
+  /* Above the title bar strip, so its divider runs to the top edge. */
   .pane {
     position: fixed;
     top: env(titlebar-area-height, 0px);
     right: 0;
     bottom: 0;
+    z-index: 41;
     width: var(--pane-width);
     overflow-y: auto;
     overscroll-behavior: contain;

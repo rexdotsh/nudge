@@ -1,14 +1,16 @@
 <div class="titlebar" aria-hidden="true"><span>Nudge</span></div>
 
 <style>
-  /* Installed on iOS, whatever scrolls under the status bar is blurred unless an opaque fixed element covers it. */
+  /* Installed on iOS, whatever scrolls under the status bar is blurred unless an opaque, full-width fixed element
+     taller than 10px covers the top edge. It fills the page's top padding, so nothing at rest sits under it. */
   .titlebar {
     position: fixed;
     top: 0;
     left: 0;
     z-index: 40;
     width: 100%;
-    height: env(safe-area-inset-top);
+    height: calc(env(safe-area-inset-top) + var(--top-gap));
+    padding-top: env(safe-area-inset-top);
     background: var(--bg);
     view-transition-name: titlebar;
   }
